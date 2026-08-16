@@ -442,6 +442,11 @@ function computePlayerProfile(p, roleFilter, players, matches, approvedMatches) 
   };
 }
 
+// 未回答判定: 3日以上respondedAtが更新されていない(または一度も応答していない)場合。
+// 「出欠管理」タブと「選手一覧」タブの未回答フィルタで共用する。
+const RESPONSE_STALE_MS = 3 * 24 * 60 * 60 * 1000;
+const isStaleResponse = (p) => !p.respondedAt || (Date.now() - p.respondedAt > RESPONSE_STALE_MS);
+
 // 相性のいい味方・苦手な相手の1行分の表示({name, games, wr}を受け取る)。「記録」「個人成績」両タブで共用。
 function pairRow(x, color) {
   return (
@@ -1211,6 +1216,10 @@ export default function CustomStats() {
   const [myPickerSearch, setMyPickerSearch] = useState("");
   const [selfForm, setSelfForm] = useState({ from: "", to: "", memo: "" });
   const [attendExpanded, setAttendExpanded] = useState({ active: false, adjust: false, rest: false, noResponse: false });
+  // 選手一覧タブ: 検索・チェックボックス選択・表示件数
+  const [playerSearch, setPlayerSearch] = useState("");
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [listLimit, setListLimit] = useState(20);
   const myPlayerSyncedRef = useRef(null);
   useEffect(() => {
     if (!myPlayerId || !players.length || myPlayerSyncedRef.current === myPlayerId) return;
@@ -2384,6 +2393,7 @@ export default function CustomStats() {
     if (playerFilter === "active") arr = arr.filter((p) => p.status !== "rest" && !p.adjust);
     else if (playerFilter === "rest") arr = arr.filter((p) => p.status === "rest");
     else if (playerFilter === "adjust") arr = arr.filter((p) => p.adjust);
+    else if (playerFilter === "noResponse") arr = arr.filter(isStaleResponse);
     // 休み/調整枠のON・OFFで並び順が変わるとカードが移動して操作しづらいため、
     // 状態(statusRank)は並び替えに使わない。選択中のソート基準のみで決まる固定順。
     if (playerSort === "name") return arr.sort((a, b) => a.name.localeCompare(b.name, "ja"));
@@ -2576,10 +2586,12 @@ export default function CustomStats() {
 
       {(() => {
         const GROUPS = [
+          { key: "register", label: t("header.030"), icon: UserPlus, tabs: [
+            { id: "playerRegister", icon: UserPlus, label: t("header.029") },
+          ] },
           { key: "players", label: t("header.009"), icon: Users, tabs: [
             { id: "attendance", icon: CheckCircle2, label: t("header.027") },
             { id: "playerList", icon: Users, label: t("header.028") },
-            { id: "playerRegister", icon: UserPlus, label: t("header.029") },
             { id: "queue", icon: ListOrdered, label: t("header.011") },
             { id: "playerRequests", icon: Pencil, label: t("header.025"), badge: rankRequests.length },
           ] },
@@ -4378,10 +4390,7 @@ export default function CustomStats() {
         if (players.length === 0) return <EmptyState text={t("stats.002")} />;
         const myPlayer = players.find((p) => p.id === myPlayerId) || null;
 
-        // 未回答判定: 3日以上respondedAtが更新されていない(または一度も応答していない)場合
-        const STALE_MS = 3 * 24 * 60 * 60 * 1000;
-        const isStale = (p) => !p.respondedAt || (Date.now() - p.respondedAt > STALE_MS);
-        const bucketOf = (p) => (isStale(p) ? "noResponse" : p.status === "rest" ? "rest" : p.adjust ? "adjust" : "active");
+        const bucketOf = (p) => (isStaleResponse(p) ? "noResponse" : p.status === "rest" ? "rest" : p.adjust ? "adjust" : "active");
         const buckets = { active: [], adjust: [], rest: [], noResponse: [] };
         players.forEach((p) => buckets[bucketOf(p)].push(p));
 
@@ -4729,227 +4738,326 @@ export default function CustomStats() {
         </div>
       )}
 
-      {tab === "playerList" && (
-        <div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
-            <label style={{ ...labelStyle, marginBottom: 0 }}>{t("players.045", { a: sortedPlayersForList.length, b: players.length })}</label>
-            <button className="cs-btn-ghost" style={{ padding: "4px 10px", fontSize: 13.5 }} onClick={() => setAllInactive(true)}>{t("players.020")}</button>
-            <button className="cs-btn-ghost" style={{ padding: "4px 10px", fontSize: 13.5 }} onClick={() => setAllInactive(false)}>{t("players.021")}</button>
-            <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ fontSize: 13.5, color: theme.textSub }}>{t("players.022")}</span>
-              <select className="cs-input" style={{ padding: "4px 8px", fontSize: 13.5 }} value={playerSort} onChange={(e) => setPlayerSort(e.target.value)}>
-                <option value="name">{t("players.023")}</option>
-                <option value="rate_desc">{t("players.024")}</option>
-                <option value="rate_asc">{t("players.025")}</option>
-                {ROLES.map((r) => <option key={r} value={`role_${r}`}>{r}{t("players.026")}</option>)}
-              </select>
-            </span>
-          </div>
-          <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
-            {[
-              ["all", t("players.027"), players.length],
-              ["active", t("shell.047"), players.filter((p) => p.status !== "rest" && !p.adjust).length],
-              ["adjust", t("queue.003"), players.filter((p) => p.adjust).length],
-              ["rest", t("players.028"), players.filter((p) => p.status === "rest").length],
-            ].map(([key, label, count]) => (
-              <button key={key} className="cs-btn-ghost" style={{
-                padding: "3px 12px", fontSize: 13.5,
-                borderColor: playerFilter === key ? theme.accent : theme.borderInput,
-                color: playerFilter === key ? theme.accent : theme.textSub,
-                fontWeight: playerFilter === key ? 700 : 500,
-              }} onClick={() => setPlayerFilter(key)}>
-                {label}（{count}）
+      {tab === "playerList" && (() => {
+        const searchLower = playerSearch.trim().toLowerCase();
+        const searched = !searchLower ? sortedPlayersForList : sortedPlayersForList.filter((p) =>
+          p.name.toLowerCase().includes(searchLower) || (p.summonerName || "").toLowerCase().includes(searchLower));
+        const shown = searched.slice(0, listLimit);
+        const allSelectedOnPage = shown.length > 0 && shown.every((p) => selectedIds.has(p.id));
+        const toggleSelectAll = () => {
+          const next = new Set(selectedIds);
+          if (allSelectedOnPage) shown.forEach((p) => next.delete(p.id));
+          else shown.forEach((p) => next.add(p.id));
+          setSelectedIds(next);
+        };
+        const toggleSelect = (id) => {
+          const next = new Set(selectedIds);
+          if (next.has(id)) next.delete(id); else next.add(id);
+          setSelectedIds(next);
+        };
+        const bulkSetParticipation = async (mode) => {
+          const ids = selectedIds;
+          const next = players.map((p) => (!ids.has(p.id) ? p : {
+            ...p, status: mode === "rest" ? "rest" : "active", adjust: mode === "adjust", respondedAt: Date.now(),
+          }));
+          setPlayers(next);
+          await saveShared("players", next);
+        };
+        const bulkDelete = async () => {
+          if (!selectedIds.size) return;
+          if (!(await requireAdminPass(t("players.052", { n: selectedIds.size })))) return;
+          if (!(await themedConfirm(t("shell.039")))) return;
+          const next = players.filter((p) => !selectedIds.has(p.id));
+          setPlayers(next);
+          await saveShared("players", next);
+          setSelectedIds(new Set());
+        };
+        const jumpToMe = () => {
+          if (!myPlayerId) return;
+          const idx = searched.findIndex((p) => p.id === myPlayerId);
+          if (idx === -1) return;
+          if (idx >= listLimit) setListLimit(idx + 1);
+          requestAnimationFrame(() => {
+            document.getElementById(`player-row-${myPlayerId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+          });
+        };
+        const statusModes = [["active", t("shell.047")], ["adjust", t("queue.003")], ["rest", t("players.028")]];
+        return (
+          <div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
+              <input className="cs-input" style={{ flex: "1 1 220px" }} placeholder={t("players.051")}
+                value={playerSearch} onChange={(e) => { setPlayerSearch(e.target.value); setListLimit(20); }} />
+              <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontSize: 13.5, color: theme.textSub }}>{t("players.022")}</span>
+                <select className="cs-input" style={{ padding: "4px 8px", fontSize: 13.5 }} value={playerSort} onChange={(e) => setPlayerSort(e.target.value)}>
+                  <option value="name">{t("players.023")}</option>
+                  <option value="rate_desc">{t("players.024")}</option>
+                  <option value="rate_asc">{t("players.025")}</option>
+                  {ROLES.map((r) => <option key={r} value={`role_${r}`}>{r}{t("players.026")}</option>)}
+                </select>
+              </span>
+              <button className="cs-btn" style={{ padding: "8px 16px" }} onClick={() => setTab("playerRegister")}>
+                <UserPlus size={14} style={{ marginRight: 4, verticalAlign: -2 }} />{t("header.029")}
               </button>
-            ))}
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 8 }}>
-            {sortedPlayersForList.map((p) => (
-              <div key={p.id} style={{ ...cardStyle, padding: "10px 12px", minWidth: 0 }}>
-                <div style={{ display: "flex", alignItems: "baseline", flexWrap: "nowrap", gap: 6, marginBottom: 2, minWidth: 0 }}>
-                  <span style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0, flexShrink: 1 }} title={p.name}>
-                    {p.name}
-                  </span>
-                  {p.rank && <span style={{ fontSize: 14.5, color: theme.textFaint, fontWeight: 400, flexShrink: 0 }} title={rankLabel(p.rank)}>({rankShortLang(p.rank)})</span>}
-                  {p.honorRank && (
-                    // 名誉レート指定は隠すと贔屓に見えるため、必ず可視化する
-                    <span title={t("players.050", { rank: rankLabel(p.honorRank) })}
-                      style={{ fontSize: 12, fontWeight: 700, color: theme.surface, background: theme.accent, borderRadius: 4, padding: "1px 6px", flexShrink: 0 }}>
-                      {t("players.047")} {rankShortLang(p.honorRank)}
-                    </span>
-                  )}
-                  {p.status === "rest" && <span style={{ fontSize: 13, color: theme.teamB, flexShrink: 0 }}>{t("stats.006")}</span>}
-                  {p.adjust && <span style={{ fontSize: 13, color: theme.accent, flexShrink: 0 }}>{t("queue.003")}</span>}
-                  {opggUrl(p.summonerName) && (
-                    <a href={opggUrl(p.summonerName)} target="_blank" rel="noopener noreferrer" style={{ color: theme.accentBright, flexShrink: 0, display: "inline-flex" }}>
-                      <ExternalLink size={14} />
-                    </a>
-                  )}
-                </div>
-                <div style={{ display: "flex", justifyContent: "flex-end", gap: 6, alignItems: "center", marginBottom: 6 }}>
-                  <button className="cs-btn-ghost" style={{ padding: "2px 8px", fontSize: 12.5, whiteSpace: "nowrap", borderColor: p.adjust ? theme.accent : theme.borderInput, color: p.adjust ? theme.accent : theme.textSub, fontWeight: p.adjust ? 700 : 500 }}
-                    onClick={() => toggleAdjust(p.id)}>
-                    {p.adjust ? t("players.029") : t("queue.003")}
-                  </button>
-                  <button className="cs-btn-ghost" style={{ padding: "2px 8px", fontSize: 12.5, whiteSpace: "nowrap", borderColor: p.status === "rest" ? theme.teamB : theme.borderInput, color: p.status === "rest" ? theme.teamB : theme.textSub, fontWeight: p.status === "rest" ? 700 : 500 }}
-                    onClick={() => toggleRest(p.id)}>
-                    {p.status === "rest" ? t("players.030") : t("players.028")}
-                  </button>
-                  <Pencil size={15} style={{ cursor: "pointer", color: theme.accent, flexShrink: 0 }} onClick={() => startEdit(p)} />
-                  <Trash2 size={15} style={{ cursor: "pointer", color: theme.textFaint, flexShrink: 0 }} onClick={() => removePlayer(p.id)} />
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", border: `1px solid ${theme.border}`, borderRadius: 6, overflow: "hidden" }}>
-                  {ROLES.map((r, i) => {
-                    const eff = effectiveProf(p.roles[r].mu, effectiveBaseMu(p));
-                    const wanted = (p.prefRoles || []).includes(r);
-                    const isNg = (p.ngRoles || []).includes(r);
-                    const fg = wanted || isNg ? "#FFF8EC" : theme.textFaint;
+            </div>
+
+            <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
+              {[
+                ["all", t("players.027"), players.length],
+                ["active", t("shell.047"), players.filter((p) => p.status !== "rest" && !p.adjust).length],
+                ["adjust", t("queue.003"), players.filter((p) => p.adjust).length],
+                ["rest", t("players.028"), players.filter((p) => p.status === "rest").length],
+                ["noResponse", t("attend.037"), players.filter(isStaleResponse).length],
+              ].map(([key, label, count]) => (
+                <button key={key} className="cs-btn-ghost" style={{
+                  padding: "3px 12px", fontSize: 13.5,
+                  borderColor: playerFilter === key ? theme.accent : theme.borderInput,
+                  color: playerFilter === key ? theme.accent : theme.textSub,
+                  fontWeight: playerFilter === key ? 700 : 500,
+                }} onClick={() => { setPlayerFilter(key); setListLimit(20); }}>
+                  {label}（{count}）
+                </button>
+              ))}
+              {myPlayerId && (
+                <button className="cs-btn-ghost" style={{ padding: "3px 12px", fontSize: 13.5, marginLeft: "auto" }} onClick={jumpToMe}>
+                  {t("players.062")}
+                </button>
+              )}
+            </div>
+
+            {selectedIds.size > 0 && (
+              <div style={{ ...cardStyle, marginBottom: 10, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <span style={{ fontWeight: 700, fontSize: 14 }}>{t("players.054", { n: selectedIds.size })}</span>
+                <button className="cs-btn-ghost" style={{ padding: "4px 12px", fontSize: 13 }} onClick={() => bulkSetParticipation("active")}>{t("players.055")}</button>
+                <button className="cs-btn-ghost" style={{ padding: "4px 12px", fontSize: 13 }} onClick={() => bulkSetParticipation("adjust")}>{t("players.056")}</button>
+                <button className="cs-btn-ghost" style={{ padding: "4px 12px", fontSize: 13 }} onClick={() => bulkSetParticipation("rest")}>{t("players.057")}</button>
+                <button className="cs-btn-ghost" style={{ padding: "4px 12px", fontSize: 13, color: theme.teamB, borderColor: theme.teamB }} onClick={bulkDelete}>{t("players.058")}</button>
+              </div>
+            )}
+
+            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
+              <span style={{ fontWeight: 700, fontSize: 13, color: theme.textSub }}>{t("players.059")}</span>
+              <button className="cs-btn-ghost" style={{ padding: "4px 10px", fontSize: 13 }} onClick={() => setAllInactive(true)}>{t("players.020")}</button>
+              <button className="cs-btn-ghost" style={{ padding: "4px 10px", fontSize: 13 }} onClick={() => setAllInactive(false)}>{t("players.021")}</button>
+              <span style={{ fontSize: 12, color: theme.textFaint, marginLeft: "auto" }}>
+                {t("players.045", { a: searched.length, b: players.length })} ・ {t("players.032")}（◎1.00 〇0.92 △0.85 ×0.75）
+              </span>
+            </div>
+
+            <div className="cs-scroll" style={{ overflowX: "auto" }}>
+              <table className="cs-table">
+                <thead>
+                  <tr>
+                    <th><input type="checkbox" checked={allSelectedOnPage} onChange={toggleSelectAll} /></th>
+                    <th>{t("shell.028")}</th>
+                    <th>{t("board.016")}</th>
+                    <th>{t("players.063")}</th>
+                    {ROLES.map((r) => <th key={r}>{r}</th>)}
+                    <th>{t("players.064")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {shown.map((p) => {
+                    const myReq = rankRequests.find((r) => r.playerId === p.id);
+                    const expanded = editId === p.id || rankReqOpenFor === p.id || !!myReq;
                     return (
-                      <div key={r} onClick={() => cyclePrefRole(p.id, r)} title={t("players.031")}
-                        style={{
-                          textAlign: "center", padding: "6px 2px", cursor: "pointer",
-                          borderLeft: i ? `1px solid ${theme.border}` : "none",
-                          background: isNg ? theme.teamB : wanted ? (theme.accentSoft || theme.accent) : theme.surfaceAlt,
-                          transition: "background .1s",
-                        }}>
-                        <div style={{ fontSize: 12.5, color: fg, letterSpacing: "0.04em", fontWeight: (wanted || isNg) ? 700 : 400 }}>
-                          {r}{wanted && " ★"}{isNg && " ✕"}
-                        </div>
-                        <div style={{ fontSize: 14.5, lineHeight: 1.2 }}>
-                          <ProfBadge prof={p.roles[r].prof} />
-                          {eff !== p.roles[r].prof && <span style={{ fontSize: 11.5, color: fg }}>→<ProfBadge prof={eff} /></span>}
-                        </div>
-                        <div style={{ fontSize: 15.5, fontWeight: 700, color: (wanted || isNg) ? "#FFF8EC" : theme.text }}>{p.roles[r].mu.toFixed(1)}</div>
-                      </div>
+                      <React.Fragment key={p.id}>
+                        <tr id={`player-row-${p.id}`} style={{ background: p.id === myPlayerId ? theme.surfaceAlt : "transparent" }}>
+                          <td><input type="checkbox" checked={selectedIds.has(p.id)} onChange={() => toggleSelect(p.id)} /></td>
+                          <td>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                              <span style={{ fontWeight: 700 }}>{p.name}</span>
+                              {p.id === myPlayerId && (
+                                <span style={{ fontSize: 11, fontWeight: 700, color: theme.accent, border: `1px solid ${theme.accent}`, borderRadius: 10, padding: "0 6px" }}>
+                                  {t("players.065")}
+                                </span>
+                              )}
+                              {p.honorRank && (
+                                <span title={t("players.050", { rank: rankLabel(p.honorRank) })}
+                                  style={{ fontSize: 11, fontWeight: 700, color: theme.surface, background: theme.accent, borderRadius: 4, padding: "1px 6px" }}>
+                                  {t("players.047")} {rankShortLang(p.honorRank)}
+                                </span>
+                              )}
+                              {opggUrl(p.summonerName) && (
+                                <a href={opggUrl(p.summonerName)} target="_blank" rel="noopener noreferrer" style={{ color: theme.accentBright, display: "inline-flex" }}>
+                                  <ExternalLink size={13} />
+                                </a>
+                              )}
+                            </div>
+                            {(p.ngRoles || []).length > 0 && (
+                              <div style={{ fontSize: 11.5, color: theme.teamB, marginTop: 2 }}>{t("players.034")} {p.ngRoles.join("、")}</div>
+                            )}
+                          </td>
+                          <td>{p.rank ? rankShortLang(p.rank) : "-"}</td>
+                          <td>
+                            <div style={{ display: "inline-flex", borderRadius: 6, overflow: "hidden", border: `1px solid ${theme.borderInput}` }}>
+                              {statusModes.map(([mode, label]) => {
+                                const on = mode === "rest" ? p.status === "rest" : mode === "adjust" ? p.adjust : (p.status !== "rest" && !p.adjust);
+                                return (
+                                  <button key={mode} onClick={() => setParticipation(p.id, mode)}
+                                    style={{
+                                      padding: "5px 9px", fontSize: 12, border: "none", cursor: "pointer", whiteSpace: "nowrap",
+                                      background: on ? theme.accent : theme.surfaceWhite,
+                                      color: on ? "#FFF8EC" : theme.textSub, fontWeight: on ? 700 : 400,
+                                    }}>
+                                    {label}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </td>
+                          {ROLES.map((r) => {
+                            const wanted = (p.prefRoles || []).includes(r);
+                            const isNg = (p.ngRoles || []).includes(r);
+                            return (
+                              <td key={r} onClick={() => cyclePrefRole(p.id, r)} title={t("players.031")} style={{ padding: 4, cursor: "pointer" }}>
+                                <div style={{
+                                  borderRadius: 6, padding: "4px 2px", textAlign: "center", minWidth: 46,
+                                  background: isNg ? theme.teamB : wanted ? theme.accent : theme.surfaceAlt,
+                                  border: isNg || wanted ? "none" : `1px solid ${theme.borderInput}`,
+                                  color: isNg || wanted ? "#FFF8EC" : theme.text,
+                                }}>
+                                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.02em" }}>
+                                    {wanted && "★"}{isNg && "✕"}<ProfBadge prof={p.roles[r].prof} />
+                                  </div>
+                                  <div style={{ fontSize: 15, fontWeight: 700 }}>{p.roles[r].mu.toFixed(1)}</div>
+                                </div>
+                              </td>
+                            );
+                          })}
+                          <td>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <button className="cs-btn-ghost" style={{ padding: "2px 8px", fontSize: 11.5 }}
+                                onClick={() => {
+                                  if (editId === p.id) { setEditId(null); setEditForm(null); return; }
+                                  if (rankReqOpenFor === p.id) { setRankReqOpenFor(null); setRankReqProfs({}); return; }
+                                  if (myReq) return;
+                                  setRankReqValue(p.rank || "アンランク");
+                                  const initProfs = {};
+                                  ROLES.forEach((r) => { initProfs[r] = p.roles[r].prof; });
+                                  setRankReqProfs(initProfs);
+                                  setRankReqOpenFor(p.id);
+                                }}>
+                                {t("players.041")}
+                              </button>
+                              <Pencil size={15} style={{ cursor: "pointer", color: theme.accent, flexShrink: 0 }} onClick={() => startEdit(p)} />
+                              <Trash2 size={15} style={{ cursor: "pointer", color: theme.textFaint, flexShrink: 0 }} onClick={() => removePlayer(p.id)} />
+                            </div>
+                          </td>
+                        </tr>
+                        {expanded && (
+                          <tr>
+                            <td colSpan={10} style={{ background: theme.surfaceAlt }}>
+                              {myReq && (() => {
+                                const profDiffs = ROLES.filter((r) => myReq.toProfs[r] !== myReq.fromProfs[r]);
+                                return (
+                                  <div style={{ fontSize: 12.5, color: theme.accent, padding: "6px 4px" }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                                      <span>{t("players.035")}</span>
+                                      <button className="cs-btn-ghost" style={{ padding: "1px 8px", fontSize: 11.5 }} onClick={() => cancelRankRequest(myReq.id)}>{t("players.036")}</button>
+                                    </div>
+                                    {myReq.toRank !== myReq.fromRank && <div>{t("shell.021")} {rankShortLang(myReq.fromRank)} → {rankShortLang(myReq.toRank)}</div>}
+                                    {profDiffs.length > 0 && <div>{t("playerReq.004")} {profDiffs.map((r) => `${r} ${myReq.fromProfs[r]}→${myReq.toProfs[r]}`).join("、")}</div>}
+                                  </div>
+                                );
+                              })()}
+                              {!myReq && rankReqOpenFor === p.id && (
+                                <div style={{ padding: 8 }}>
+                                  <div style={{ fontSize: 12, color: theme.textSub, marginBottom: 4 }}>{t("players.037")}</div>
+                                  <select className="cs-input" style={{ padding: "3px 6px", fontSize: 12.5, marginBottom: 8 }} value={rankReqValue} onChange={(e) => setRankReqValue(e.target.value)}>
+                                    {RANKS.map(([label]) => <option key={label} value={label}>{rankLabel(label)}</option>)}
+                                  </select>
+                                  <div style={{ fontSize: 12, color: theme.textSub, marginBottom: 4 }}>{t("players.038")}</div>
+                                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+                                    {ROLES.map((r) => (
+                                      <label key={r} style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 12.5 }}>
+                                        {r}
+                                        <select className="cs-input" style={{ padding: "2px 4px", fontSize: 12.5 }}
+                                          value={rankReqProfs[r] ?? p.roles[r].prof}
+                                          onChange={(e) => setRankReqProfs({ ...rankReqProfs, [r]: e.target.value })}>
+                                          {PROFS.map((pr) => <option key={pr} value={pr}>{pr}</option>)}
+                                        </select>
+                                      </label>
+                                    ))}
+                                  </div>
+                                  <button className="cs-btn" style={{ padding: "3px 10px", fontSize: 12.5, marginRight: 6 }}
+                                    onClick={async () => {
+                                      const toProfs = {};
+                                      ROLES.forEach((r) => { toProfs[r] = rankReqProfs[r] ?? p.roles[r].prof; });
+                                      await submitRankRequest(p.id, rankReqValue, toProfs);
+                                      setRankReqOpenFor(null); setRankReqProfs({});
+                                    }}>{t("players.039")}</button>
+                                  <button className="cs-btn-ghost" style={{ padding: "3px 10px", fontSize: 12.5 }} onClick={() => { setRankReqOpenFor(null); setRankReqProfs({}); }}>{t("players.040")}</button>
+                                </div>
+                              )}
+                              {editId === p.id && editForm && (
+                                <div style={{ padding: 8 }}>
+                                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+                                    <input className="cs-input" style={{ width: 140 }} value={editForm.name}
+                                      onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} placeholder={t("players.042")} />
+                                    <input className="cs-input" style={{ width: 180 }} value={editForm.summonerName}
+                                      onChange={(e) => setEditForm({ ...editForm, summonerName: e.target.value })} placeholder={t("players.003")} />
+                                    <select className="cs-input" value={editForm.rank}
+                                      onChange={(e) => setEditForm({ ...editForm, rank: e.target.value })}>
+                                      {RANKS.map(([label, mu]) => <option key={label} value={label}>{rankLabel(label)} ({mu}pt)</option>)}
+                                    </select>
+                                    <select className="cs-input" title={t("players.047")} value={editForm.honorRank}
+                                      onChange={(e) => setEditForm({ ...editForm, honorRank: e.target.value })}>
+                                      <option value="">{t("players.047")}: {t("players.048")}</option>
+                                      {RANKS.filter(([, mu]) => mu > (rankMu(editForm.rank) ?? MU0)).map(([label, mu]) => (
+                                        <option key={label} value={label}>{t("players.047")}: {rankLabel(label)} ({mu}pt)</option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                  <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 6, marginBottom: 8, maxWidth: 480 }}>
+                                    {ROLES.map((r) => (
+                                      <div key={r}>
+                                        <div style={{ fontSize: 13, color: theme.textSub, textAlign: "center" }}>{r}</div>
+                                        <select className="cs-input" style={{ width: "100%", padding: "4px", textAlign: "center" }}
+                                          value={editForm.profs[r]}
+                                          onChange={(e) => setEditForm({ ...editForm, profs: { ...editForm.profs, [r]: e.target.value } })}>
+                                          {PROFS.map((pf) => <option key={pf} value={pf}>{pf}</option>)}
+                                        </select>
+                                      </div>
+                                    ))}
+                                  </div>
+                                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                                    <label style={{ fontSize: 14, color: theme.textSub, display: "flex", alignItems: "center", gap: 4 }}>
+                                      <select className="cs-input" style={{ padding: "4px 8px", fontSize: 14 }} value={editForm.status === "rest" ? "rest" : editForm.adjust ? "adjust" : "active"}
+                                        onChange={(e) => {
+                                          const v = e.target.value;
+                                          setEditForm({ ...editForm, status: v === "rest" ? "rest" : "active", adjust: v === "adjust" });
+                                        }}>
+                                        <option value="active">{t("shell.047")}</option>
+                                        <option value="adjust">{t("queue.003")}</option>
+                                        <option value="rest">{t("players.028")}</option>
+                                      </select>
+                                    </label>
+                                    <button className="cs-btn" onClick={saveEdit}>{t("players.043")}</button>
+                                    <button className="cs-btn-ghost" onClick={() => { setEditId(null); setEditForm(null); }}>{t("players.044")}</button>
+                                    {editError && <span style={{ fontSize: 14, color: theme.teamB }}>{editError}</span>}
+                                  </div>
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
                     );
                   })}
-                </div>
-                <div style={{ fontSize: 12, color: theme.textFaint, marginTop: 6, lineHeight: 1.8 }}>
-                  {t("players.032")}<br />
-                  {t("players.033")}
-                </div>
-                {(p.ngRoles || []).length > 0 && (
-                  <div style={{ fontSize: 12.5, color: theme.teamB, marginTop: 2 }}>
-                    {t("players.034")} {p.ngRoles.join("、")}
-                  </div>
-                )}
-
-                {/* ランク・熟練度の変更申請: 誰でもPASS不要で申請できる。反映には管理者の承認待ちタブでの承認が必要 */}
-                {(() => {
-                  const myReq = rankRequests.find((r) => r.playerId === p.id);
-                  if (myReq) {
-                    const profDiffs = ROLES.filter((r) => myReq.toProfs[r] !== myReq.fromProfs[r]);
-                    return (
-                      <div style={{ fontSize: 12.5, color: theme.accent, marginTop: 6 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                          <span>{t("players.035")}</span>
-                          <button className="cs-btn-ghost" style={{ padding: "1px 8px", fontSize: 11.5 }} onClick={() => cancelRankRequest(myReq.id)}>{t("players.036")}</button>
-                        </div>
-                        {myReq.toRank !== myReq.fromRank && <div>{t("shell.021")} {rankShortLang(myReq.fromRank)} → {rankShortLang(myReq.toRank)}</div>}
-                        {profDiffs.length > 0 && <div>{t("playerReq.004")} {profDiffs.map((r) => `${r} ${myReq.fromProfs[r]}→${myReq.toProfs[r]}`).join("、")}</div>}
-                      </div>
-                    );
-                  }
-                  if (rankReqOpenFor === p.id) {
-                    return (
-                      <div style={{ marginTop: 6, padding: 8, background: theme.surfaceAlt, borderRadius: 6 }}>
-                        <div style={{ fontSize: 12, color: theme.textSub, marginBottom: 4 }}>{t("players.037")}</div>
-                        <select className="cs-input" style={{ padding: "3px 6px", fontSize: 12.5, marginBottom: 8 }} value={rankReqValue} onChange={(e) => setRankReqValue(e.target.value)}>
-                          {RANKS.map(([label]) => <option key={label} value={label}>{rankLabel(label)}</option>)}
-                        </select>
-                        <div style={{ fontSize: 12, color: theme.textSub, marginBottom: 4 }}>{t("players.038")}</div>
-                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
-                          {ROLES.map((r) => (
-                            <label key={r} style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 12.5 }}>
-                              {r}
-                              <select className="cs-input" style={{ padding: "2px 4px", fontSize: 12.5 }}
-                                value={rankReqProfs[r] ?? p.roles[r].prof}
-                                onChange={(e) => setRankReqProfs({ ...rankReqProfs, [r]: e.target.value })}>
-                                {PROFS.map((pr) => <option key={pr} value={pr}>{pr}</option>)}
-                              </select>
-                            </label>
-                          ))}
-                        </div>
-                        <button className="cs-btn" style={{ padding: "3px 10px", fontSize: 12.5, marginRight: 6 }}
-                          onClick={async () => {
-                            const toProfs = {};
-                            ROLES.forEach((r) => { toProfs[r] = rankReqProfs[r] ?? p.roles[r].prof; });
-                            await submitRankRequest(p.id, rankReqValue, toProfs);
-                            setRankReqOpenFor(null); setRankReqProfs({});
-                          }}>{t("players.039")}</button>
-                        <button className="cs-btn-ghost" style={{ padding: "3px 10px", fontSize: 12.5 }} onClick={() => { setRankReqOpenFor(null); setRankReqProfs({}); }}>{t("players.040")}</button>
-                      </div>
-                    );
-                  }
-                  return (
-                    <div style={{ marginTop: 6 }}>
-                      <button className="cs-btn-ghost" style={{ padding: "2px 8px", fontSize: 12 }}
-                        onClick={() => {
-                          setRankReqValue(p.rank || "アンランク");
-                          const initProfs = {};
-                          ROLES.forEach((r) => { initProfs[r] = p.roles[r].prof; });
-                          setRankReqProfs(initProfs);
-                          setRankReqOpenFor(p.id);
-                        }}>
-                        {t("players.041")}
-                      </button>
-                    </div>
-                  );
-                })()}
-
-                {editId === p.id && editForm && (
-                  <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${theme.border}` }}>
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
-                      <input className="cs-input" style={{ width: 140 }} value={editForm.name}
-                        onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} placeholder={t("players.042")} />
-                      <input className="cs-input" style={{ width: 180 }} value={editForm.summonerName}
-                        onChange={(e) => setEditForm({ ...editForm, summonerName: e.target.value })} placeholder={t("players.003")} />
-                      <select className="cs-input" value={editForm.rank}
-                        onChange={(e) => setEditForm({ ...editForm, rank: e.target.value })}>
-                        {RANKS.map(([label, mu]) => <option key={label} value={label}>{rankLabel(label)} ({mu}pt)</option>)}
-                      </select>
-                      <select className="cs-input" title={t("players.047")} value={editForm.honorRank}
-                        onChange={(e) => setEditForm({ ...editForm, honorRank: e.target.value })}>
-                        <option value="">{t("players.047")}: {t("players.048")}</option>
-                        {RANKS.filter(([, mu]) => mu > (rankMu(editForm.rank) ?? MU0)).map(([label, mu]) => (
-                          <option key={label} value={label}>{t("players.047")}: {rankLabel(label)} ({mu}pt)</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 6, marginBottom: 8 }}>
-                      {ROLES.map((r) => (
-                        <div key={r}>
-                          <div style={{ fontSize: 13, color: theme.textSub, textAlign: "center" }}>{r}</div>
-                          <select className="cs-input" style={{ width: "100%", padding: "4px", textAlign: "center" }}
-                            value={editForm.profs[r]}
-                            onChange={(e) => setEditForm({ ...editForm, profs: { ...editForm.profs, [r]: e.target.value } })}>
-                            {PROFS.map((pf) => <option key={pf} value={pf}>{pf}</option>)}
-                          </select>
-                        </div>
-                      ))}
-                    </div>
-                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                      <label style={{ fontSize: 14, color: theme.textSub, display: "flex", alignItems: "center", gap: 4 }}>
-                        <select className="cs-input" style={{ padding: "4px 8px", fontSize: 14 }} value={editForm.status === "rest" ? "rest" : editForm.adjust ? "adjust" : "active"}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            setEditForm({ ...editForm, status: v === "rest" ? "rest" : "active", adjust: v === "adjust" });
-                          }}>
-                          <option value="active">{t("shell.047")}</option>
-                          <option value="adjust">{t("queue.003")}</option>
-                          <option value="rest">{t("players.028")}</option>
-                        </select>
-                      </label>
-                      <button className="cs-btn" onClick={saveEdit}>{t("players.043")}</button>
-                      <button className="cs-btn-ghost" onClick={() => { setEditId(null); setEditForm(null); }}>{t("players.044")}</button>
-                      {editError && <span style={{ fontSize: 14, color: theme.teamB }}>{editError}</span>}
-                    </div>
-                  </div>
-                )}
+                </tbody>
+              </table>
+            </div>
+            {searched.length > listLimit && (
+              <div style={{ textAlign: "center", marginTop: 12 }}>
+                <button className="cs-btn-ghost" style={{ padding: "6px 20px" }} onClick={() => setListLimit((v) => v + 20)}>
+                  {t("players.061", { n: searched.length - listLimit })}
+                </button>
               </div>
-            ))}
+            )}
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
