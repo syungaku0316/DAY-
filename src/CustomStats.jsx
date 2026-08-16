@@ -4698,7 +4698,7 @@ export default function CustomStats() {
                     <label style={{ ...labelStyle, fontSize: 14, marginBottom: 6 }}>{t("players.066")}</label>
                     <span style={{ fontSize: 11.5, color: theme.textFaint }}>{t("players.006")}（◎1.00 〇0.92 △0.85 ×0.75）</span>
                   </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(100px, 1fr))", gap: 8 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8 }}>
                     {ROLES.map((r) => {
                       const baseMu = RANKS.find(([label]) => label === newRank)?.[1] ?? MU0;
                       const pt = Math.round(baseMu * PROF_RATE[newProfs[r]] * 10) / 10;
