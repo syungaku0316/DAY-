@@ -2533,11 +2533,15 @@ export default function CustomStats() {
         .cs-side-narrow { display:grid; grid-template-columns:minmax(280px,380px) 1fr; gap:20px; align-items:start; }
         .cs-reprow { display:grid; grid-template-columns:86px 1fr 1fr 44px 44px 44px 20px; gap:5px; align-items:center; }
         .cs-reprow6 { display:grid; grid-template-columns:70px 1fr 1fr 46px 46px 46px; gap:6px; align-items:center; }
+        .cs-reg-split { display:grid; grid-template-columns:180px 1fr; gap:16px; }
+        .cs-reg-roles { display:grid; grid-template-columns:repeat(5, 1fr); gap:8px; }
         @media (max-width: 760px) {
           .cs-cols2, .cs-cols2-wide, .cs-side-narrow { grid-template-columns:1fr; }
           .cs-reprow { grid-template-columns:64px 1fr 1fr 36px 36px 36px 16px; gap:3px; }
           .cs-reprow6 { grid-template-columns:54px 1fr 1fr 34px 34px 34px; gap:3px; }
           table.cs-table th, table.cs-table td { padding:7px 5px; font-size:14px; }
+          .cs-reg-split { grid-template-columns:1fr; }
+          .cs-reg-roles { grid-template-columns:repeat(3, 1fr); }
         }
       `}</style>
 
@@ -4686,7 +4690,7 @@ export default function CustomStats() {
                 </div>
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "180px 1fr", gap: 16, marginBottom: 6 }}>
+              <div className="cs-reg-split" style={{ marginBottom: 6 }}>
                 <div>
                   <label style={{ ...labelStyle, fontSize: 14 }}>{t("players.005")}</label>
                   <select className="cs-input" style={{ width: "100%" }} value={newRank} onChange={(e) => setNewRank(e.target.value)}>
@@ -4698,7 +4702,7 @@ export default function CustomStats() {
                     <label style={{ ...labelStyle, fontSize: 14, marginBottom: 6 }}>{t("players.066")}</label>
                     <span style={{ fontSize: 11.5, color: theme.textFaint }}>{t("players.006")}（◎1.00 〇0.92 △0.85 ×0.75）</span>
                   </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8 }}>
+                  <div className="cs-reg-roles">
                     {ROLES.map((r) => {
                       const baseMu = RANKS.find(([label]) => label === newRank)?.[1] ?? MU0;
                       const pt = Math.round(baseMu * PROF_RATE[newProfs[r]] * 10) / 10;
