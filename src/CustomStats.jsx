@@ -367,7 +367,12 @@ function computeLaneUpdate(entries, players, winner) {
 // roleFilter: "ALL" または ROLES の値。指定時は該当ロールの試合のみで再集計する。
 function computePlayerProfile(p, roleFilter, players, matches, approvedMatches) {
   const roleFiltered = (h) => roleFilter === "ALL" || h.role === roleFilter;
-  const hist = [...p.kdaHistory].filter(roleFiltered).sort((a, b) => a.ts - b.ts);
+  const sideOf = (h) => h.side || (() => {
+    const m = matches.find((x) => x.id === h.matchId);
+    return m?.entries.find((e) => e.playerId === p.id)?.team;
+  })();
+  const hist = [...p.kdaHistory].filter(roleFiltered).sort((a, b) => a.ts - b.ts)
+    .map((h) => ({ ...h, side: sideOf(h) }));
   const wins = roleFilter === "ALL" ? p.wins : hist.filter((x) => x.won).length;
   const losses = roleFilter === "ALL" ? p.losses : hist.filter((x) => x.won === false).length;
   const games = wins + losses;
@@ -385,15 +390,10 @@ function computePlayerProfile(p, roleFilter, players, matches, approvedMatches) 
   const roleBadges = Object.entries(roleCounts).sort((x, y) => y[1] - x[1]).slice(0, 4);
 
   // サイド別勝率
-  const sideOf = (h) => h.side || (() => {
-    const m = matches.find((x) => x.id === h.matchId);
-    return m?.entries.find((e) => e.playerId === p.id)?.team;
-  })();
   const sideStat = { A: { g: 0, w: 0 }, B: { g: 0, w: 0 } };
   hist.forEach((h) => {
-    const s = sideOf(h);
-    if (!sideStat[s]) return;
-    sideStat[s].g++; if (h.won) sideStat[s].w++;
+    if (!sideStat[h.side]) return;
+    sideStat[h.side].g++; if (h.won) sideStat[h.side].w++;
   });
 
   // 直近10試合(新しい順)と連勝/連敗
@@ -431,7 +431,7 @@ function computePlayerProfile(p, roleFilter, players, matches, approvedMatches) 
   return {
     p, games, wins, losses, wr, kdaGames: kdaHist.length,
     avgK, avgD, avgA, kdaRatio,
-    roleBadges, sideStat, recent, recentWins, streak, streakWon,
+    roleBadges, sideStat, history: hist, recent, recentWins, streak, streakWon,
     synergyList: rankPairs(synergy, "desc"),
     counterList: rankPairs(counter, "asc"),
   };
@@ -1196,6 +1196,8 @@ export default function CustomStats() {
   const [scoutPlayerId, setScoutPlayerId] = useState(null);
   const [statsPickerOpen, setStatsPickerOpen] = useState(false);
   const [statsSearch, setStatsSearch] = useState("");
+  const [statsSubTab, setStatsSubTab] = useState("overview");
+  const [statsLogFilter, setStatsLogFilter] = useState("ALL");
   const [playerSort, setPlayerSort] = useState("name");
   const [playerFilter, setPlayerFilter] = useState("all"); // all | active | rest | adjust
   const [recordSubTab, setRecordSubTab] = useState("kill1");
@@ -3501,9 +3503,9 @@ export default function CustomStats() {
             <EmptyState text={t("stats.002")} />
           ) : (() => {
             const sp = pool.find((p) => p.id === (curId || pool[0].id)) || pool[0];
-            const hist = sp.kdaHistory;
             const profile = computePlayerProfile(sp, "ALL", players, matches, approvedMatches);
             const cmpAvg = computeCmpAvg(computePlayerAggList(players, "ALL"), sp.id);
+            const hist = profile.history;
             const byRole = ROLES.map((r) => {
               const h = hist.filter((x) => x.role === r);
               const w = h.filter((x) => x.won).length;
@@ -3512,6 +3514,34 @@ export default function CustomStats() {
             const champCount = {};
             hist.forEach((x) => { if (x.champion) champCount[x.champion] = (champCount[x.champion] || 0) + 1; });
             const topChamps = Object.entries(champCount).sort((a, b) => b[1] - a[1]).slice(0, 5);
+            // 得意ロール: 実効レート(mu)の高い順に上位3ロール
+            const bestRoles = [...ROLES].sort((a, b) => sp.roles[b].mu - sp.roles[a].mu).slice(0, 3)
+              .map((r) => ({ role: r, mu: sp.roles[r].mu, ...byRole.find((x) => x.role === r) }));
+            // 最新の傾向: 直近5戦の成績に加え、平均より抜きん出ているロール(3戦以上・KDAが全体平均超え)があれば1つ添える
+            const trendText = (() => {
+              if (!hist.length) return null;
+              const recent5 = profile.recent.slice(0, 5);
+              const w5 = recent5.filter((h) => h.won).length;
+              const l5 = recent5.length - w5;
+              const roleKda = ROLES.map((r) => {
+                const h = hist.filter((x) => x.role === r && (x.k != null || x.d != null || x.a != null));
+                if (h.length < 3) return null;
+                const sum = (f) => h.reduce((s, x) => s + (x[f] || 0), 0);
+                return { role: r, kda: (sum("k") + sum("a")) / Math.max(sum("d"), 1) };
+              }).filter(Boolean);
+              const best = roleKda.filter((x) => x.kda > profile.kdaRatio).sort((a, b) => b.kda - a.kda)[0];
+              return best
+                ? t("stats.040", { n: recent5.length, w: w5, l: l5, role: best.role, kda: best.kda.toFixed(1), overall: profile.kdaRatio.toFixed(2) })
+                : t("stats.039", { n: recent5.length, w: w5, l: l5 });
+            })();
+            // 試合ログ: フィルタチップ(ロールは試合数の多い順)と絞り込み済み行(新しい順)
+            const logRoleChips = [...byRole].filter((r) => r.games > 0).sort((a, b) => b.games - a.games);
+            const logRows = [...hist].reverse().filter((h) => {
+              if (statsLogFilter === "ALL") return true;
+              if (statsLogFilter === "WIN") return h.won;
+              if (statsLogFilter === "LOSE") return h.won === false;
+              return h.role === statsLogFilter;
+            });
             return (
               <>
                 <div style={{ ...cardStyle, display: "flex", alignItems: "center", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
@@ -3540,7 +3570,7 @@ export default function CustomStats() {
                           const total = p.wins + p.losses;
                           const wr = total ? Math.round((p.wins / total) * 100) : null;
                           return (
-                            <div key={p.id} onClick={() => { setCurId(p.id); setStatsPickerOpen(false); setStatsSearch(""); setChampExpanded(false); }}
+                            <div key={p.id} onClick={() => { setCurId(p.id); setStatsPickerOpen(false); setStatsSearch(""); setChampExpanded(false); setStatsLogFilter("ALL"); }}
                               style={{
                                 cursor: "pointer", padding: "8px 10px", borderRadius: 6,
                                 border: `1px solid ${p.id === sp.id ? theme.accentBright : theme.borderInput}`,
@@ -3560,15 +3590,26 @@ export default function CustomStats() {
                   </div>
                 )}
 
-                <div className="cs-cols2-wide">
-                <div>
-                <div style={{ fontSize: 16, color: theme.textSub, marginBottom: 6 }}>{t("stats.008")}</div>
-                <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+                <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
                   <div style={{ ...cardStyle, flex: "1 1 160px" }}>
                     <div style={{ fontSize: 14.5, color: theme.textSub, marginBottom: 6 }}>{t("stats.010")}</div>
                     <div style={{ fontSize: 24, fontWeight: 700 }}>
                       {approvedMatches.length ? Math.round((sp.wins + sp.losses) / approvedMatches.length * 100) : 0}%
                       <span style={{ fontSize: 14, color: theme.textFaint, fontWeight: 500 }}>{t("stats.027", { a: sp.wins + sp.losses, b: approvedMatches.length })}</span>
+                    </div>
+                  </div>
+                  <div style={{ ...cardStyle, flex: "1 1 160px" }}>
+                    <div style={{ fontSize: 14.5, color: theme.textSub, marginBottom: 6 }}>{t("records.015")}</div>
+                    <div style={{ fontSize: 24, fontWeight: 700 }}>
+                      {profile.kdaRatio.toFixed(2)}
+                      {cmpAvg.kdaRatio != null && <span style={{ fontSize: 14, color: theme.textFaint, fontWeight: 500 }}> {t("records.035", { v: cmpAvg.kdaRatio.toFixed(2) })}</span>}
+                    </div>
+                  </div>
+                  <div style={{ ...cardStyle, flex: "1 1 160px" }}>
+                    <div style={{ fontSize: 14.5, color: theme.textSub, marginBottom: 6 }}>{t("board.006")}</div>
+                    <div style={{ fontSize: 24, fontWeight: 700 }}>
+                      {Math.round(profile.wr * 100)}%
+                      {cmpAvg.wr != null && <span style={{ fontSize: 14, color: theme.textFaint, fontWeight: 500 }}> {t("records.035", { v: `${Math.round(cmpAvg.wr * 100)}%` })}</span>}
                     </div>
                   </div>
                   <div style={{ ...cardStyle, flex: "1 1 200px" }}>
@@ -3584,138 +3625,216 @@ export default function CustomStats() {
                     })}
                   </div>
                 </div>
-                <div style={{ ...cardStyle, marginBottom: 16 }}>
-                  <div style={{ fontSize: 14.5, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("records.017")}</div>
-                  {scoreBarRows(profile, cmpAvg)}
-                </div>
-                <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
-                  <div style={{ ...cardStyle, flex: "1 1 190px" }}>
-                    <div style={{ fontSize: 14.5, color: theme.textSub, marginBottom: 6 }}>{t("stats.014")}</div>
-                    <div style={{ display: "flex", gap: 6, alignItems: "center", minHeight: 36, flexWrap: "wrap" }}>
-                      {profile.recent.slice(0, 8).map((h, j) => (
-                        <img key={j} src={h.won ? WIN_BADGE_IMG : LOSE_BADGE_IMG} alt={h.won ? t("shell.034") : t("shell.035")} title={h.won ? t("shell.034") : t("shell.035")}
-                          style={{ width: 34, height: 34, objectFit: "contain", flexShrink: 0, background: "var(--cs-badgeBg)", borderRadius: 5, padding: 1 }} />
-                      ))}
-                      {hist.length === 0 && <span style={{ fontSize: 14, color: theme.faintAccent }}>{t("stats.015")}</span>}
-                    </div>
-                  </div>
-                  <div style={{ ...cardStyle, flex: "1 1 220px" }}>
-                    <div style={{ fontSize: 14.5, color: theme.textSub, marginBottom: 6 }}>{t("stats.016")}</div>
-                    <div style={{ fontSize: 15 }}>
-                      {topChamps.length ? topChamps.map(([n, cnt]) => (
-                        <span key={n} style={{ marginRight: 10, whiteSpace: "nowrap" }}><ChampIcon name={n} />{champLabel(n)}({cnt})</span>
-                      )) : t("stats.015")}
-                    </div>
-                  </div>
+
+                <div className="cs-scroll" style={{ display: "flex", gap: 4, marginBottom: 14 }}>
+                  {[["overview", t("stats.009")], ["roleChamp", t("stats.030")], ["log", t("stats.031")]].map(([key, label]) => (
+                    <button key={key} className="cs-btn-ghost"
+                      style={{ padding: "7px 16px", fontSize: 15, whiteSpace: "nowrap",
+                        borderColor: statsSubTab === key ? theme.accent : theme.borderInput,
+                        color: statsSubTab === key ? theme.accent : theme.textSub,
+                        fontWeight: statsSubTab === key ? 700 : 500 }}
+                      onClick={() => setStatsSubTab(key)}>
+                      {label}{key === "log" && hist.length > 0 && <span style={{ marginLeft: 6, fontSize: 12.5, color: theme.textFaint }}>{hist.length}</span>}
+                    </button>
+                  ))}
                 </div>
 
-                <div style={{ fontSize: 16, color: theme.textSub, marginBottom: 6 }}>{t("stats.017")}</div>
-                <table className="cs-table" style={{ marginBottom: 20 }}>
-                  <thead><tr><th>{t("shell.030")}</th><th>{t("stats.018")}</th><th>{t("stats.019")}</th><th>{t("board.004")}</th><th>{t("stats.020")}</th><th>{t("stats.021")}</th><th>{t("board.007")}</th></tr></thead>
-                  <tbody>
-                    {byRole.map((r) => {
-                      const h = hist.filter((x) => x.role === r.role && (x.k != null || x.d != null || x.a != null));
-                      const n = h.length;
-                      const av = (f) => n ? (h.reduce((s, x) => s + (x[f] || 0), 0) / n).toFixed(1) : "-";
-                      return (
-                        <tr key={r.role}>
-                          <td style={{ fontWeight: 600 }}>{r.role}</td>
-                          <td><ProfBadge prof={sp.roles[r.role].prof} /></td>
-                          <td><ProfBadge prof={effectiveProf(sp.roles[r.role].mu, effectiveBaseMu(sp))} /></td>
-                          <td style={{ fontSize: 17, fontWeight: 700 }}>{sp.roles[r.role].mu.toFixed(1)}</td>
-                          <td>{r.games}</td>
-                          <td style={{ color: theme.textSub }}>{r.wins}{t("board.010")}{r.losses}{t("board.011")}</td>
-                          <td style={{ fontSize: 17, fontWeight: 700 }}>{n ? `${av("k")}/${av("d")}/${av("a")}` : "-"}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                {statsSubTab === "overview" && (
+                  <>
+                    <div className="cs-cols2-wide">
+                      <div>
+                        <div style={{ ...cardStyle, marginBottom: 16 }}>
+                          <div style={{ fontSize: 14.5, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("records.017")}{t("stats.032")}</div>
+                          {scoreBarRows(profile, cmpAvg)}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ ...cardStyle, marginBottom: 16 }}>
+                          <div style={{ fontSize: 14.5, color: theme.textSub, marginBottom: 6 }}>{t("stats.014")}</div>
+                          <div style={{ display: "flex", gap: 6, alignItems: "center", minHeight: 36, flexWrap: "wrap" }}>
+                            {profile.recent.slice(0, 8).map((h, j) => (
+                              <img key={j} src={h.won ? WIN_BADGE_IMG : LOSE_BADGE_IMG} alt={h.won ? t("shell.034") : t("shell.035")} title={h.won ? t("shell.034") : t("shell.035")}
+                                style={{ width: 34, height: 34, objectFit: "contain", flexShrink: 0, background: "var(--cs-badgeBg)", borderRadius: 5, padding: 1 }} />
+                            ))}
+                            {hist.length === 0 && <span style={{ fontSize: 14, color: theme.faintAccent }}>{t("stats.015")}</span>}
+                          </div>
+                        </div>
+                        <div style={{ ...cardStyle, marginBottom: 16 }}>
+                          <div style={{ fontSize: 14.5, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("stats.033")}</div>
+                          {bestRoles.map((r) => (
+                            <div key={r.role} style={{ marginBottom: 8 }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13.5 }}>
+                                <span style={{ fontWeight: 700 }}>{r.role}</span>
+                                <span style={{ fontSize: 12.5, color: theme.textSub }}>{t("stats.041", { mu: r.mu.toFixed(1), w: r.wins, l: r.losses })}</span>
+                              </div>
+                              <div style={{ height: 6, borderRadius: 3, background: theme.borderTable, overflow: "hidden", marginTop: 3 }}>
+                                <div style={{ width: `${Math.max(0, Math.min(100, (r.mu / 130) * 100))}%`, height: "100%", background: theme.accentBright }} />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        <div style={{ ...cardStyle, marginBottom: 16 }}>
+                          <div style={{ fontSize: 14.5, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("stats.016")}</div>
+                          {topChamps.length ? (
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 8 }}>
+                              {topChamps.map(([n, cnt]) => (
+                                <div key={n} style={{ display: "flex", alignItems: "center", gap: 6, border: `1px solid ${theme.borderInput}`, borderRadius: 6, padding: "6px 8px", fontSize: 14 }}>
+                                  <ChampIcon name={n} />{champLabel(n)}({cnt})
+                                </div>
+                              ))}
+                            </div>
+                          ) : <span style={{ fontSize: 14, color: theme.faintAccent }}>{t("stats.015")}</span>}
+                        </div>
+                      </div>
+                    </div>
 
-                </div>
-                <div>
-                <div style={{ fontSize: 16, color: theme.textSub, marginBottom: 6 }}>{t("stats.022")}</div>
-                {(() => {
-                  const byChamp = {};
-                  hist.forEach((x) => {
-                    if (!x.champion) return;
-                    if (!byChamp[x.champion]) byChamp[x.champion] = { games: 0, wins: 0, k: 0, d: 0, a: 0, kn: 0 };
-                    const b = byChamp[x.champion];
-                    b.games++; if (x.won) b.wins++;
-                    if (x.k != null || x.d != null || x.a != null) { b.k += x.k || 0; b.d += x.d || 0; b.a += x.a || 0; b.kn++; }
-                  });
-                  // 「成績のいい順」= 勝率降順、同率は試合数が多い方を上位に(1戦1勝が最上位に来るのを避ける)
-                  const rows = Object.entries(byChamp).sort((a, b) => {
-                    const wrA = a[1].wins / a[1].games, wrB = b[1].wins / b[1].games;
-                    return wrB - wrA || b[1].games - a[1].games;
-                  });
-                  if (!rows.length) return <EmptyState text={t("stats.023")} />;
-                  const shown = champExpanded ? rows : rows.slice(0, 5);
-                  return (
-                    <>
-                    <table className="cs-table" style={{ marginBottom: rows.length > 5 ? 6 : 20 }}>
-                      <thead><tr><th>{t("shell.031")}</th><th>{t("stats.020")}</th><th>{t("stats.021")}</th><th>{t("board.006")}</th><th>{t("board.007")}</th></tr></thead>
-                      <tbody>
-                        {shown.map(([name, b]) => (
-                          <tr key={name}>
-                            <td style={{ fontWeight: 600 }}><ChampIcon name={name} />{champLabel(name)}</td>
-                            <td>{b.games}</td>
-                            <td style={{ color: theme.textSub }}>{b.wins}{t("board.010")}{b.games - b.wins}{t("board.011")}</td>
-                            <td>{Math.round((b.wins / b.games) * 100)}%</td>
-                            <td style={{ fontSize: 17, fontWeight: 700 }}>
-                              {b.kn ? `${(b.k / b.kn).toFixed(1)}/${(b.d / b.kn).toFixed(1)}/${(b.a / b.kn).toFixed(1)}` : "-"}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    {rows.length > 5 && (
-                      <div style={{ marginBottom: 20 }}>
-                        <button className="cs-btn-ghost" style={{ padding: "4px 14px", fontSize: 13 }}
-                          onClick={() => setChampExpanded((v) => !v)}>
-                          {champExpanded ? t("stats.028") : t("stats.029", { n: rows.length })}
-                        </button>
+                    {trendText && (
+                      <div style={{ ...cardStyle, marginBottom: 16 }}>
+                        <div style={{ fontSize: 14.5, color: theme.textSub, marginBottom: 6, fontWeight: 700 }}>{t("stats.038")}</div>
+                        <div style={{ fontSize: 14.5, lineHeight: 1.7 }}>{trendText}</div>
                       </div>
                     )}
-                    </>
-                  );
-                })()}
 
-                <div style={{ fontSize: 14.5, color: theme.textSub, marginBottom: 6 }}>{t("stats.024")}</div>
-                <table className="cs-table">
-                  <thead><tr><th>{t("shell.027")}</th><th>{t("shell.030")}</th><th>{t("shell.031")}</th><th>KDA</th><th>{t("shell.032")}</th><th>{t("stats.025")}</th></tr></thead>
-                  <tbody>
-                    {[...hist].reverse().slice(0, 10).map((h, i) => (
-                      <tr key={i}>
-                        <td style={{ color: theme.textSub }}>{new Date(h.ts).toLocaleDateString(dateLocale())}</td>
-                        <td>{h.role}</td>
-                        <td>{h.champion ? <><ChampIcon name={h.champion} />{champLabel(h.champion)}</> : "-"}</td>
-                        <td style={{ fontSize: 17, fontWeight: 700 }}>{h.k != null ? `${h.k}/${h.d}/${h.a}` : "-"}</td>
-                        <td style={{ color: h.won ? theme.accentBright : theme.teamB, fontWeight: 700 }}>{h.won ? t("shell.034") : t("shell.035")}</td>
-                        <td style={{ fontWeight: 700, color: h.delta > 0 ? theme.accentBright : theme.teamB }}>
-                          {h.delta != null ? `${h.delta > 0 ? "+" : ""}${h.delta.toFixed(1)}` : "-"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    <div className="cs-cols2">
+                      <div style={cardStyle}>
+                        <div style={{ fontSize: 14.5, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("records.029")}</div>
+                        {profile.synergyList.length === 0 ? (
+                          <div style={{ fontSize: 13, color: theme.faintAccent }}>{t("records.024")}</div>
+                        ) : profile.synergyList.map((x) => pairRow(x, theme.accentBright))}
+                      </div>
+                      <div style={cardStyle}>
+                        <div style={{ fontSize: 14.5, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("records.030")}</div>
+                        {profile.counterList.length === 0 ? (
+                          <div style={{ fontSize: 13, color: theme.faintAccent }}>{t("records.024")}</div>
+                        ) : profile.counterList.map((x) => pairRow(x, theme.teamB))}
+                      </div>
+                    </div>
+                  </>
+                )}
 
-                <div className="cs-cols2" style={{ marginTop: 20 }}>
-                  <div style={cardStyle}>
-                    <div style={{ fontSize: 14.5, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("records.029")}</div>
-                    {profile.synergyList.length === 0 ? (
-                      <div style={{ fontSize: 13, color: theme.faintAccent }}>{t("records.024")}</div>
-                    ) : profile.synergyList.map((x) => pairRow(x, theme.accentBright))}
-                  </div>
-                  <div style={cardStyle}>
-                    <div style={{ fontSize: 14.5, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("records.030")}</div>
-                    {profile.counterList.length === 0 ? (
-                      <div style={{ fontSize: 13, color: theme.faintAccent }}>{t("records.024")}</div>
-                    ) : profile.counterList.map((x) => pairRow(x, theme.teamB))}
-                  </div>
-                </div>
-                </div>
-                </div>
+                {statsSubTab === "roleChamp" && (
+                  <>
+                    <div style={{ fontSize: 16, color: theme.textSub, marginBottom: 6 }}>{t("stats.017")}</div>
+                    <table className="cs-table" style={{ marginBottom: 20 }}>
+                      <thead><tr><th>{t("shell.030")}</th><th>{t("stats.018")}</th><th>{t("stats.019")}</th><th>{t("board.004")}</th><th>{t("stats.020")}</th><th>{t("stats.021")}</th><th>{t("board.007")}</th></tr></thead>
+                      <tbody>
+                        {byRole.map((r) => {
+                          const h = hist.filter((x) => x.role === r.role && (x.k != null || x.d != null || x.a != null));
+                          const n = h.length;
+                          const av = (f) => n ? (h.reduce((s, x) => s + (x[f] || 0), 0) / n).toFixed(1) : "-";
+                          return (
+                            <tr key={r.role}>
+                              <td style={{ fontWeight: 600 }}>{r.role}</td>
+                              <td><ProfBadge prof={sp.roles[r.role].prof} /></td>
+                              <td><ProfBadge prof={effectiveProf(sp.roles[r.role].mu, effectiveBaseMu(sp))} /></td>
+                              <td style={{ fontSize: 17, fontWeight: 700 }}>{sp.roles[r.role].mu.toFixed(1)}</td>
+                              <td>{r.games}</td>
+                              <td style={{ color: theme.textSub }}>{r.wins}{t("board.010")}{r.losses}{t("board.011")}</td>
+                              <td style={{ fontSize: 17, fontWeight: 700 }}>{n ? `${av("k")}/${av("d")}/${av("a")}` : "-"}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+
+                    <div style={{ fontSize: 16, color: theme.textSub, marginBottom: 6 }}>{t("stats.022")}</div>
+                    {(() => {
+                      const byChamp = {};
+                      hist.forEach((x) => {
+                        if (!x.champion) return;
+                        if (!byChamp[x.champion]) byChamp[x.champion] = { games: 0, wins: 0, k: 0, d: 0, a: 0, kn: 0 };
+                        const b = byChamp[x.champion];
+                        b.games++; if (x.won) b.wins++;
+                        if (x.k != null || x.d != null || x.a != null) { b.k += x.k || 0; b.d += x.d || 0; b.a += x.a || 0; b.kn++; }
+                      });
+                      // 「成績のいい順」= 勝率降順、同率は試合数が多い方を上位に(1戦1勝が最上位に来るのを避ける)
+                      const rows = Object.entries(byChamp).sort((a, b) => {
+                        const wrA = a[1].wins / a[1].games, wrB = b[1].wins / b[1].games;
+                        return wrB - wrA || b[1].games - a[1].games;
+                      });
+                      if (!rows.length) return <EmptyState text={t("stats.023")} />;
+                      const shown = champExpanded ? rows : rows.slice(0, 5);
+                      return (
+                        <>
+                        <table className="cs-table" style={{ marginBottom: rows.length > 5 ? 6 : 20 }}>
+                          <thead><tr><th>{t("shell.031")}</th><th>{t("stats.020")}</th><th>{t("stats.021")}</th><th>{t("board.006")}</th><th>{t("board.007")}</th></tr></thead>
+                          <tbody>
+                            {shown.map(([name, b]) => (
+                              <tr key={name}>
+                                <td style={{ fontWeight: 600 }}><ChampIcon name={name} />{champLabel(name)}</td>
+                                <td>{b.games}</td>
+                                <td style={{ color: theme.textSub }}>{b.wins}{t("board.010")}{b.games - b.wins}{t("board.011")}</td>
+                                <td>{Math.round((b.wins / b.games) * 100)}%</td>
+                                <td style={{ fontSize: 17, fontWeight: 700 }}>
+                                  {b.kn ? `${(b.k / b.kn).toFixed(1)}/${(b.d / b.kn).toFixed(1)}/${(b.a / b.kn).toFixed(1)}` : "-"}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        {rows.length > 5 && (
+                          <div style={{ marginBottom: 20 }}>
+                            <button className="cs-btn-ghost" style={{ padding: "4px 14px", fontSize: 13 }}
+                              onClick={() => setChampExpanded((v) => !v)}>
+                              {champExpanded ? t("stats.028") : t("stats.029", { n: rows.length })}
+                            </button>
+                          </div>
+                        )}
+                        </>
+                      );
+                    })()}
+                  </>
+                )}
+
+                {statsSubTab === "log" && (
+                  <>
+                    <div className="cs-scroll" style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
+                      {[["ALL", t("stats.034"), hist.length], ["WIN", t("stats.035"), hist.filter((h) => h.won).length], ["LOSE", t("stats.036"), hist.filter((h) => h.won === false).length]].map(([key, label, n]) => (
+                        <button key={key} className="cs-btn-ghost"
+                          style={{ padding: "6px 14px", fontSize: 14, whiteSpace: "nowrap",
+                            borderColor: statsLogFilter === key ? theme.accent : theme.borderInput,
+                            color: statsLogFilter === key ? theme.accent : theme.textSub,
+                            fontWeight: statsLogFilter === key ? 700 : 400 }}
+                          onClick={() => setStatsLogFilter(key)}>
+                          {label} {n}
+                        </button>
+                      ))}
+                      {logRoleChips.length > 1 && <span style={{ borderLeft: `1px solid ${theme.borderInput}`, margin: "2px 2px" }} />}
+                      {logRoleChips.length > 1 && logRoleChips.map((r) => (
+                        <button key={r.role} className="cs-btn-ghost"
+                          style={{ padding: "6px 14px", fontSize: 14, whiteSpace: "nowrap",
+                            borderColor: statsLogFilter === r.role ? theme.accent : theme.borderInput,
+                            color: statsLogFilter === r.role ? theme.accent : theme.textSub,
+                            fontWeight: statsLogFilter === r.role ? 700 : 400 }}
+                          onClick={() => setStatsLogFilter(r.role)}>
+                          {r.role} {r.games}
+                        </button>
+                      ))}
+                    </div>
+                    {logRows.length === 0 ? (
+                      <EmptyState text={t("stats.015")} />
+                    ) : (
+                      <table className="cs-table">
+                        <thead><tr><th>{t("shell.027")}</th><th>{t("stats.037")}</th><th>{t("shell.030")}</th><th>{t("shell.031")}</th><th>KDA</th><th>{t("shell.032")}</th><th>{t("stats.025")}</th></tr></thead>
+                        <tbody>
+                          {logRows.map((h, i) => (
+                            <tr key={i}>
+                              <td style={{ color: theme.textSub }}>{new Date(h.ts).toLocaleDateString(dateLocale())}</td>
+                              <td style={{ color: h.side === "A" ? theme.accentBright : theme.teamB, fontWeight: 600 }}>{h.side ? sideLabel(h.side) : "-"}</td>
+                              <td>{h.role}</td>
+                              <td>{h.champion ? <><ChampIcon name={h.champion} />{champLabel(h.champion)}</> : "-"}</td>
+                              <td style={{ fontSize: 17, fontWeight: 700 }}>{h.k != null ? `${h.k}/${h.d}/${h.a}` : "-"}</td>
+                              <td style={{ color: h.won ? theme.accentBright : theme.teamB, fontWeight: 700 }}>{h.won ? t("shell.034") : t("shell.035")}</td>
+                              <td style={{ fontWeight: 700, color: h.delta > 0 ? theme.accentBright : theme.teamB }}>
+                                {h.delta != null ? `${h.delta > 0 ? "+" : ""}${h.delta.toFixed(1)}` : "-"}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </>
+                )}
               </>
             );
           })()}
