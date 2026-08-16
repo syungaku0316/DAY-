@@ -270,16 +270,21 @@ function migratePlayer(p) {
   const adjust = status === "rest" ? false : (rawStatus === "adjust" || !!p.adjust);
   const prefRoles = p.prefRoles || [];
   const ngRoles = p.ngRoles || [];
+  // 出欠ボード用: 自己申告の参加可能時間・ひとことメモ・最終応答時刻(未設定=未回答扱い)
+  const availFrom = p.availFrom || "";
+  const availTo = p.availTo || "";
+  const memo = p.memo || "";
+  const respondedAt = p.respondedAt || null;
   if (p.roles) {
     const roles = {};
     ROLES.forEach((r) => { roles[r] = { streak: 0, ...p.roles[r] }; });
-    return { ...p, roles, kdaHistory, status, adjust, prefRoles, ngRoles };
+    return { ...p, roles, kdaHistory, status, adjust, prefRoles, ngRoles, availFrom, availTo, memo, respondedAt };
   }
   const roles = {};
   ROLES.forEach((r) => {
     roles[r] = { mu: p.mu ?? MU0, sigma: p.sigma ?? SIGMA_RATED, prof: "〇", streak: 0 };
   });
-  return { ...p, roles, kdaHistory, status, adjust, prefRoles, ngRoles };
+  return { ...p, roles, kdaHistory, status, adjust, prefRoles, ngRoles, availFrom, availTo, memo, respondedAt };
 }
 
 // 順位基準: 保守的推定値 = μ − σ (信頼度込みの下限見積り)
@@ -1198,6 +1203,30 @@ export default function CustomStats() {
   const [statsSearch, setStatsSearch] = useState("");
   const [statsSubTab, setStatsSubTab] = useState("overview");
   const [statsLogFilter, setStatsLogFilter] = useState("ALL");
+  // 出欠ボード: 「自分」の識別は自己申告(端末localStorage)。本人確認ではない。
+  const [myPlayerId, setMyPlayerIdState] = useState(() => {
+    try { return localStorage.getItem("crl-my-player-id") || null; } catch { return null; }
+  });
+  const [myPickerOpen, setMyPickerOpen] = useState(false);
+  const [myPickerSearch, setMyPickerSearch] = useState("");
+  const [selfForm, setSelfForm] = useState({ from: "", to: "", memo: "" });
+  const [attendExpanded, setAttendExpanded] = useState({ active: false, adjust: false, rest: false, noResponse: false });
+  const myPlayerSyncedRef = useRef(null);
+  useEffect(() => {
+    if (!myPlayerId || !players.length || myPlayerSyncedRef.current === myPlayerId) return;
+    const p = players.find((x) => x.id === myPlayerId);
+    if (p) {
+      setSelfForm({ from: p.availFrom || "", to: p.availTo || "", memo: p.memo || "" });
+      myPlayerSyncedRef.current = myPlayerId;
+    }
+  }, [myPlayerId, players]);
+  const chooseMyPlayer = (id) => {
+    try { localStorage.setItem("crl-my-player-id", id); } catch {}
+    myPlayerSyncedRef.current = null;
+    setMyPlayerIdState(id);
+    setMyPickerOpen(false);
+    setMyPickerSearch("");
+  };
   const [playerSort, setPlayerSort] = useState("name");
   const [playerFilter, setPlayerFilter] = useState("all"); // all | active | rest | adjust
   const [recordSubTab, setRecordSubTab] = useState("kill1");
@@ -1656,14 +1685,14 @@ export default function CustomStats() {
       const pref = p.prefRoles || [], ng = p.ngRoles || [];
       if (pref.includes(role)) {
         // 希望 → NG
-        return { ...p, prefRoles: pref.filter((r) => r !== role), ngRoles: [...ng, role] };
+        return { ...p, prefRoles: pref.filter((r) => r !== role), ngRoles: [...ng, role], respondedAt: Date.now() };
       }
       if (ng.includes(role)) {
         // NG → 通常
-        return { ...p, ngRoles: ng.filter((r) => r !== role) };
+        return { ...p, ngRoles: ng.filter((r) => r !== role), respondedAt: Date.now() };
       }
       // 通常 → 希望
-      return { ...p, prefRoles: [...pref, role] };
+      return { ...p, prefRoles: [...pref, role], respondedAt: Date.now() };
     });
     setPlayers(next);
     await saveShared("players", next);
@@ -1736,17 +1765,33 @@ export default function CustomStats() {
   };
 
   // 休みと調整枠は排他: 片方をONにするともう片方は解除
+  // 自分の状態を触る操作は「出欠ボード」の未回答判定(respondedAt)も更新する
   const toggleRest = async (id) => {
     const next = players.map((p) => (p.id === id
-      ? (p.status === "rest" ? { ...p, status: "active" } : { ...p, status: "rest", adjust: false })
+      ? (p.status === "rest" ? { ...p, status: "active", respondedAt: Date.now() } : { ...p, status: "rest", adjust: false, respondedAt: Date.now() })
       : p));
     setPlayers(next);
     await saveShared("players", next);
   };
   const toggleAdjust = async (id) => {
     const next = players.map((p) => (p.id === id
-      ? (p.adjust ? { ...p, adjust: false } : { ...p, adjust: true, status: "active" })
+      ? (p.adjust ? { ...p, adjust: false, respondedAt: Date.now() } : { ...p, adjust: true, status: "active", respondedAt: Date.now() })
       : p));
+    setPlayers(next);
+    await saveShared("players", next);
+  };
+  // 出欠ボードの3択(参加する/調整枠/休み)から状態を一括で確定させる
+  const setParticipation = async (id, mode) => {
+    const next = players.map((p) => (p.id !== id ? p : {
+      ...p, status: mode === "rest" ? "rest" : "active", adjust: mode === "adjust", respondedAt: Date.now(),
+    }));
+    setPlayers(next);
+    await saveShared("players", next);
+  };
+  const saveMyAvailability = async (id, form) => {
+    const next = players.map((p) => (p.id !== id ? p : {
+      ...p, availFrom: form.from.trim(), availTo: form.to.trim(), memo: form.memo.trim(), respondedAt: Date.now(),
+    }));
     setPlayers(next);
     await saveShared("players", next);
   };
@@ -2534,6 +2579,7 @@ export default function CustomStats() {
         const GROUPS = [
           { key: "players", label: t("header.009"), icon: Users, tabs: [
             { id: "players", icon: Users, label: t("header.010") },
+            { id: "attendance", icon: CheckCircle2, label: t("header.027") },
             { id: "queue", icon: ListOrdered, label: t("header.011") },
             { id: "playerRequests", icon: Pencil, label: t("header.025"), badge: rankRequests.length },
           ] },
@@ -4326,6 +4372,248 @@ export default function CustomStats() {
           )}
         </div>
       )}
+
+      {/* ---------- ATTENDANCE BOARD(出欠ボード) ---------- */}
+      {tab === "attendance" && (() => {
+        if (players.length === 0) return <EmptyState text={t("stats.002")} />;
+        const myPlayer = players.find((p) => p.id === myPlayerId) || null;
+
+        // 未回答判定: 3日以上respondedAtが更新されていない(または一度も応答していない)場合
+        const STALE_MS = 3 * 24 * 60 * 60 * 1000;
+        const isStale = (p) => !p.respondedAt || (Date.now() - p.respondedAt > STALE_MS);
+        const bucketOf = (p) => (isStale(p) ? "noResponse" : p.status === "rest" ? "rest" : p.adjust ? "adjust" : "active");
+        const buckets = { active: [], adjust: [], rest: [], noResponse: [] };
+        players.forEach((p) => buckets[bucketOf(p)].push(p));
+
+        // 編成見込み: 参加中のみを母数に、10人単位で試合成立数を判定
+        const activeCount = buckets.active.length;
+        const matchesPossible = Math.floor(activeCount / 10);
+        const remainder = activeCount % 10;
+        const need = matchesPossible >= 1 ? matchesPossible * 2 : 0;
+        // ロール別の希望/可・過不足はヒューリスティック: 必要数との差が0=ちょうど、マイナス=不足、
+        // +1〜2=余裕、+3以上=過多として大まかに区分する(細かい調整は運用しながら見直す想定)
+        const roleForecast = ROLES.map((r) => {
+          const want = buckets.active.filter((p) => (p.prefRoles || []).includes(r)).length;
+          const can = buckets.active.filter((p) => !(p.ngRoles || []).includes(r)).length;
+          const diff = want - need;
+          const status = need === 0 ? null : diff < 0 ? "short" : diff === 0 ? "exact" : diff <= 2 ? "surplus" : "over";
+          return { role: r, want, can, diff, status };
+        });
+
+        const timeLabel = (p) => {
+          if (p.availFrom && p.availTo) return t("attend.032", { from: p.availFrom, to: p.availTo });
+          if (p.availFrom) return t("attend.033", { from: p.availFrom });
+          if (p.availTo) return t("attend.034", { to: p.availTo });
+          return t("attend.031");
+        };
+        const respondLabel = (p) => {
+          if (!p.respondedAt) return t("attend.037");
+          const days = Math.floor((Date.now() - p.respondedAt) / 86400000);
+          return days < 7 ? t("attend.035", { n: days }) : t("attend.036", { n: Math.floor(days / 7) });
+        };
+        const orderMeFirst = (arr) => [...arr].sort((a, b) => (a.id === myPlayerId ? -1 : b.id === myPlayerId ? 1 : 0));
+        // 右側の補足テキスト: 参加中/調整枠は時間(+メモがあれば併記)、休みはメモのみ、未回答は未応答日数
+        const rightText = (p, colKey) => {
+          if (colKey === "noResponse") return respondLabel(p);
+          if (colKey === "rest") return p.memo || "";
+          return p.memo ? `${timeLabel(p)} / ${p.memo}` : timeLabel(p);
+        };
+        const renderCard = (p, colKey) => (
+          <div key={p.id} style={{
+            display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8,
+            padding: "6px 8px", borderRadius: 6, background: theme.surfaceWhite,
+            border: `1px solid ${p.id === myPlayerId ? theme.accent : theme.borderInput}`,
+          }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: 14, cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                onClick={() => { setStatsPlayerId(p.id); setTab("stats"); }} title={p.name}>
+                {p.name}
+              </div>
+              <div style={{ fontSize: 11.5, color: theme.textFaint }}>
+                {(p.prefRoles || []).length ? p.prefRoles.map((r) => `★${r}`).join(" ") : "-"}
+              </div>
+            </div>
+            <div style={{ fontSize: 12, color: theme.textSub, flexShrink: 0, textAlign: "right" }}>
+              {rightText(p, colKey)}
+            </div>
+          </div>
+        );
+        const COLS = [
+          { key: "active", label: t("attend.015"), color: theme.accentBright },
+          { key: "adjust", label: t("queue.003"), color: theme.accent },
+          { key: "rest", label: t("players.028"), color: theme.textSub },
+          { key: "noResponse", label: t("attend.037"), color: theme.teamB },
+        ];
+
+        return (
+          <div>
+            {(!myPlayerId || myPickerOpen) ? (
+              <div style={{ ...cardStyle, marginBottom: 16 }}>
+                <div style={{ fontWeight: 700, marginBottom: 8 }}>{t("attend.029")}</div>
+                <input className="cs-input" style={{ width: "100%", marginBottom: 10, boxSizing: "border-box" }} placeholder={t("attend.040")}
+                  value={myPickerSearch} onChange={(e) => setMyPickerSearch(e.target.value)} />
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 8, maxHeight: 280, overflowY: "auto" }}>
+                  {[...players].sort((a, b) => a.name.localeCompare(b.name, "ja"))
+                    .filter((p) => p.name.includes(myPickerSearch.trim()))
+                    .map((p) => (
+                      <div key={p.id} onClick={() => chooseMyPlayer(p.id)}
+                        style={{
+                          cursor: "pointer", padding: "8px 10px", borderRadius: 6,
+                          border: `1px solid ${p.id === myPlayerId ? theme.accentBright : theme.borderInput}`,
+                          background: p.id === myPlayerId ? theme.surfaceAlt : theme.surfaceWhite,
+                        }}>
+                        <div style={{ fontWeight: 600, fontSize: 15 }}>{p.name}</div>
+                        <div style={{ fontSize: 12.5, color: theme.textFaint }}>{rankLabel(p.rank)}</div>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            ) : myPlayer && (
+              <div style={{ ...cardStyle, marginBottom: 16, borderColor: theme.accent, borderWidth: 2 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+                  <div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: theme.accent }}>{t("attend.017")}</div>
+                    <div style={{ fontSize: 12.5, color: theme.textFaint }}>{t("attend.018")}</div>
+                  </div>
+                  <div style={{ fontSize: 12.5, color: theme.textFaint }}>
+                    {myPlayer.respondedAt && t("attend.019", { time: new Date(myPlayer.respondedAt).toLocaleTimeString(dateLocale(), { hour: "2-digit", minute: "2-digit" }) })}
+                  </div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 17 }}>{myPlayer.name}</div>
+                    <div style={{ fontSize: 13, color: theme.textSub }}>{rankLabel(myPlayer.rank)} ・ {t("stats.004")} {myPlayer.wins}{t("board.010")}{myPlayer.losses}{t("board.011")}</div>
+                  </div>
+                  <button className="cs-btn-ghost" style={{ padding: "3px 10px", fontSize: 12.5, marginLeft: "auto" }} onClick={() => setMyPickerOpen(true)}>{t("attend.030")}</button>
+                </div>
+
+                <div style={{ fontSize: 13, color: theme.textSub, marginBottom: 6, fontWeight: 700 }}>{t("attend.025")}</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(90px, 1fr))", gap: 6, marginBottom: 6 }}>
+                  {ROLES.map((r) => {
+                    const wanted = (myPlayer.prefRoles || []).includes(r);
+                    const isNg = (myPlayer.ngRoles || []).includes(r);
+                    return (
+                      <div key={r} onClick={() => cyclePrefRole(myPlayer.id, r)}
+                        style={{
+                          cursor: "pointer", textAlign: "center", padding: "8px 4px", borderRadius: 6,
+                          background: isNg ? theme.teamB : wanted ? theme.accent : theme.surfaceAlt,
+                          color: isNg || wanted ? "#FFF8EC" : theme.text,
+                        }}>
+                        <div style={{ fontSize: 12.5, fontWeight: 700 }}>{r}{wanted && " ★"}{isNg && " ✕"}</div>
+                        <div style={{ fontSize: 17, fontWeight: 700 }}>{myPlayer.roles[r].mu.toFixed(1)}</div>
+                        <div style={{ fontSize: 11, opacity: 0.85 }}>{t("board.019")}<ProfBadge prof={myPlayer.roles[r].prof} /></div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{ fontSize: 11.5, color: theme.textFaint, marginBottom: 14 }}>{t("attend.026")}</div>
+
+                <div style={{ fontSize: 13, color: theme.textSub, marginBottom: 6, fontWeight: 700 }}>{t("attend.020")}</div>
+                <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+                  {[
+                    ["active", t("attend.021"), t("attend.022")],
+                    ["adjust", t("queue.003"), t("attend.023")],
+                    ["rest", t("players.028"), t("attend.024")],
+                  ].map(([mode, label, sub]) => {
+                    const on = mode === "rest" ? myPlayer.status === "rest" : mode === "adjust" ? myPlayer.adjust : (myPlayer.status !== "rest" && !myPlayer.adjust);
+                    return (
+                      <button key={mode} onClick={() => setParticipation(myPlayer.id, mode)}
+                        style={{
+                          flex: "1 1 120px", textAlign: "left", padding: "8px 12px", borderRadius: 8, cursor: "pointer",
+                          border: `2px solid ${on ? theme.accent : theme.borderInput}`,
+                          background: on ? theme.surfaceAlt : theme.surfaceWhite,
+                        }}>
+                        <div style={{ fontWeight: 700, fontSize: 14, color: on ? theme.accent : theme.text }}>{label}</div>
+                        <div style={{ fontSize: 11.5, color: theme.textFaint }}>{sub}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
+                  <div>
+                    <div style={{ fontSize: 12, color: theme.textFaint, marginBottom: 3 }}>{t("attend.027")}</div>
+                    <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                      <input className="cs-input" style={{ width: 90 }} placeholder="21:30" value={selfForm.from} onChange={(e) => setSelfForm({ ...selfForm, from: e.target.value })} />
+                      <span>〜</span>
+                      <input className="cs-input" style={{ width: 90 }} placeholder="24:00" value={selfForm.to} onChange={(e) => setSelfForm({ ...selfForm, to: e.target.value })} />
+                    </div>
+                  </div>
+                  <input className="cs-input" style={{ flex: "1 1 220px" }} placeholder={t("attend.028")} value={selfForm.memo} onChange={(e) => setSelfForm({ ...selfForm, memo: e.target.value })} />
+                  <button className="cs-btn" style={{ padding: "8px 20px" }} onClick={() => saveMyAvailability(myPlayer.id, selfForm)}>{t("misc.003")}</button>
+                </div>
+              </div>
+            )}
+
+            <div style={{ ...cardStyle, marginBottom: 16 }}>
+              <div style={{ fontSize: 13, color: theme.textSub, marginBottom: 4 }}>{t("attend.001")}</div>
+              <div style={{ fontSize: 22, fontWeight: 800, marginBottom: 4 }}>
+                {matchesPossible >= 1 ? t("attend.002", { n: activeCount, m: matchesPossible }) : t("attend.003", { n: activeCount })}
+              </div>
+              {matchesPossible >= 1 && (buckets.adjust.length > 0 || remainder > 0) && (
+                <div style={{ fontSize: 12.5, color: theme.textFaint, marginBottom: 14 }}>
+                  {buckets.adjust.length > 0 && t("attend.004", { n: buckets.adjust.length })}
+                  {remainder > 0 && t("attend.005", { n: 10 - remainder })}
+                </div>
+              )}
+              {need > 0 && (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 14 }}>
+                  {roleForecast.map((r) => {
+                    const statusLabel = r.status === "short" ? t("attend.009") : r.status === "exact" ? t("attend.008") : r.status === "over" ? t("attend.007") : t("attend.006");
+                    const barColor = r.status === "short" ? theme.teamB : r.status === "over" ? theme.accent : theme.accentBright;
+                    const pct = Math.min(100, (r.want / Math.max(r.can, 1)) * 100);
+                    return (
+                      <div key={r.role}>
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 2 }}>
+                          <span style={{ fontWeight: 700 }}>{r.role}</span>
+                          <span style={{ fontWeight: 700, color: barColor }}>{statusLabel}{r.status === "short" ? ` ${r.diff}` : ""}</span>
+                        </div>
+                        <div style={{ height: 8, borderRadius: 4, background: theme.borderTable, overflow: "hidden", marginBottom: 2 }}>
+                          <div style={{ width: `${pct}%`, height: "100%", background: barColor }} />
+                        </div>
+                        <div style={{ fontSize: 11.5, color: theme.textFaint }}>{t("attend.010", { want: r.want, can: r.can })}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+              <div>
+                <span style={{ fontSize: 15, fontWeight: 700 }}>{t("attend.011", { n: players.length })}</span>
+                <span style={{ fontSize: 12.5, color: theme.textFaint, marginLeft: 10 }}>{t("attend.012")}</span>
+              </div>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button className="cs-btn-ghost" style={{ padding: "4px 12px", fontSize: 13 }} onClick={() => setTab("players")}>{t("attend.014")}</button>
+              </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: 12 }}>
+              {COLS.map((col) => {
+                const arr = orderMeFirst(buckets[col.key]);
+                const shown = attendExpanded[col.key] ? arr : arr.slice(0, 6);
+                return (
+                  <div key={col.key} style={{ ...cardStyle, padding: "10px 12px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, paddingBottom: 6, borderBottom: `2px solid ${col.color}` }}>
+                      <span style={{ fontWeight: 700, color: col.color }}>{col.label}</span>
+                      <span style={{ fontWeight: 700, color: col.color }}>{arr.length}</span>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {shown.length === 0 ? <span style={{ fontSize: 12.5, color: theme.faintAccent }}>-</span> : shown.map((p) => renderCard(p, col.key))}
+                    </div>
+                    {arr.length > 6 && !attendExpanded[col.key] && (
+                      <button className="cs-btn-ghost" style={{ marginTop: 8, padding: "3px 10px", fontSize: 12.5, width: "100%" }}
+                        onClick={() => setAttendExpanded({ ...attendExpanded, [col.key]: true })}>
+                        {t("attend.016", { n: arr.length - 6 })}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ---------- PLAYERS ---------- */}
       {tab === "queue" && (
