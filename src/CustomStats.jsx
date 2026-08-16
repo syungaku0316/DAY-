@@ -1035,6 +1035,7 @@ export default function CustomStats() {
   const [playerFilter, setPlayerFilter] = useState("all"); // all | active | rest | adjust
   const [recordSubTab, setRecordSubTab] = useState("kill1");
   const [recordRole, setRecordRole] = useState("ALL");
+  const [recordSelectedPlayerId, setRecordSelectedPlayerId] = useState(null);
 
   const [dbError, setDbError] = useState("");
   const [gateOk, setGateOk] = useState(() => !VIEW_PASS || (typeof localStorage !== "undefined" && localStorage.getItem("crl-gate") === VIEW_PASS));
@@ -2853,7 +2854,7 @@ export default function CustomStats() {
         const events = [];
         players.forEach((p) => p.kdaHistory.forEach((h) => {
           if ((h.k != null || h.d != null || h.a != null) && roleFiltered(h)) {
-            events.push({ name: p.name, k: h.k || 0, d: h.d || 0, a: h.a || 0, champion: h.champion || "-", role: h.role, ts: h.ts, won: h.won });
+            events.push({ id: p.id, name: p.name, k: h.k || 0, d: h.d || 0, a: h.a || 0, champion: h.champion || "-", role: h.role, ts: h.ts, won: h.won });
           }
         }));
         const top = (key) => [...events].sort((x, y) => y[key] - x[key]).slice(0, 10);
@@ -2865,7 +2866,7 @@ export default function CustomStats() {
           const total = roleWins + roleLosses;
           const sum = (f) => h.reduce((s, x) => s + (x[f] || 0), 0);
           return {
-            name: p.name, games: total, kdaGames: h.length,
+            id: p.id, name: p.name, games: total, kdaGames: h.length,
             totalK: sum("k"), totalA: sum("a"), totalD: sum("d"),
             avgK: h.length ? sum("k") / h.length : 0,
             avgD: h.length ? sum("d") / h.length : 0,
@@ -2961,9 +2962,112 @@ export default function CustomStats() {
         const sideAgg = { A: 0, B: 0 };
         approvedMatches.forEach((m) => { if (sideAgg[m.winner] != null) sideAgg[m.winner]++; });
         const sideTotal = sideAgg.A + sideAgg.B;
+
+        // ---- 選手詳細パネル(右側)用データ。サブタブ共通で選択選手を保持する ----
+        const selectedId = (recordSelectedPlayerId && players.some((p) => p.id === recordSelectedPlayerId))
+          ? recordSelectedPlayerId
+          : (active.rows[0]?.id ?? players[0]?.id ?? null);
+        const selectedPlayer = players.find((p) => p.id === selectedId) || null;
+        const selectedAgg = agg.find((a) => a.id === selectedId) || null;
+
+        const detail = selectedPlayer && (() => {
+          const p = selectedPlayer;
+          const hist = [...p.kdaHistory].filter(roleFiltered).sort((x, y) => x.ts - y.ts);
+          // ロール内訳(選手の全体的な出場傾向。フィルタに関係なく表示)
+          const roleCounts = {};
+          p.kdaHistory.forEach((h) => { roleCounts[h.role] = (roleCounts[h.role] || 0) + 1; });
+          const roleBadges = Object.entries(roleCounts).sort((x, y) => y[1] - x[1]).slice(0, 4);
+          // サイド別勝率
+          const sideOf = (h) => h.side || (() => {
+            const m = matches.find((x) => x.id === h.matchId);
+            return m?.entries.find((e) => e.playerId === p.id)?.team;
+          })();
+          const sideStat = { A: { g: 0, w: 0 }, B: { g: 0, w: 0 } };
+          hist.forEach((h) => {
+            const s = sideOf(h);
+            if (!sideStat[s]) return;
+            sideStat[s].g++; if (h.won) sideStat[s].w++;
+          });
+          // 直近10試合(新しい順)と連勝/連敗
+          const recent = [...hist].slice(-10).reverse();
+          const recentWins = recent.filter((h) => h.won).length;
+          let streak = 0, streakWon = null;
+          for (const h of recent) {
+            if (streakWon === null) { streakWon = h.won; streak = 1; }
+            else if (h.won === streakWon) streak++;
+            else break;
+          }
+          // 相性のいい味方・苦手な相手: 同じ試合で味方/敵になった際のこの選手視点の勝率(3戦以上)
+          const synergy = {}, counter = {};
+          approvedMatches.forEach((m) => {
+            const mine = m.entries.find((e) => e.playerId === p.id && roleFiltered({ role: e.role }));
+            if (!mine) return;
+            const won = m.winner === mine.team;
+            m.entries.forEach((e) => {
+              if (e.playerId === p.id) return;
+              const p2 = players.find((pp) => pp.id === e.playerId);
+              if (!p2) return;
+              const bucket = e.team === mine.team ? synergy : counter;
+              if (!bucket[e.playerId]) bucket[e.playerId] = { name: p2.name, games: 0, wins: 0 };
+              bucket[e.playerId].games++;
+              if (won) bucket[e.playerId].wins++;
+            });
+          });
+          const rankPairs = (obj, dir) => Object.values(obj)
+            .filter((x) => x.games >= 3)
+            .map((x) => ({ ...x, wr: x.wins / x.games }))
+            .sort((x, y) => (dir === "desc" ? y.wr - x.wr : x.wr - y.wr) || y.games - x.games)
+            .slice(0, 3);
+          return {
+            p, roleBadges, sideStat, recent, recentWins, streak, streakWon,
+            synergyList: rankPairs(synergy, "desc"),
+            counterList: rankPairs(counter, "asc"),
+          };
+        })();
+
+        // スコア一覧の比較マーカー: 現在のロールフィルタと同条件(3戦以上)の他選手平均
+        const cmpPoolKda = agg.filter((a) => a.id !== selectedId && a.kdaGames >= 3);
+        const cmpPoolWr = agg.filter((a) => a.id !== selectedId && a.games >= 3);
+        const meanOf = (pool, f) => (pool.length ? pool.reduce((s, a) => s + a[f], 0) / pool.length : null);
+        const cmpAvg = {
+          avgK: meanOf(cmpPoolKda, "avgK"), avgA: meanOf(cmpPoolKda, "avgA"), avgD: meanOf(cmpPoolKda, "avgD"),
+          kdaRatio: meanOf(cmpPoolKda, "kdaRatio"), wr: meanOf(cmpPoolWr, "wr"),
+        };
+        const scoreBar = (label, value, pct, color, cmpVal, cmpPct, cmpFmt) => (
+          <div key={label} style={{ marginBottom: 8 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13.5 }}>
+              <span style={{ color: theme.textSub }}>{label}</span>
+              <span>
+                <span style={{ fontWeight: 800 }}>{value}</span>
+                {cmpVal != null && (
+                  <span style={{ fontSize: 12, color: theme.textFaint, marginLeft: 6 }}>{t("records.035", { v: cmpFmt(cmpVal) })}</span>
+                )}
+              </span>
+            </div>
+            <div style={{ position: "relative", height: 6, borderRadius: 3, background: theme.borderTable, marginTop: 3 }}>
+              <div style={{ position: "absolute", inset: 0, borderRadius: 3, overflow: "hidden" }}>
+                <div style={{ width: `${Math.max(0, Math.min(100, pct))}%`, height: "100%", background: color }} />
+              </div>
+              {cmpVal != null && (
+                <div title={t("records.035", { v: cmpFmt(cmpVal) })}
+                  style={{ position: "absolute", left: `${Math.max(0, Math.min(100, cmpPct))}%`, top: -2, bottom: -2, width: 2, background: theme.text, opacity: 0.55 }} />
+              )}
+            </div>
+          </div>
+        );
+        const pairRow = (x, color) => (
+          <div key={x.name} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 13.5, marginBottom: 6 }}>
+            <span style={{ fontWeight: 600 }}>{x.name}</span>
+            <span>
+              <span style={{ color: theme.textFaint, marginRight: 6 }}>{x.games}{t("scoutMulti.006")}</span>
+              <b style={{ color, fontSize: 15 }}>{Math.round(x.wr * 100)}%</b>
+            </span>
+          </div>
+        );
+
         return (
           <div>
-            <div style={{ ...cardStyle, maxWidth: 640, marginBottom: 14, display: "flex", gap: 20, flexWrap: "wrap", alignItems: "center" }}>
+            <div style={{ ...cardStyle, marginBottom: 14, display: "flex", gap: 20, flexWrap: "wrap", alignItems: "center" }}>
               <div style={{ fontSize: 15, fontWeight: 700, color: theme.textSub }}>{t("records.025", { n: sideTotal })}</div>
               <div style={{ fontSize: 17, fontWeight: 700, color: theme.accentBright }}>
                 {t("records.018")} {sideTotal ? Math.round(sideAgg.A / sideTotal * 100) : "-"}%
@@ -3004,28 +3108,136 @@ export default function CustomStats() {
                 </button>
               ))}
             </div>
-            <div style={{ ...cardStyle, maxWidth: 640 }}>
-              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
-                <div style={{ fontSize: 18, fontWeight: 700, color: theme.accent }}>{active.label}（{active.key.startsWith("kill1") || active.key === "assist1" || active.key === "death1" ? t("records.021") : active.key === "wr" || active.key === "kda" ? t("records.022") : t("records.023")}）</div>
-                {active.headRight && (
-                  <div style={{ fontSize: 18, fontWeight: 700, color: theme.textSub }}>{active.headRight}</div>
+            <div className="cs-side-narrow">
+              <div style={cardStyle}>
+                <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: theme.accent }}>{active.label}（{active.key.startsWith("kill1") || active.key === "assist1" || active.key === "death1" ? t("records.021") : active.key === "wr" || active.key === "kda" ? t("records.022") : t("records.023")}）</div>
+                  {active.headRight && (
+                    <div style={{ fontSize: 18, fontWeight: 700, color: theme.textSub }}>{active.headRight}</div>
+                  )}
+                </div>
+                {active.rows.length === 0 ? (
+                  <div style={{ fontSize: 15, color: theme.faintAccent }}>{t("records.024")}</div>
+                ) : (
+                  <table className="cs-table">
+                    <thead><tr><th>#</th>{active.cols.map((cl) => <th key={cl.label}>{cl.label}</th>)}</tr></thead>
+                    <tbody>
+                      {active.rows.map((r, i) => (
+                        <tr key={i} onClick={() => r.id && setRecordSelectedPlayerId(r.id)}
+                          style={{ cursor: r.id ? "pointer" : "default", background: r.id && r.id === selectedId ? theme.surfaceAlt : "transparent" }}>
+                          <td style={{ color: i < 3 ? theme.accent : theme.textSub, fontWeight: 700 }}>{i + 1}</td>
+                          {active.cols.map((cl) => <td key={cl.label} style={cl.style}>{cl.get(r)}</td>)}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 )}
               </div>
-              {active.rows.length === 0 ? (
-                <div style={{ fontSize: 15, color: theme.faintAccent }}>{t("records.024")}</div>
-              ) : (
-                <table className="cs-table">
-                  <thead><tr><th>#</th>{active.cols.map((cl) => <th key={cl.label}>{cl.label}</th>)}</tr></thead>
-                  <tbody>
-                    {active.rows.map((r, i) => (
-                      <tr key={i}>
-                        <td style={{ color: i < 3 ? theme.accent : theme.textSub, fontWeight: 700 }}>{i + 1}</td>
-                        {active.cols.map((cl) => <td key={cl.label} style={cl.style}>{cl.get(r)}</td>)}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
+
+              <div>
+                {!detail ? (
+                  <EmptyState text={t("records.024")} />
+                ) : (
+                  <>
+                    <div style={{ ...cardStyle, marginBottom: 12, display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                      <div>
+                        <div style={{ fontSize: 20, fontWeight: 800 }}>{detail.p.name}</div>
+                        <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
+                          {detail.roleBadges.map(([role, n]) => (
+                            <span key={role} style={{ fontSize: 12.5, fontWeight: 700, padding: "2px 8px", borderRadius: 10, border: `1px solid ${theme.borderInput}`, color: theme.textSub }}>
+                              {role} {n}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", gap: 20 }}>
+                        <div style={{ textAlign: "center" }}>
+                          <div style={{ fontSize: 12.5, color: theme.textFaint }}>{t("records.031")}</div>
+                          <div style={{ fontSize: 20, fontWeight: 800 }}>{selectedAgg?.games ?? 0}</div>
+                        </div>
+                        <div style={{ textAlign: "center" }}>
+                          <div style={{ fontSize: 12.5, color: theme.textFaint }}>{t("board.006")}</div>
+                          <div style={{ fontSize: 20, fontWeight: 800, color: theme.accentBright }}>{selectedAgg ? Math.round(selectedAgg.wr * 100) : 0}%</div>
+                        </div>
+                        <div style={{ textAlign: "center" }}>
+                          <div style={{ fontSize: 12.5, color: theme.textFaint }}>KDA</div>
+                          <div style={{ fontSize: 20, fontWeight: 800 }}>{selectedAgg ? selectedAgg.kdaRatio.toFixed(2) : "-"}</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="cs-cols2" style={{ marginBottom: 12 }}>
+                      <div style={cardStyle}>
+                        <div style={{ fontSize: 13.5, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("stats.012")}</div>
+                        {["A", "B"].map((s) => {
+                          const st = detail.sideStat[s];
+                          const pct = st.g ? Math.round((st.w / st.g) * 100) : 0;
+                          return (
+                            <div key={s} style={{ marginBottom: 8 }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13.5, fontWeight: 600 }}>
+                                <span>{sideLabel(s)} ({st.g})</span>
+                                <span style={{ fontWeight: 800 }}>{st.g ? `${pct}%` : "-"}</span>
+                              </div>
+                              <div style={{ height: 6, borderRadius: 3, background: theme.borderTable, overflow: "hidden", marginTop: 3 }}>
+                                <div style={{ width: `${pct}%`, height: "100%", background: s === "A" ? theme.accentBright : theme.teamB }} />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <div style={cardStyle}>
+                        <div style={{ fontSize: 13.5, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("records.016")}</div>
+                        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 8 }}>
+                          {detail.recent.length === 0 ? (
+                            <span style={{ fontSize: 13, color: theme.faintAccent }}>{t("stats.015")}</span>
+                          ) : detail.recent.map((h, i) => (
+                            <img key={i} src={h.won ? WIN_BADGE_IMG : LOSE_BADGE_IMG} alt={h.won ? t("shell.034") : t("shell.035")} title={h.won ? t("shell.034") : t("shell.035")}
+                              style={{ width: 26, height: 26, objectFit: "contain", background: "var(--cs-badgeBg)", borderRadius: 4, padding: 1 }} />
+                          ))}
+                        </div>
+                        {detail.recent.length > 0 && (
+                          <div style={{ fontSize: 13, color: theme.textSub }}>
+                            {t("records.032", { w: detail.recentWins, l: detail.recent.length - detail.recentWins })}
+                            {detail.streak >= 2 && (detail.streakWon ? t("records.033", { n: detail.streak }) : t("records.034", { n: detail.streak }))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {selectedAgg && (
+                      <div style={{ ...cardStyle, marginBottom: 12 }}>
+                        <div style={{ fontSize: 13.5, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("records.017")}</div>
+                        {scoreBar(t("records.011"), selectedAgg.avgK.toFixed(1), (selectedAgg.avgK / 15) * 100, theme.accentBright,
+                          cmpAvg.avgK, cmpAvg.avgK != null ? (cmpAvg.avgK / 15) * 100 : null, (v) => v.toFixed(1))}
+                        {scoreBar(t("records.013"), selectedAgg.avgA.toFixed(1), (selectedAgg.avgA / 15) * 100, theme.accentBright,
+                          cmpAvg.avgA, cmpAvg.avgA != null ? (cmpAvg.avgA / 15) * 100 : null, (v) => v.toFixed(1))}
+                        {scoreBar(t("records.014"), selectedAgg.avgD.toFixed(1), (selectedAgg.avgD / 10) * 100, theme.teamB,
+                          cmpAvg.avgD, cmpAvg.avgD != null ? (cmpAvg.avgD / 10) * 100 : null, (v) => v.toFixed(1))}
+                        {scoreBar(t("records.015"), selectedAgg.kdaRatio.toFixed(2), (selectedAgg.kdaRatio / 6) * 100, theme.accentBright,
+                          cmpAvg.kdaRatio, cmpAvg.kdaRatio != null ? (cmpAvg.kdaRatio / 6) * 100 : null, (v) => v.toFixed(2))}
+                        {scoreBar(t("board.006"), `${Math.round(selectedAgg.wr * 100)}%`, selectedAgg.wr * 100, theme.accentBright,
+                          cmpAvg.wr, cmpAvg.wr != null ? cmpAvg.wr * 100 : null, (v) => `${Math.round(v * 100)}%`)}
+                      </div>
+                    )}
+
+                    <div className="cs-cols2">
+                      <div style={cardStyle}>
+                        <div style={{ fontSize: 13.5, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("records.029")}</div>
+                        {detail.synergyList.length === 0 ? (
+                          <div style={{ fontSize: 13, color: theme.faintAccent }}>{t("records.024")}</div>
+                        ) : detail.synergyList.map((x) => pairRow(x, theme.accentBright))}
+                      </div>
+                      <div style={cardStyle}>
+                        <div style={{ fontSize: 13.5, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("records.030")}</div>
+                        {detail.counterList.length === 0 ? (
+                          <div style={{ fontSize: 13, color: theme.faintAccent }}>{t("records.024")}</div>
+                        ) : detail.counterList.map((x) => pairRow(x, theme.teamB))}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           </div>
         );
