@@ -450,6 +450,83 @@ function pairRow(x, color) {
   );
 }
 
+// 全選手ぶんの参加/勝率/平均KDAの軽量集計(順位表用)。roleFilter指定時はそのロールのみで再集計する。
+// computePlayerProfileと違い相性/苦手や直近試合までは集計しない(全選手分を回すため軽量さを優先)。
+function computePlayerAggList(players, roleFilter) {
+  const roleFiltered = (h) => roleFilter === "ALL" || h.role === roleFilter;
+  return players.map((p) => {
+    const h = p.kdaHistory.filter((x) => (x.k != null || x.d != null || x.a != null) && roleFiltered(x));
+    const roleWins = roleFilter === "ALL" ? p.wins : h.filter((x) => x.won).length;
+    const roleLosses = roleFilter === "ALL" ? p.losses : h.filter((x) => x.won === false).length;
+    const total = roleWins + roleLosses;
+    const sum = (f) => h.reduce((s, x) => s + (x[f] || 0), 0);
+    return {
+      id: p.id, name: p.name, games: total, kdaGames: h.length,
+      totalK: sum("k"), totalA: sum("a"), totalD: sum("d"),
+      avgK: h.length ? sum("k") / h.length : 0,
+      avgD: h.length ? sum("d") / h.length : 0,
+      avgA: h.length ? sum("a") / h.length : 0,
+      wr: total ? roleWins / total : 0,
+      kdaRatio: h.length ? (sum("k") + sum("a")) / Math.max(sum("d"), 1) : 0,
+    };
+  });
+}
+
+// スコア一覧の比較対象平均: aggList(computePlayerAggListの返り値)から本人を除き3戦以上の他選手で平均する。
+function computeCmpAvg(aggList, excludeId) {
+  const pool = aggList.filter((a) => a.id !== excludeId);
+  const poolKda = pool.filter((a) => a.kdaGames >= 3);
+  const poolWr = pool.filter((a) => a.games >= 3);
+  const meanOf = (arr, f) => (arr.length ? arr.reduce((s, a) => s + a[f], 0) / arr.length : null);
+  return {
+    avgK: meanOf(poolKda, "avgK"), avgA: meanOf(poolKda, "avgA"), avgD: meanOf(poolKda, "avgD"),
+    kdaRatio: meanOf(poolKda, "kdaRatio"), wr: meanOf(poolWr, "wr"),
+  };
+}
+
+// スコア一覧の1行分(バー+他選手平均マーカー)。「記録」「個人成績」両タブで共用。
+function scoreBar(label, value, pct, color, cmpVal, cmpPct, cmpFmt) {
+  return (
+    <div key={label} style={{ marginBottom: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13.5 }}>
+        <span style={{ color: theme.textSub }}>{label}</span>
+        <span>
+          <span style={{ fontWeight: 800 }}>{value}</span>
+          {cmpVal != null && (
+            <span style={{ fontSize: 12, color: theme.textFaint, marginLeft: 6 }}>{t("records.035", { v: cmpFmt(cmpVal) })}</span>
+          )}
+        </span>
+      </div>
+      <div style={{ position: "relative", height: 6, borderRadius: 3, background: theme.borderTable, marginTop: 3 }}>
+        <div style={{ position: "absolute", inset: 0, borderRadius: 3, overflow: "hidden" }}>
+          <div style={{ width: `${Math.max(0, Math.min(100, pct))}%`, height: "100%", background: color }} />
+        </div>
+        {cmpVal != null && (
+          <div title={t("records.035", { v: cmpFmt(cmpVal) })}
+            style={{ position: "absolute", left: `${Math.max(0, Math.min(100, cmpPct))}%`, top: -2, bottom: -2, width: 2, background: theme.text, opacity: 0.55 }} />
+        )}
+      </div>
+    </div>
+  );
+}
+// 5指標分のscoreBarをまとめて描画({avgK,avgA,avgD,kdaRatio,wr}を持つprofileと、同形のcmpAvgを受け取る)
+function scoreBarRows(profile, cmpAvg) {
+  return (
+    <>
+      {scoreBar(t("records.011"), profile.avgK.toFixed(1), (profile.avgK / 15) * 100, theme.accentBright,
+        cmpAvg.avgK, cmpAvg.avgK != null ? (cmpAvg.avgK / 15) * 100 : null, (v) => v.toFixed(1))}
+      {scoreBar(t("records.013"), profile.avgA.toFixed(1), (profile.avgA / 15) * 100, theme.accentBright,
+        cmpAvg.avgA, cmpAvg.avgA != null ? (cmpAvg.avgA / 15) * 100 : null, (v) => v.toFixed(1))}
+      {scoreBar(t("records.014"), profile.avgD.toFixed(1), (profile.avgD / 10) * 100, theme.teamB,
+        cmpAvg.avgD, cmpAvg.avgD != null ? (cmpAvg.avgD / 10) * 100 : null, (v) => v.toFixed(1))}
+      {scoreBar(t("records.015"), profile.kdaRatio.toFixed(2), (profile.kdaRatio / 6) * 100, theme.accentBright,
+        cmpAvg.kdaRatio, cmpAvg.kdaRatio != null ? (cmpAvg.kdaRatio / 6) * 100 : null, (v) => v.toFixed(2))}
+      {scoreBar(t("board.006"), `${Math.round(profile.wr * 100)}%`, profile.wr * 100, theme.accentBright,
+        cmpAvg.wr, cmpAvg.wr != null ? cmpAvg.wr * 100 : null, (v) => `${Math.round(v * 100)}%`)}
+    </>
+  );
+}
+
 // 勝率予測: computeLaneUpdate内のE計算式と完全に同一の式(新しい式は作らない)。
 // レート更新に使われている「期待勝率」そのものを、対面カード表示用に再利用する。
 function winProb(muA, sigmaA, muB, sigmaB) {
@@ -2947,22 +3024,7 @@ export default function CustomStats() {
         }));
         const top = (key) => [...events].sort((x, y) => y[key] - x[key]).slice(0, 10);
         // 累計・平均系(ロールフィルタ時は3戦/5戦の閾値もそのロール内試合数で判定)
-        const agg = players.map((p) => {
-          const h = p.kdaHistory.filter((x) => (x.k != null || x.d != null || x.a != null) && roleFiltered(x));
-          const roleWins = recordRole === "ALL" ? p.wins : h.filter((x) => x.won).length;
-          const roleLosses = recordRole === "ALL" ? p.losses : h.filter((x) => x.won === false).length;
-          const total = roleWins + roleLosses;
-          const sum = (f) => h.reduce((s, x) => s + (x[f] || 0), 0);
-          return {
-            id: p.id, name: p.name, games: total, kdaGames: h.length,
-            totalK: sum("k"), totalA: sum("a"), totalD: sum("d"),
-            avgK: h.length ? sum("k") / h.length : 0,
-            avgD: h.length ? sum("d") / h.length : 0,
-            avgA: h.length ? sum("a") / h.length : 0,
-            wr: total ? roleWins / total : 0,
-            kdaRatio: h.length ? (sum("k") + sum("a")) / Math.max(sum("d"), 1) : 0,
-          };
-        });
+        const agg = computePlayerAggList(players, recordRole);
         const eligible = agg.filter((x) => x.games >= 5);
         const dateOf = (ts) => new Date(ts).toLocaleDateString(dateLocale());
         const RECORD_DEFS = [
@@ -3059,35 +3121,7 @@ export default function CustomStats() {
         const detail = selectedPlayer && computePlayerProfile(selectedPlayer, recordRole, players, matches, approvedMatches);
 
         // スコア一覧の比較マーカー: 現在のロールフィルタと同条件(3戦以上)の他選手平均
-        const cmpPoolKda = agg.filter((a) => a.id !== selectedId && a.kdaGames >= 3);
-        const cmpPoolWr = agg.filter((a) => a.id !== selectedId && a.games >= 3);
-        const meanOf = (pool, f) => (pool.length ? pool.reduce((s, a) => s + a[f], 0) / pool.length : null);
-        const cmpAvg = {
-          avgK: meanOf(cmpPoolKda, "avgK"), avgA: meanOf(cmpPoolKda, "avgA"), avgD: meanOf(cmpPoolKda, "avgD"),
-          kdaRatio: meanOf(cmpPoolKda, "kdaRatio"), wr: meanOf(cmpPoolWr, "wr"),
-        };
-        const scoreBar = (label, value, pct, color, cmpVal, cmpPct, cmpFmt) => (
-          <div key={label} style={{ marginBottom: 8 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13.5 }}>
-              <span style={{ color: theme.textSub }}>{label}</span>
-              <span>
-                <span style={{ fontWeight: 800 }}>{value}</span>
-                {cmpVal != null && (
-                  <span style={{ fontSize: 12, color: theme.textFaint, marginLeft: 6 }}>{t("records.035", { v: cmpFmt(cmpVal) })}</span>
-                )}
-              </span>
-            </div>
-            <div style={{ position: "relative", height: 6, borderRadius: 3, background: theme.borderTable, marginTop: 3 }}>
-              <div style={{ position: "absolute", inset: 0, borderRadius: 3, overflow: "hidden" }}>
-                <div style={{ width: `${Math.max(0, Math.min(100, pct))}%`, height: "100%", background: color }} />
-              </div>
-              {cmpVal != null && (
-                <div title={t("records.035", { v: cmpFmt(cmpVal) })}
-                  style={{ position: "absolute", left: `${Math.max(0, Math.min(100, cmpPct))}%`, top: -2, bottom: -2, width: 2, background: theme.text, opacity: 0.55 }} />
-              )}
-            </div>
-          </div>
-        );
+        const cmpAvg = computeCmpAvg(agg, selectedId);
         return (
           <div>
             <div style={{ ...cardStyle, marginBottom: 14, display: "flex", gap: 20, flexWrap: "wrap", alignItems: "center" }}>
@@ -3230,16 +3264,7 @@ export default function CustomStats() {
 
                     <div style={{ ...cardStyle, marginBottom: 12 }}>
                       <div style={{ fontSize: 13.5, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("records.017")}</div>
-                      {scoreBar(t("records.011"), detail.avgK.toFixed(1), (detail.avgK / 15) * 100, theme.accentBright,
-                        cmpAvg.avgK, cmpAvg.avgK != null ? (cmpAvg.avgK / 15) * 100 : null, (v) => v.toFixed(1))}
-                      {scoreBar(t("records.013"), detail.avgA.toFixed(1), (detail.avgA / 15) * 100, theme.accentBright,
-                        cmpAvg.avgA, cmpAvg.avgA != null ? (cmpAvg.avgA / 15) * 100 : null, (v) => v.toFixed(1))}
-                      {scoreBar(t("records.014"), detail.avgD.toFixed(1), (detail.avgD / 10) * 100, theme.teamB,
-                        cmpAvg.avgD, cmpAvg.avgD != null ? (cmpAvg.avgD / 10) * 100 : null, (v) => v.toFixed(1))}
-                      {scoreBar(t("records.015"), detail.kdaRatio.toFixed(2), (detail.kdaRatio / 6) * 100, theme.accentBright,
-                        cmpAvg.kdaRatio, cmpAvg.kdaRatio != null ? (cmpAvg.kdaRatio / 6) * 100 : null, (v) => v.toFixed(2))}
-                      {scoreBar(t("board.006"), `${Math.round(detail.wr * 100)}%`, detail.wr * 100, theme.accentBright,
-                        cmpAvg.wr, cmpAvg.wr != null ? cmpAvg.wr * 100 : null, (v) => `${Math.round(v * 100)}%`)}
+                      {scoreBarRows(detail, cmpAvg)}
                     </div>
 
                     <div className="cs-cols2">
@@ -3478,13 +3503,12 @@ export default function CustomStats() {
             const sp = pool.find((p) => p.id === (curId || pool[0].id)) || pool[0];
             const hist = sp.kdaHistory;
             const profile = computePlayerProfile(sp, "ALL", players, matches, approvedMatches);
+            const cmpAvg = computeCmpAvg(computePlayerAggList(players, "ALL"), sp.id);
             const byRole = ROLES.map((r) => {
               const h = hist.filter((x) => x.role === r);
               const w = h.filter((x) => x.won).length;
               return { role: r, games: h.length, wins: w, losses: h.length - w };
             });
-            const avg = (f) => (profile.kdaGames ? profile[`avg${f.toUpperCase()}`].toFixed(1) : "-");
-            const kdaRatio = profile.kdaGames ? profile.kdaRatio.toFixed(2) : "-";
             const champCount = {};
             hist.forEach((x) => { if (x.champion) champCount[x.champion] = (champCount[x.champion] || 0) + 1; });
             const topChamps = Object.entries(champCount).sort((a, b) => b[1] - a[1]).slice(0, 5);
@@ -3540,12 +3564,6 @@ export default function CustomStats() {
                 <div>
                 <div style={{ fontSize: 16, color: theme.textSub, marginBottom: 6 }}>{t("stats.008")}</div>
                 <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
-                  <div style={{ ...cardStyle, flex: "1 1 220px" }}>
-                    <div style={{ fontSize: 14.5, color: theme.textSub, marginBottom: 6 }}>{t("stats.009")}</div>
-                    <div style={{ fontSize: 24, fontWeight: 700 }}>
-                      {avg("k")} / {avg("d")} / {avg("a")} <span style={{ fontSize: 15, color: theme.accent }}>KDA {kdaRatio}</span>
-                    </div>
-                  </div>
                   <div style={{ ...cardStyle, flex: "1 1 160px" }}>
                     <div style={{ fontSize: 14.5, color: theme.textSub, marginBottom: 6 }}>{t("stats.010")}</div>
                     <div style={{ fontSize: 24, fontWeight: 700 }}>
@@ -3565,6 +3583,10 @@ export default function CustomStats() {
                       );
                     })}
                   </div>
+                </div>
+                <div style={{ ...cardStyle, marginBottom: 16 }}>
+                  <div style={{ fontSize: 14.5, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("records.017")}</div>
+                  {scoreBarRows(profile, cmpAvg)}
                 </div>
                 <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
                   <div style={{ ...cardStyle, flex: "1 1 190px" }}>
