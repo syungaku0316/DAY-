@@ -1337,6 +1337,12 @@ export default function CustomStats() {
     if (nextMatches) await saveShared("matches", Object.fromEntries(nextMatches.map((m) => [m.id, m])));
   }, []);
 
+  const resetNewPlayerForm = () => {
+    setNewPlayerName("");
+    setNewSummoner("");
+    setNewProfs({ TOP: "△", JG: "△", MID: "△", ADC: "△", SUP: "△" });
+    setNewRank("アンランク");
+  };
   const addPlayer = async () => {
     const name = newPlayerName.trim();
     if (!name || players.some((p) => p.name === name)) return;
@@ -1354,10 +1360,7 @@ export default function CustomStats() {
     };
     const next = [...players, p];
     setPlayers(next);
-    setNewPlayerName("");
-    setNewSummoner("");
-    setNewProfs({ TOP: "△", JG: "△", MID: "△", ADC: "△", SUP: "△" });
-    setNewRank("アンランク");
+    resetNewPlayerForm();
     await persist(next, null);
   };
 
@@ -2588,6 +2591,7 @@ export default function CustomStats() {
         const GROUPS = [
           { key: "register", label: t("header.030"), icon: UserPlus, tabs: [
             { id: "playerRegister", icon: UserPlus, label: t("header.029") },
+            { id: "playerData", icon: RefreshCw, label: t("header.031") },
           ] },
           { key: "players", label: t("header.009"), icon: Users, tabs: [
             { id: "attendance", icon: CheckCircle2, label: t("header.027") },
@@ -4661,41 +4665,82 @@ export default function CustomStats() {
       )}
 
       {tab === "playerRegister" && (
-        <div style={{ maxWidth: 640 }}>
-          <div style={{ ...cardStyle, marginBottom: 16 }}>
-            <label style={labelStyle}>{t("players.001")}</label>
-            <input className="cs-input" style={{ width: "100%", marginBottom: 10, boxSizing: "border-box" }} placeholder={t("players.002")}
-              value={newPlayerName} onChange={(e) => setNewPlayerName(e.target.value)} />
-            <input className="cs-input" style={{ width: "100%", marginBottom: 4, boxSizing: "border-box" }} placeholder={t("players.003")}
-              value={newSummoner} onChange={(e) => setNewSummoner(e.target.value)} />
-            <div style={{ fontSize: 12, color: theme.textFaint, marginBottom: 10 }}>
-              {t("players.004")}
+        <div style={{ maxWidth: 760 }}>
+          <div style={{ ...cardStyle, padding: 0, overflow: "hidden" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 20px", borderBottom: `1px solid ${theme.borderTable}` }}>
+              <span style={{ fontSize: 18, fontWeight: 700 }}>{t("players.001")}</span>
+              <X size={20} style={{ cursor: "pointer", color: theme.textFaint }} onClick={resetNewPlayerForm} />
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
-              <span style={{ fontSize: 14.5, color: theme.textSub }}>{t("players.005")}</span>
-              <select className="cs-input" value={newRank} onChange={(e) => setNewRank(e.target.value)}>
-                {RANKS.map(([label, mu]) => <option key={label} value={label}>{rankLabel(label)} ({mu}pt)</option>)}
-              </select>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8, marginBottom: 10 }}>
-              {ROLES.map((r) => (
-                <div key={r}>
-                  <div style={{ fontSize: 14.5, color: theme.textSub, marginBottom: 3, textAlign: "center" }}>{r}</div>
-                  <select className="cs-input" style={{ width: "100%", padding: "5px 4px", textAlign: "center" }}
-                    value={newProfs[r]} onChange={(e) => setNewProfs({ ...newProfs, [r]: e.target.value })}>
-                    {PROFS.map((pf) => <option key={pf} value={pf}>{pf}</option>)}
+            <div style={{ padding: 20 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16, marginBottom: 16 }}>
+                <div>
+                  <label style={{ ...labelStyle, fontSize: 14 }}>{t("players.002")}</label>
+                  <input className="cs-input" style={{ width: "100%", boxSizing: "border-box" }} placeholder={t("players.070")}
+                    value={newPlayerName} onChange={(e) => setNewPlayerName(e.target.value)} />
+                </div>
+                <div>
+                  <label style={{ ...labelStyle, fontSize: 14 }}>{t("players.003")}</label>
+                  <input className="cs-input" style={{ width: "100%", boxSizing: "border-box" }} placeholder={t("players.003")}
+                    value={newSummoner} onChange={(e) => setNewSummoner(e.target.value)} />
+                  <div style={{ fontSize: 11.5, color: theme.textFaint, marginTop: 4 }}>{t("players.004")}</div>
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "180px 1fr", gap: 16, marginBottom: 6 }}>
+                <div>
+                  <label style={{ ...labelStyle, fontSize: 14 }}>{t("players.005")}</label>
+                  <select className="cs-input" style={{ width: "100%" }} value={newRank} onChange={(e) => setNewRank(e.target.value)}>
+                    {RANKS.map(([label, mu]) => <option key={label} value={label}>{rankLabel(label)} ({mu}pt)</option>)}
                   </select>
                 </div>
-              ))}
-            </div>
-            <div style={{ fontSize: 14.5, color: theme.textFaint, marginBottom: 10 }}>
-              {t("players.006")}<br />
-              （◎1.00 / 〇0.92 / △0.85 / ×0.75）。<br />
-              {t("players.007")}
-            </div>
-            <button className="cs-btn" onClick={addPlayer}><UserPlus size={14} style={{ marginRight: 4, verticalAlign: -2 }} />{t("balance.044")}</button>
-          </div>
+                <div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 6 }}>
+                    <label style={{ ...labelStyle, fontSize: 14, marginBottom: 6 }}>{t("players.066")}</label>
+                    <span style={{ fontSize: 11.5, color: theme.textFaint }}>{t("players.006")}（◎1.00 〇0.92 △0.85 ×0.75）</span>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(100px, 1fr))", gap: 8 }}>
+                    {ROLES.map((r) => {
+                      const baseMu = RANKS.find(([label]) => label === newRank)?.[1] ?? MU0;
+                      const pt = Math.round(baseMu * PROF_RATE[newProfs[r]] * 10) / 10;
+                      return (
+                        <div key={r} style={{ border: `1px solid ${theme.borderInput}`, borderRadius: 8, padding: 8, textAlign: "center" }}>
+                          <div style={{ fontSize: 12.5, fontWeight: 700, color: theme.textSub, marginBottom: 6 }}>{r}</div>
+                          <div style={{ display: "flex", justifyContent: "center", gap: 4, marginBottom: 6 }}>
+                            {PROFS.map((pf) => (
+                              <button key={pf} onClick={() => setNewProfs({ ...newProfs, [r]: pf })}
+                                style={{
+                                  width: 26, height: 26, borderRadius: "50%", border: `1px solid ${theme.borderInput}`, padding: 0,
+                                  background: newProfs[r] === pf ? theme.accent : theme.surfaceWhite,
+                                  color: newProfs[r] === pf ? "#FFF8EC" : theme.textSub,
+                                  fontSize: 13, cursor: "pointer", lineHeight: 1,
+                                }}>
+                                {pf}
+                              </button>
+                            ))}
+                          </div>
+                          <div style={{ fontSize: 12.5, color: theme.textFaint }}>{pt}pt</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+              <div style={{ fontSize: 12, color: theme.textFaint, marginBottom: 16 }}>{t("players.007")}</div>
 
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, paddingTop: 14, borderTop: `1px solid ${theme.borderTable}` }}>
+                <span style={{ fontSize: 12, color: theme.textFaint }}>{t("players.067")}</span>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button className="cs-btn-ghost" onClick={resetNewPlayerForm}>{t("players.044")}</button>
+                  <button className="cs-btn" onClick={addPlayer}><UserPlus size={14} style={{ marginRight: 4, verticalAlign: -2 }} />{t("players.068")}</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tab === "playerData" && (
+        <div style={{ maxWidth: 640 }}>
           <div style={{ ...cardStyle, marginBottom: 16 }}>
             <label style={labelStyle}>{t("players.008")}</label>
             <div style={{ fontSize: 13.5, color: theme.textFaint, marginBottom: 8 }}>
