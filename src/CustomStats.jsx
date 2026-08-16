@@ -362,6 +362,94 @@ function computeLaneUpdate(entries, players, winner) {
   return { results };
 }
 
+// 選手1人分のプロフィール集計(参加/勝率/KDA/サイド別勝率/直近の調子/相性のいい味方・苦手な相手)。
+// 「記録」タブの選手詳細パネルと「個人成績」タブで共通利用する(重複実装による乖離を避けるため)。
+// roleFilter: "ALL" または ROLES の値。指定時は該当ロールの試合のみで再集計する。
+function computePlayerProfile(p, roleFilter, players, matches, approvedMatches) {
+  const roleFiltered = (h) => roleFilter === "ALL" || h.role === roleFilter;
+  const hist = [...p.kdaHistory].filter(roleFiltered).sort((a, b) => a.ts - b.ts);
+  const wins = roleFilter === "ALL" ? p.wins : hist.filter((x) => x.won).length;
+  const losses = roleFilter === "ALL" ? p.losses : hist.filter((x) => x.won === false).length;
+  const games = wins + losses;
+  const kdaHist = hist.filter((x) => x.k != null || x.d != null || x.a != null);
+  const sum = (f) => kdaHist.reduce((s, x) => s + (x[f] || 0), 0);
+  const avgK = kdaHist.length ? sum("k") / kdaHist.length : 0;
+  const avgD = kdaHist.length ? sum("d") / kdaHist.length : 0;
+  const avgA = kdaHist.length ? sum("a") / kdaHist.length : 0;
+  const kdaRatio = kdaHist.length ? (sum("k") + sum("a")) / Math.max(sum("d"), 1) : 0;
+  const wr = games ? wins / games : 0;
+
+  // ロール内訳(選手の全体的な出場傾向。roleFilterに関係なく表示するため常に全履歴から集計)
+  const roleCounts = {};
+  p.kdaHistory.forEach((h) => { roleCounts[h.role] = (roleCounts[h.role] || 0) + 1; });
+  const roleBadges = Object.entries(roleCounts).sort((x, y) => y[1] - x[1]).slice(0, 4);
+
+  // サイド別勝率
+  const sideOf = (h) => h.side || (() => {
+    const m = matches.find((x) => x.id === h.matchId);
+    return m?.entries.find((e) => e.playerId === p.id)?.team;
+  })();
+  const sideStat = { A: { g: 0, w: 0 }, B: { g: 0, w: 0 } };
+  hist.forEach((h) => {
+    const s = sideOf(h);
+    if (!sideStat[s]) return;
+    sideStat[s].g++; if (h.won) sideStat[s].w++;
+  });
+
+  // 直近10試合(新しい順)と連勝/連敗
+  const recent = [...hist].slice(-10).reverse();
+  const recentWins = recent.filter((h) => h.won).length;
+  let streak = 0, streakWon = null;
+  for (const h of recent) {
+    if (streakWon === null) { streakWon = h.won; streak = 1; }
+    else if (h.won === streakWon) streak++;
+    else break;
+  }
+
+  // 相性のいい味方・苦手な相手: 同じ試合で味方/敵になった際のこの選手視点の勝率(3戦以上)
+  const synergy = {}, counter = {};
+  approvedMatches.forEach((m) => {
+    const mine = m.entries.find((e) => e.playerId === p.id && roleFiltered({ role: e.role }));
+    if (!mine) return;
+    const won = m.winner === mine.team;
+    m.entries.forEach((e) => {
+      if (e.playerId === p.id) return;
+      const p2 = players.find((pp) => pp.id === e.playerId);
+      if (!p2) return;
+      const bucket = e.team === mine.team ? synergy : counter;
+      if (!bucket[e.playerId]) bucket[e.playerId] = { name: p2.name, games: 0, wins: 0 };
+      bucket[e.playerId].games++;
+      if (won) bucket[e.playerId].wins++;
+    });
+  });
+  const rankPairs = (obj, dir) => Object.values(obj)
+    .filter((x) => x.games >= 3)
+    .map((x) => ({ ...x, wr: x.wins / x.games }))
+    .sort((x, y) => (dir === "desc" ? y.wr - x.wr : x.wr - y.wr) || y.games - x.games)
+    .slice(0, 3);
+
+  return {
+    p, games, wins, losses, wr, kdaGames: kdaHist.length,
+    avgK, avgD, avgA, kdaRatio,
+    roleBadges, sideStat, recent, recentWins, streak, streakWon,
+    synergyList: rankPairs(synergy, "desc"),
+    counterList: rankPairs(counter, "asc"),
+  };
+}
+
+// 相性のいい味方・苦手な相手の1行分の表示({name, games, wr}を受け取る)。「記録」「個人成績」両タブで共用。
+function pairRow(x, color) {
+  return (
+    <div key={x.name} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 13.5, marginBottom: 6 }}>
+      <span style={{ fontWeight: 600 }}>{x.name}</span>
+      <span>
+        <span style={{ color: theme.textFaint, marginRight: 6 }}>{x.games}{t("scoutMulti.006")}</span>
+        <b style={{ color, fontSize: 15 }}>{Math.round(x.wr * 100)}%</b>
+      </span>
+    </div>
+  );
+}
+
 // 勝率予測: computeLaneUpdate内のE計算式と完全に同一の式(新しい式は作らない)。
 // レート更新に使われている「期待勝率」そのものを、対面カード表示用に再利用する。
 function winProb(muA, sigmaA, muB, sigmaB) {
@@ -2968,62 +3056,7 @@ export default function CustomStats() {
           ? recordSelectedPlayerId
           : (active.rows[0]?.id ?? players[0]?.id ?? null);
         const selectedPlayer = players.find((p) => p.id === selectedId) || null;
-        const selectedAgg = agg.find((a) => a.id === selectedId) || null;
-
-        const detail = selectedPlayer && (() => {
-          const p = selectedPlayer;
-          const hist = [...p.kdaHistory].filter(roleFiltered).sort((x, y) => x.ts - y.ts);
-          // ロール内訳(選手の全体的な出場傾向。フィルタに関係なく表示)
-          const roleCounts = {};
-          p.kdaHistory.forEach((h) => { roleCounts[h.role] = (roleCounts[h.role] || 0) + 1; });
-          const roleBadges = Object.entries(roleCounts).sort((x, y) => y[1] - x[1]).slice(0, 4);
-          // サイド別勝率
-          const sideOf = (h) => h.side || (() => {
-            const m = matches.find((x) => x.id === h.matchId);
-            return m?.entries.find((e) => e.playerId === p.id)?.team;
-          })();
-          const sideStat = { A: { g: 0, w: 0 }, B: { g: 0, w: 0 } };
-          hist.forEach((h) => {
-            const s = sideOf(h);
-            if (!sideStat[s]) return;
-            sideStat[s].g++; if (h.won) sideStat[s].w++;
-          });
-          // 直近10試合(新しい順)と連勝/連敗
-          const recent = [...hist].slice(-10).reverse();
-          const recentWins = recent.filter((h) => h.won).length;
-          let streak = 0, streakWon = null;
-          for (const h of recent) {
-            if (streakWon === null) { streakWon = h.won; streak = 1; }
-            else if (h.won === streakWon) streak++;
-            else break;
-          }
-          // 相性のいい味方・苦手な相手: 同じ試合で味方/敵になった際のこの選手視点の勝率(3戦以上)
-          const synergy = {}, counter = {};
-          approvedMatches.forEach((m) => {
-            const mine = m.entries.find((e) => e.playerId === p.id && roleFiltered({ role: e.role }));
-            if (!mine) return;
-            const won = m.winner === mine.team;
-            m.entries.forEach((e) => {
-              if (e.playerId === p.id) return;
-              const p2 = players.find((pp) => pp.id === e.playerId);
-              if (!p2) return;
-              const bucket = e.team === mine.team ? synergy : counter;
-              if (!bucket[e.playerId]) bucket[e.playerId] = { name: p2.name, games: 0, wins: 0 };
-              bucket[e.playerId].games++;
-              if (won) bucket[e.playerId].wins++;
-            });
-          });
-          const rankPairs = (obj, dir) => Object.values(obj)
-            .filter((x) => x.games >= 3)
-            .map((x) => ({ ...x, wr: x.wins / x.games }))
-            .sort((x, y) => (dir === "desc" ? y.wr - x.wr : x.wr - y.wr) || y.games - x.games)
-            .slice(0, 3);
-          return {
-            p, roleBadges, sideStat, recent, recentWins, streak, streakWon,
-            synergyList: rankPairs(synergy, "desc"),
-            counterList: rankPairs(counter, "asc"),
-          };
-        })();
+        const detail = selectedPlayer && computePlayerProfile(selectedPlayer, recordRole, players, matches, approvedMatches);
 
         // スコア一覧の比較マーカー: 現在のロールフィルタと同条件(3戦以上)の他選手平均
         const cmpPoolKda = agg.filter((a) => a.id !== selectedId && a.kdaGames >= 3);
@@ -3055,16 +3088,6 @@ export default function CustomStats() {
             </div>
           </div>
         );
-        const pairRow = (x, color) => (
-          <div key={x.name} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 13.5, marginBottom: 6 }}>
-            <span style={{ fontWeight: 600 }}>{x.name}</span>
-            <span>
-              <span style={{ color: theme.textFaint, marginRight: 6 }}>{x.games}{t("scoutMulti.006")}</span>
-              <b style={{ color, fontSize: 15 }}>{Math.round(x.wr * 100)}%</b>
-            </span>
-          </div>
-        );
-
         return (
           <div>
             <div style={{ ...cardStyle, marginBottom: 14, display: "flex", gap: 20, flexWrap: "wrap", alignItems: "center" }}>
@@ -3153,15 +3176,15 @@ export default function CustomStats() {
                       <div style={{ display: "flex", gap: 20 }}>
                         <div style={{ textAlign: "center" }}>
                           <div style={{ fontSize: 12.5, color: theme.textFaint }}>{t("records.031")}</div>
-                          <div style={{ fontSize: 20, fontWeight: 800 }}>{selectedAgg?.games ?? 0}</div>
+                          <div style={{ fontSize: 20, fontWeight: 800 }}>{detail.games}</div>
                         </div>
                         <div style={{ textAlign: "center" }}>
                           <div style={{ fontSize: 12.5, color: theme.textFaint }}>{t("board.006")}</div>
-                          <div style={{ fontSize: 20, fontWeight: 800, color: theme.accentBright }}>{selectedAgg ? Math.round(selectedAgg.wr * 100) : 0}%</div>
+                          <div style={{ fontSize: 20, fontWeight: 800, color: theme.accentBright }}>{Math.round(detail.wr * 100)}%</div>
                         </div>
                         <div style={{ textAlign: "center" }}>
                           <div style={{ fontSize: 12.5, color: theme.textFaint }}>KDA</div>
-                          <div style={{ fontSize: 20, fontWeight: 800 }}>{selectedAgg ? selectedAgg.kdaRatio.toFixed(2) : "-"}</div>
+                          <div style={{ fontSize: 20, fontWeight: 800 }}>{detail.kdaRatio.toFixed(2)}</div>
                         </div>
                       </div>
                     </div>
@@ -3205,21 +3228,19 @@ export default function CustomStats() {
                       </div>
                     </div>
 
-                    {selectedAgg && (
-                      <div style={{ ...cardStyle, marginBottom: 12 }}>
-                        <div style={{ fontSize: 13.5, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("records.017")}</div>
-                        {scoreBar(t("records.011"), selectedAgg.avgK.toFixed(1), (selectedAgg.avgK / 15) * 100, theme.accentBright,
-                          cmpAvg.avgK, cmpAvg.avgK != null ? (cmpAvg.avgK / 15) * 100 : null, (v) => v.toFixed(1))}
-                        {scoreBar(t("records.013"), selectedAgg.avgA.toFixed(1), (selectedAgg.avgA / 15) * 100, theme.accentBright,
-                          cmpAvg.avgA, cmpAvg.avgA != null ? (cmpAvg.avgA / 15) * 100 : null, (v) => v.toFixed(1))}
-                        {scoreBar(t("records.014"), selectedAgg.avgD.toFixed(1), (selectedAgg.avgD / 10) * 100, theme.teamB,
-                          cmpAvg.avgD, cmpAvg.avgD != null ? (cmpAvg.avgD / 10) * 100 : null, (v) => v.toFixed(1))}
-                        {scoreBar(t("records.015"), selectedAgg.kdaRatio.toFixed(2), (selectedAgg.kdaRatio / 6) * 100, theme.accentBright,
-                          cmpAvg.kdaRatio, cmpAvg.kdaRatio != null ? (cmpAvg.kdaRatio / 6) * 100 : null, (v) => v.toFixed(2))}
-                        {scoreBar(t("board.006"), `${Math.round(selectedAgg.wr * 100)}%`, selectedAgg.wr * 100, theme.accentBright,
-                          cmpAvg.wr, cmpAvg.wr != null ? cmpAvg.wr * 100 : null, (v) => `${Math.round(v * 100)}%`)}
-                      </div>
-                    )}
+                    <div style={{ ...cardStyle, marginBottom: 12 }}>
+                      <div style={{ fontSize: 13.5, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("records.017")}</div>
+                      {scoreBar(t("records.011"), detail.avgK.toFixed(1), (detail.avgK / 15) * 100, theme.accentBright,
+                        cmpAvg.avgK, cmpAvg.avgK != null ? (cmpAvg.avgK / 15) * 100 : null, (v) => v.toFixed(1))}
+                      {scoreBar(t("records.013"), detail.avgA.toFixed(1), (detail.avgA / 15) * 100, theme.accentBright,
+                        cmpAvg.avgA, cmpAvg.avgA != null ? (cmpAvg.avgA / 15) * 100 : null, (v) => v.toFixed(1))}
+                      {scoreBar(t("records.014"), detail.avgD.toFixed(1), (detail.avgD / 10) * 100, theme.teamB,
+                        cmpAvg.avgD, cmpAvg.avgD != null ? (cmpAvg.avgD / 10) * 100 : null, (v) => v.toFixed(1))}
+                      {scoreBar(t("records.015"), detail.kdaRatio.toFixed(2), (detail.kdaRatio / 6) * 100, theme.accentBright,
+                        cmpAvg.kdaRatio, cmpAvg.kdaRatio != null ? (cmpAvg.kdaRatio / 6) * 100 : null, (v) => v.toFixed(2))}
+                      {scoreBar(t("board.006"), `${Math.round(detail.wr * 100)}%`, detail.wr * 100, theme.accentBright,
+                        cmpAvg.wr, cmpAvg.wr != null ? cmpAvg.wr * 100 : null, (v) => `${Math.round(v * 100)}%`)}
+                    </div>
 
                     <div className="cs-cols2">
                       <div style={cardStyle}>
@@ -3456,15 +3477,14 @@ export default function CustomStats() {
           ) : (() => {
             const sp = pool.find((p) => p.id === (curId || pool[0].id)) || pool[0];
             const hist = sp.kdaHistory;
+            const profile = computePlayerProfile(sp, "ALL", players, matches, approvedMatches);
             const byRole = ROLES.map((r) => {
               const h = hist.filter((x) => x.role === r);
               const w = h.filter((x) => x.won).length;
               return { role: r, games: h.length, wins: w, losses: h.length - w };
             });
-            const kdaGames = hist.filter((x) => x.k != null || x.d != null || x.a != null);
-            const sum = (f) => kdaGames.reduce((s, x) => s + (x[f] || 0), 0);
-            const avg = (f) => kdaGames.length ? (sum(f) / kdaGames.length).toFixed(1) : "-";
-            const kdaRatio = kdaGames.length ? ((sum("k") + sum("a")) / Math.max(sum("d"), 1)).toFixed(2) : "-";
+            const avg = (f) => (profile.kdaGames ? profile[`avg${f.toUpperCase()}`].toFixed(1) : "-");
+            const kdaRatio = profile.kdaGames ? profile.kdaRatio.toFixed(2) : "-";
             const champCount = {};
             hist.forEach((x) => { if (x.champion) champCount[x.champion] = (champCount[x.champion] || 0) + 1; });
             const topChamps = Object.entries(champCount).sort((a, b) => b[1] - a[1]).slice(0, 5);
@@ -3535,32 +3555,22 @@ export default function CustomStats() {
                   </div>
                   <div style={{ ...cardStyle, flex: "1 1 200px" }}>
                     <div style={{ fontSize: 14.5, color: theme.textSub, marginBottom: 6 }}>{t("stats.012")}</div>
-                    {(() => {
-                      const sideOf = (h) => h.side || (() => {
-                        const m = matches.find((x) => x.id === h.matchId);
-                        return m?.entries.find((e) => e.playerId === sp.id)?.team;
-                      })();
-                      const agg = { A: { g: 0, w: 0 }, B: { g: 0, w: 0 } };
-                      hist.forEach((h) => {
-                        const s = sideOf(h);
-                        if (!agg[s]) return;
-                        agg[s].g++; if (h.won) agg[s].w++;
-                      });
-                      const line = (s, color) => (
-                        <div style={{ fontSize: 15, fontWeight: 700, color }}>
-                          {sideLabel(s)}: {agg[s].g ? `${Math.round(agg[s].w / agg[s].g * 100)}%` : "-"}
-                          <span style={{ fontSize: 12.5, color: theme.textFaint, fontWeight: 500 }}> ({agg[s].w}{t("board.010")}{agg[s].g - agg[s].w}{t("stats.013")}</span>
+                    {["A", "B"].map((s) => {
+                      const st = profile.sideStat[s];
+                      return (
+                        <div key={s} style={{ fontSize: 15, fontWeight: 700, color: s === "A" ? theme.accentBright : theme.teamB }}>
+                          {sideLabel(s)}: {st.g ? `${Math.round((st.w / st.g) * 100)}%` : "-"}
+                          <span style={{ fontSize: 12.5, color: theme.textFaint, fontWeight: 500 }}> ({st.w}{t("board.010")}{st.g - st.w}{t("stats.013")}</span>
                         </div>
                       );
-                      return <>{line("A", theme.accentBright)}{line("B", theme.teamB)}</>;
-                    })()}
+                    })}
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
                   <div style={{ ...cardStyle, flex: "1 1 190px" }}>
                     <div style={{ fontSize: 14.5, color: theme.textSub, marginBottom: 6 }}>{t("stats.014")}</div>
                     <div style={{ display: "flex", gap: 6, alignItems: "center", minHeight: 36, flexWrap: "wrap" }}>
-                      {hist.slice(-8).reverse().map((h, j) => (
+                      {profile.recent.slice(0, 8).map((h, j) => (
                         <img key={j} src={h.won ? WIN_BADGE_IMG : LOSE_BADGE_IMG} alt={h.won ? t("shell.034") : t("shell.035")} title={h.won ? t("shell.034") : t("shell.035")}
                           style={{ width: 34, height: 34, objectFit: "contain", flexShrink: 0, background: "var(--cs-badgeBg)", borderRadius: 5, padding: 1 }} />
                       ))}
@@ -3667,6 +3677,21 @@ export default function CustomStats() {
                     ))}
                   </tbody>
                 </table>
+
+                <div className="cs-cols2" style={{ marginTop: 20 }}>
+                  <div style={cardStyle}>
+                    <div style={{ fontSize: 14.5, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("records.029")}</div>
+                    {profile.synergyList.length === 0 ? (
+                      <div style={{ fontSize: 13, color: theme.faintAccent }}>{t("records.024")}</div>
+                    ) : profile.synergyList.map((x) => pairRow(x, theme.accentBright))}
+                  </div>
+                  <div style={cardStyle}>
+                    <div style={{ fontSize: 14.5, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("records.030")}</div>
+                    {profile.counterList.length === 0 ? (
+                      <div style={{ fontSize: 13, color: theme.faintAccent }}>{t("records.024")}</div>
+                    ) : profile.counterList.map((x) => pairRow(x, theme.teamB))}
+                  </div>
+                </div>
                 </div>
                 </div>
               </>
