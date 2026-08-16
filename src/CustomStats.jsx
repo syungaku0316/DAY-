@@ -1140,7 +1140,7 @@ function ProfBadge({ prof }) {
 
 /* --------------------------- main app --------------------------- */
 export default function CustomStats() {
-  const [tab, setTab] = useState("players");
+  const [tab, setTab] = useState("attendance");
   const [players, setPlayers] = useState([]);
   const [matches, setMatches] = useState([]);
   const [rankRequests, setRankRequests] = useState([]); // ランク変更申請(承認待ち)
@@ -2518,11 +2518,10 @@ export default function CustomStats() {
         .cs-cols2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
         .cs-cols2-wide { display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:start; }
         .cs-side-narrow { display:grid; grid-template-columns:minmax(280px,380px) 1fr; gap:20px; align-items:start; }
-        .cs-side-form { display:grid; grid-template-columns:minmax(300px,400px) 1fr; gap:20px; align-items:start; }
         .cs-reprow { display:grid; grid-template-columns:86px 1fr 1fr 44px 44px 44px 20px; gap:5px; align-items:center; }
         .cs-reprow6 { display:grid; grid-template-columns:70px 1fr 1fr 46px 46px 46px; gap:6px; align-items:center; }
         @media (max-width: 760px) {
-          .cs-cols2, .cs-cols2-wide, .cs-side-narrow, .cs-side-form { grid-template-columns:1fr; }
+          .cs-cols2, .cs-cols2-wide, .cs-side-narrow { grid-template-columns:1fr; }
           .cs-reprow { grid-template-columns:64px 1fr 1fr 36px 36px 36px 16px; gap:3px; }
           .cs-reprow6 { grid-template-columns:54px 1fr 1fr 34px 34px 34px; gap:3px; }
           table.cs-table th, table.cs-table td { padding:7px 5px; font-size:14px; }
@@ -2578,8 +2577,9 @@ export default function CustomStats() {
       {(() => {
         const GROUPS = [
           { key: "players", label: t("header.009"), icon: Users, tabs: [
-            { id: "players", icon: Users, label: t("header.010") },
             { id: "attendance", icon: CheckCircle2, label: t("header.027") },
+            { id: "playerList", icon: Users, label: t("header.028") },
+            { id: "playerRegister", icon: UserPlus, label: t("header.029") },
             { id: "queue", icon: ListOrdered, label: t("header.011") },
             { id: "playerRequests", icon: Pencil, label: t("header.025"), badge: rankRequests.length },
           ] },
@@ -4585,7 +4585,7 @@ export default function CustomStats() {
                 <span style={{ fontSize: 12.5, color: theme.textFaint, marginLeft: 10 }}>{t("attend.012")}</span>
               </div>
               <div style={{ display: "flex", gap: 10 }}>
-                <button className="cs-btn-ghost" style={{ padding: "4px 12px", fontSize: 13 }} onClick={() => setTab("players")}>{t("attend.014")}</button>
+                <button className="cs-btn-ghost" style={{ padding: "4px 12px", fontSize: 13 }} onClick={() => setTab("playerList")}>{t("attend.014")}</button>
               </div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: 12 }}>
@@ -4651,9 +4651,8 @@ export default function CustomStats() {
         </div>
       )}
 
-      {tab === "players" && (
-        <div className="cs-side-form">
-        <div>
+      {tab === "playerRegister" && (
+        <div style={{ maxWidth: 640 }}>
           <div style={{ ...cardStyle, marginBottom: 16 }}>
             <label style={labelStyle}>{t("players.001")}</label>
             <input className="cs-input" style={{ width: "100%", marginBottom: 10, boxSizing: "border-box" }} placeholder={t("players.002")}
@@ -4728,7 +4727,9 @@ export default function CustomStats() {
             </div>
           )}
         </div>
+      )}
 
+      {tab === "playerList" && (
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
             <label style={{ ...labelStyle, marginBottom: 0 }}>{t("players.045", { a: sortedPlayersForList.length, b: players.length })}</label>
@@ -4947,7 +4948,6 @@ export default function CustomStats() {
               </div>
             ))}
           </div>
-        </div>
         </div>
       )}
     </div>
