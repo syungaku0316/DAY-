@@ -2533,15 +2533,15 @@ export default function CustomStats() {
         .cs-side-narrow { display:grid; grid-template-columns:minmax(280px,380px) 1fr; gap:20px; align-items:start; }
         .cs-reprow { display:grid; grid-template-columns:86px 1fr 1fr 44px 44px 44px 20px; gap:5px; align-items:center; }
         .cs-reprow6 { display:grid; grid-template-columns:70px 1fr 1fr 46px 46px 46px; gap:6px; align-items:center; }
-        .cs-reg-split { display:grid; grid-template-columns:180px 1fr; gap:16px; }
-        .cs-reg-roles { display:grid; grid-template-columns:repeat(5, 1fr); gap:8px; }
+        .cs-reg-split { display:grid; grid-template-columns:150px minmax(0,1fr); gap:16px; }
+        .cs-reg-roles { display:grid; grid-template-columns:repeat(5, minmax(0,1fr)); gap:6px; }
         @media (max-width: 760px) {
           .cs-cols2, .cs-cols2-wide, .cs-side-narrow { grid-template-columns:1fr; }
           .cs-reprow { grid-template-columns:64px 1fr 1fr 36px 36px 36px 16px; gap:3px; }
           .cs-reprow6 { grid-template-columns:54px 1fr 1fr 34px 34px 34px; gap:3px; }
           table.cs-table th, table.cs-table td { padding:7px 5px; font-size:14px; }
           .cs-reg-split { grid-template-columns:1fr; }
-          .cs-reg-roles { grid-template-columns:repeat(3, 1fr); }
+          .cs-reg-roles { grid-template-columns:repeat(3, minmax(0,1fr)); }
         }
       `}</style>
 
@@ -4669,7 +4669,7 @@ export default function CustomStats() {
       )}
 
       {tab === "playerRegister" && (
-        <div style={{ maxWidth: 760 }}>
+        <div style={{ maxWidth: 900 }}>
           <div style={{ ...cardStyle, padding: 0, overflow: "hidden" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 20px", borderBottom: `1px solid ${theme.borderTable}` }}>
               <span style={{ fontSize: 18, fontWeight: 700 }}>{t("players.001")}</span>
@@ -4697,7 +4697,7 @@ export default function CustomStats() {
                     {RANKS.map(([label, mu]) => <option key={label} value={label}>{rankLabel(label)} ({mu}pt)</option>)}
                   </select>
                 </div>
-                <div>
+                <div style={{ minWidth: 0 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 6 }}>
                     <label style={{ ...labelStyle, fontSize: 14, marginBottom: 6 }}>{t("players.066")}</label>
                     <span style={{ fontSize: 11.5, color: theme.textFaint }}>{t("players.006")}（◎1.00 〇0.92 △0.85 ×0.75）</span>
@@ -4707,22 +4707,22 @@ export default function CustomStats() {
                       const baseMu = RANKS.find(([label]) => label === newRank)?.[1] ?? MU0;
                       const pt = Math.round(baseMu * PROF_RATE[newProfs[r]] * 10) / 10;
                       return (
-                        <div key={r} style={{ border: `1px solid ${theme.borderInput}`, borderRadius: 8, padding: 8, textAlign: "center" }}>
+                        <div key={r} style={{ border: `1px solid ${theme.borderInput}`, borderRadius: 8, padding: "8px 2px", textAlign: "center", minWidth: 0 }}>
                           <div style={{ fontSize: 12.5, fontWeight: 700, color: theme.textSub, marginBottom: 6 }}>{r}</div>
-                          <div style={{ display: "flex", justifyContent: "center", gap: 4, marginBottom: 6 }}>
+                          <div style={{ display: "flex", justifyContent: "center", gap: 3, marginBottom: 6 }}>
                             {PROFS.map((pf) => (
                               <button key={pf} onClick={() => setNewProfs({ ...newProfs, [r]: pf })}
                                 style={{
-                                  width: 26, height: 26, borderRadius: "50%", border: `1px solid ${theme.borderInput}`, padding: 0,
+                                  width: 22, height: 22, borderRadius: "50%", border: `1px solid ${theme.borderInput}`, padding: 0, flexShrink: 0,
                                   background: newProfs[r] === pf ? theme.accent : theme.surfaceWhite,
                                   color: newProfs[r] === pf ? "#FFF8EC" : theme.textSub,
-                                  fontSize: 13, cursor: "pointer", lineHeight: 1,
+                                  fontSize: 12, cursor: "pointer", lineHeight: 1,
                                 }}>
                                 {pf}
                               </button>
                             ))}
                           </div>
-                          <div style={{ fontSize: 12.5, color: theme.textFaint }}>{pt}pt</div>
+                          <div style={{ fontSize: 12, color: theme.textFaint }}>{pt}pt</div>
                         </div>
                       );
                     })}
