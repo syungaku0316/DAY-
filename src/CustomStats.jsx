@@ -450,8 +450,8 @@ const isStaleResponse = (p) => !p.respondedAt || (Date.now() - p.respondedAt > R
 // 相性のいい味方・苦手な相手の1行分の表示({name, games, wr}を受け取る)。「記録」「個人成績」両タブで共用。
 function pairRow(x, color) {
   return (
-    <div key={x.name} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 13.5, marginBottom: 6 }}>
-      <span style={{ fontWeight: 600 }}>{x.name}</span>
+    <div key={x.name} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 13, marginBottom: 6 }}>
+      <span style={{ fontWeight: 700 }}>{x.name}</span>
       <span>
         <span style={{ color: theme.textFaint, marginRight: 6 }}>{x.games}{t("scoutMulti.006")}</span>
         <b style={{ color, fontSize: 15 }}>{Math.round(x.wr * 100)}%</b>
@@ -498,10 +498,10 @@ function computeCmpAvg(aggList, excludeId) {
 function scoreBar(label, value, pct, color, cmpVal, cmpPct, cmpFmt) {
   return (
     <div key={label} style={{ marginBottom: 8 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13.5 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
         <span style={{ color: theme.textSub }}>{label}</span>
         <span>
-          <span style={{ fontWeight: 800 }}>{value}</span>
+          <span style={{ fontWeight: 700 }}>{value}</span>
           {cmpVal != null && (
             <span style={{ fontSize: 12, color: theme.textFaint, marginLeft: 6 }}>{t("records.035", { v: cmpFmt(cmpVal) })}</span>
           )}
@@ -836,7 +836,7 @@ function LaneMatchupSetter({ players, onSet }) {
   const valid = px && py && xId !== yId && okRole(px, role) && okRole(py, role);
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-      <span style={{ fontSize: 13.5, fontWeight: 700, color: theme.textSub }}>{t("balance.067")}:</span>
+      <span style={{ fontSize: 13, fontWeight: 700, color: theme.textSub }}>{t("balance.067")}:</span>
       <select className="cs-input" style={{ padding: "4px 6px", fontSize: 13, borderColor: theme.accentBright }} value={xId} onChange={(e) => setXId(e.target.value)}>
         <option value="">{t("balance.069")}</option>
         {players.filter((p) => p.id !== yId).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -849,12 +849,12 @@ function LaneMatchupSetter({ players, onSet }) {
       <select className="cs-input" style={{ padding: "4px 6px", fontSize: 13 }} value={role} onChange={(e) => setRole(e.target.value)}>
         {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
       </select>
-      <button className="cs-btn" disabled={!valid} style={{ padding: "5px 14px", fontSize: 13.5, opacity: valid ? 1 : 0.5 }}
+      <button className="cs-btn" disabled={!valid} style={{ padding: "5px 14px", fontSize: 13, opacity: valid ? 1 : 0.5 }}
         onClick={() => { if (valid) { onSet(xId, yId, role); setXId(""); setYId(""); } }}>
         {t("balance.068")}
       </button>
       {px && py && xId !== yId && !valid && (
-        <span style={{ fontSize: 12.5, color: theme.teamB, fontWeight: 600 }}>
+        <span style={{ fontSize: 13, color: theme.teamB, fontWeight: 700 }}>
           {t("shell.085", { name: !okRole(px, role) ? px.name : py.name, role })}
         </span>
       )}
@@ -983,7 +983,7 @@ function ItemEfficiencyTab() {
 
   return (
     <div>
-      <div style={{ ...cardStyle, marginBottom: 12, fontSize: 12.5, color: theme.textSub, lineHeight: 1.6 }}>
+      <div style={{ ...cardStyle, marginBottom: 12, fontSize: 13, color: theme.textSub, lineHeight: 1.7 }}>
         {t("items.002")}
         {state.skipped.length > 0 && (
           <div style={{ marginTop: 4 }}>
@@ -995,12 +995,12 @@ function ItemEfficiencyTab() {
             <summary style={{ cursor: "pointer", fontWeight: 700, color: theme.accent, fontSize: 13 }}>{t("items.041")}</summary>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(310px, 1fr))", gap: "6px 18px", marginTop: 8 }}>
               {state.rateInfo.map((ri) => (
-                <div key={ri.key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, whiteSpace: "nowrap", overflow: "hidden" }}>
+                <div key={ri.key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden" }}>
                   {ri.sourceImage && (
                     <img src={`https://ddragon.leagueoflegends.com/cdn/${state.ver}/img/item/${ri.sourceImage}`}
                       alt="" style={{ width: 18, height: 18, borderRadius: 3, flexShrink: 0 }} />
                   )}
-                  <span style={{ fontWeight: 600, flexShrink: 0 }}>{t(ITEM_STAT_LABEL_KEY[ri.key] || ri.key)}</span>
+                  <span style={{ fontWeight: 700, flexShrink: 0 }}>{t(ITEM_STAT_LABEL_KEY[ri.key] || ri.key)}</span>
                   <span style={{ color: theme.textFaint, overflow: "hidden", textOverflow: "ellipsis" }}>
                     {Math.round(ri.rate * 10) / 10}G/{PERCENT_DISPLAY_KEYS.has(ri.key) ? "1%" : t("items.042")}{ri.sourceName ? `（${ri.sourceName}）` : ""}
                   </span>
@@ -1014,7 +1014,7 @@ function ItemEfficiencyTab() {
       <div className="cs-scroll" style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
         {ITEM_TIERS.map((tr) => (
           <button key={tr.key} className="cs-btn-ghost"
-            style={{ padding: "5px 14px", fontSize: 13.5, whiteSpace: "nowrap",
+            style={{ padding: "5px 14px", fontSize: 13, whiteSpace: "nowrap",
               borderColor: tier === tr.key ? theme.accent : theme.borderInput,
               color: tier === tr.key ? theme.accent : theme.textSub,
               fontWeight: tier === tr.key ? 700 : 400 }}
@@ -1029,7 +1029,7 @@ function ItemEfficiencyTab() {
           const on = abilityFilters.includes(f.labelKey);
           return (
             <button key={f.labelKey} className="cs-btn-ghost"
-              style={{ padding: "4px 10px", fontSize: 12.5, whiteSpace: "nowrap",
+              style={{ padding: "4px 10px", fontSize: 13, whiteSpace: "nowrap",
                 background: on ? theme.accent : "transparent",
                 color: on ? theme.surface : theme.textSub,
                 borderColor: on ? theme.accent : theme.borderInput, fontWeight: on ? 700 : 400 }}
@@ -1047,7 +1047,7 @@ function ItemEfficiencyTab() {
         <div style={{ ...cardStyle, textAlign: "center", padding: 30, color: theme.textFaint }}>{t("items.020")}</div>
       ) : (
         <div className="cs-scroll" style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13.5 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>
               <tr style={{ borderBottom: `1px solid ${theme.borderTable}`, color: theme.textSub }}>
                 <th style={{ textAlign: "left", padding: "6px 8px" }}></th>
@@ -1074,7 +1074,7 @@ function ItemEfficiencyTab() {
                             alt="" style={{ width: 26, height: 26, borderRadius: 4 }} />
                         )}
                       </td>
-                      <td style={{ padding: "6px 8px", fontWeight: 600 }}>{it.name}</td>
+                      <td style={{ padding: "6px 8px", fontWeight: 700 }}>{it.name}</td>
                       <td style={{ padding: "6px 8px", textAlign: "right", whiteSpace: "nowrap" }}>{it.gold.toLocaleString()}</td>
                       <td className="cs-hide-mobile" style={{ padding: "6px 8px", fontSize: 12, color: theme.textSub }}>
                         {it.breakdown.map((b) => `${t(ITEM_STAT_LABEL_KEY[b.key] || b.key)} ${fmtStatValue(b.key, b.amount)}`).join(" / ")}
@@ -1247,7 +1247,14 @@ export default function CustomStats() {
 
   // テーマカラー・書体(端末ローカルの表示設定。他人とは共有しない)
   const [colorKey, setColorKey] = useState(() => (typeof localStorage !== "undefined" && localStorage.getItem("crl-color")) || "sky");
-  const [fontKey, setFontKey] = useState(() => (typeof localStorage !== "undefined" && localStorage.getItem("crl-font")) || "kyokasho");
+  // 既定書体を gothic に変更(2026-08)。旧既定を明示的に選んでいない人だけ移行する。
+  if (typeof localStorage !== "undefined" && !localStorage.getItem("crl-font-migrated-v1")) {
+    try {
+      if (localStorage.getItem("crl-font") === "kyokasho") localStorage.removeItem("crl-font");
+      localStorage.setItem("crl-font-migrated-v1", "1");
+    } catch {}
+  }
+  const [fontKey, setFontKey] = useState(() => (typeof localStorage !== "undefined" && localStorage.getItem("crl-font")) || "gothic");
   const [themePickerOpen, setThemePickerOpen] = useState(false);
   useEffect(() => {
     applyTheme(colorKey, fontKey);
@@ -2343,7 +2350,7 @@ export default function CustomStats() {
                       const hist = p?.kdaHistory.find((h) => h.matchId === m.id && h.role === e.role);
                       return (
                         <div key={e.playerId} style={{ display: "grid", gridTemplateColumns: "30px minmax(80px,150px) minmax(0,1fr) 92px 68px", gap: 0, alignItems: "center", fontSize: 14, padding: "5px 0", borderBottom: `1px solid ${theme.borderTable}` }}>
-                          <span style={{ color: theme.textFaint, fontSize: 12.5 }}>{e.role}</span>
+                          <span style={{ color: theme.textFaint, fontSize: 13 }}>{e.role}</span>
                           <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", borderLeft: `1px solid ${theme.borderTable}`, paddingLeft: 8, paddingRight: 6 }} title={nameOf(e.playerId)}>{nameOf(e.playerId)}</span>
                           <span style={{ display: "flex", alignItems: "center", gap: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0, color: theme.textSub }}>
                             {e.champion ? <ChampIcon name={e.champion} size={16} /> : null}{champLabel(e.champion) || "-"}
@@ -2425,7 +2432,7 @@ export default function CustomStats() {
 
   if (!getDb()) {
     return (
-      <div style={{ fontFamily: "var(--cs-font)", maxWidth: 720, margin: "40px auto", padding: 24, background: theme.surface, border: `1px solid ${theme.border}`, borderRadius: 10, color: theme.text, lineHeight: 1.9 }}>
+      <div style={{ fontFamily: "var(--cs-font)", maxWidth: 720, margin: "40px auto", padding: 24, background: theme.surface, border: `1px solid ${theme.border}`, borderRadius: 10, color: theme.text, lineHeight: 1.7 }}>
         <h2 style={{ color: theme.accent }}>{t("shell.064")}</h2>
         <p>{t("shell.065")} <b>FIREBASE_CONFIG</b> {t("shell.066")}</p>
         <p style={{ fontSize: 14, color: theme.textSub }}>{t("shell.067")}</p>
@@ -2453,7 +2460,7 @@ export default function CustomStats() {
 
   if (dbError) {
     return (
-      <div style={{ fontFamily: "'Zen Maru Gothic',sans-serif", maxWidth: 720, margin: "40px auto", padding: 24, background: theme.surface, border: `1px solid ${theme.teamB}`, borderRadius: 10, color: theme.text, lineHeight: 1.9 }}>
+      <div style={{ fontFamily: "var(--cs-font)", maxWidth: 720, margin: "40px auto", padding: 24, background: theme.surface, border: `1px solid ${theme.teamB}`, borderRadius: 10, color: theme.text, lineHeight: 1.7 }}>
         <h2 style={{ color: theme.teamB }}>{t("shell.070")}</h2>
         <p>{dbError}</p>
       </div>
@@ -2471,8 +2478,8 @@ export default function CustomStats() {
   return (
     <div style={{
       fontFamily: "var(--cs-font)",
-      background: `radial-gradient(ellipse at top, ${theme.bgFrom} 0%, ${theme.bgVia} 55%, ${theme.bgTo} 100%)`,
-      color: theme.text, fontWeight: 500, minHeight: 640, borderRadius: 10, padding: "20px 22px 28px",
+      background: theme.bgVia,
+      color: theme.text, fontWeight: 400, minHeight: "60vh", borderRadius: 10, padding: "20px 22px 28px",
       border: `1px solid ${theme.border}`,
     }}>
       {dialog && (
@@ -2480,7 +2487,7 @@ export default function CustomStats() {
           style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
           <div onClick={(e) => e.stopPropagation()}
             style={{ ...cardStyle, background: theme.surface, width: "min(720px, 94vw)", padding: "26px 26px 20px", boxShadow: "0 8px 40px rgba(0,0,0,.4)", borderColor: dialog.type === "alert" ? theme.teamB : theme.accent, borderWidth: 2 }}>
-            <div style={{ fontSize: 16.5, fontWeight: 600, color: theme.text, lineHeight: 1.7, marginBottom: 16, whiteSpace: dialog.nowrap ? "pre" : "pre-wrap", overflowX: "auto" }}>
+            <div className="cs-prose" style={{ fontSize: 15, fontWeight: 700, color: theme.text, lineHeight: 1.7, marginBottom: 16, whiteSpace: dialog.nowrap ? "pre" : "pre-wrap", overflowX: "auto" }}>
               {dialog.content}
             </div>
             {dialog.type === "prompt" && (
@@ -2501,9 +2508,9 @@ export default function CustomStats() {
         </div>
       )}
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@500;700;900&family=Noto+Sans+JP:wght@400;500;700;900&family=Zen+Old+Mincho:wght@500;700;900&family=Yuji+Syuku&family=Zen+Kurenaido&family=Klee+One:wght@400;600&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&family=Zen+Maru+Gothic:wght@400;700&family=Zen+Old+Mincho:wght@400;700&family=Yuji+Syuku&family=Zen+Kurenaido&family=Klee+One:wght@400;600&display=swap');
         :root {
-          /* JSでのテーマ適用(applyTheme)前でも正しく表示されるデフォルト値(sky+教科書体) */
+          /* JSでのテーマ適用(applyTheme)前でも正しく表示されるデフォルト値(sky+ゴシック体) */
           --cs-bgFrom:#F4F8FB; --cs-bgVia:#E9F1F7; --cs-bgTo:#DCE8F0;
           --cs-text:#1B3A56; --cs-textSub:#5B7C99; --cs-textFaint:#8FADC7;
           --cs-surface:#FFFFFF; --cs-surfaceAlt:#F4F9FD; --cs-surfaceWhite:#FDFEFF;
@@ -2512,7 +2519,7 @@ export default function CustomStats() {
           --cs-teamB:#C94F14; --cs-faintAccent:#B7CEE0; --cs-faintAccent2:#A9C1DA;
           --cs-profGreat:#8A3FA0; --cs-profGood:#2483C9; --cs-profFair:#C99A1E; --cs-profWeak:#9AA3AD;
           --cs-headFrom:#1E78BC; --cs-headTo:#0F5FA3; --cs-headBFrom:#C94F14; --cs-headBTo:#9E3C0D; --cs-badgeBg:transparent;
-          --cs-font:'UD Digi Kyokasho NK-B','UD デジタル 教科書体 NK-B','Zen Maru Gothic',sans-serif;
+          --cs-font:'Noto Sans JP','Hiragino Kaku Gothic ProN','Yu Gothic','Meiryo',sans-serif;
         }
         .spin { animation: spin 1s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
@@ -2525,12 +2532,12 @@ export default function CustomStats() {
         .cs-btn:disabled { opacity:.4; cursor:not-allowed; }
         .cs-btn-ghost { background:transparent; border:1px solid ${theme.borderInput}; color:${theme.text}; border-radius:6px; padding:9px 16px; font-size:16.5px; cursor:pointer; }
         table.cs-table { width:100%; border-collapse:separate; border-spacing:0; font-size:16.5px; border-radius:8px; overflow:hidden; }
-        table.cs-table th { text-align:center; background:linear-gradient(135deg,var(--cs-headFrom),var(--cs-headTo)); color:#FFFFFF; font-weight:700; font-size:14.5px; letter-spacing:.05em; padding:9px 10px; border-bottom:none; }
-        table.cs-table td { padding:10px; border-bottom:1px solid ${theme.borderTable}; text-align:center; background:${theme.surface}; }
+        table.cs-table th { text-align:center; background:linear-gradient(135deg,var(--cs-headFrom),var(--cs-headTo)); color:#FFFFFF; font-weight:700; font-size:14.5px; padding:9px 10px; border-bottom:none; }
+        table.cs-table td { padding:10px; border-bottom:1px solid ${theme.borderTable}; text-align:center; background:${theme.surface}; line-height:1.4; }
         table.cs-table tbody tr:nth-child(even) td { background:${theme.surfaceAlt}; }
         .cs-cols2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
         .cs-cols2-wide { display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:start; }
-        .cs-side-narrow { display:grid; grid-template-columns:minmax(280px,380px) 1fr; gap:20px; align-items:start; }
+        .cs-side-narrow { display:grid; grid-template-columns:minmax(280px,440px) 1fr; gap:20px; align-items:start; }
         .cs-reprow { display:grid; grid-template-columns:86px 1fr 1fr 44px 44px 44px 20px; gap:5px; align-items:center; }
         .cs-reprow6 { display:grid; grid-template-columns:70px 1fr 1fr 46px 46px 46px; gap:6px; align-items:center; }
         .cs-reg-split { display:grid; grid-template-columns:150px minmax(0,1fr); gap:16px; }
@@ -2543,18 +2550,60 @@ export default function CustomStats() {
           .cs-reg-split { grid-template-columns:1fr; }
           .cs-reg-roles { grid-template-columns:repeat(3, minmax(0,1fr)); }
         }
+
+        /* フォーム部品はOS既定フォントに落ちるので明示的に継承させる */
+        #root button, #root select, #root input, #root textarea, #root optgroup {
+          font-family: var(--cs-font);
+          font-size: inherit;
+        }
+
+        /* 数字を等幅に（教科書体では効かなかった。ゴシックなら効く） */
+        #root, table.cs-table th, table.cs-table td {
+          font-feature-settings: "palt" 1;   /* 日本語の詰め */
+        }
+        table.cs-table th, table.cs-table td,
+        .cs-num { font-variant-numeric: tabular-nums; }
+
+        /* --- 折らない。幅が足りなければ横スクロール --- */
+        table.cs-table th, table.cs-table td,
+        #root button, #root select, #root label,
+        .cs-nowrap { white-space: nowrap; }
+
+        /* 長さが読めないものは1行＋… */
+        .cs-ellipsis {
+          overflow: hidden; text-overflow: ellipsis;
+          white-space: nowrap; min-width: 0;
+        }
+
+        /* 折る必然があるのは長文だけ */
+        .cs-prose {
+          word-break: auto-phrase;   /* Chrome 119+ */
+          word-break: keep-all;      /* フォールバック。韓国語でも文節相当になる */
+          overflow-wrap: anywhere;   /* 長いURLだけはどこでも折る */
+          text-wrap: pretty;
+        }
+        /* 上の2行はこの順序が必須。auto-phrase 非対応だと後行が勝つ */
+
+        /* grid/flex の子を縮むようにする(列幅崩れ・横溢れの修正) */
+        #root [style*="grid"] > *, #root [style*="flex"] > * { min-width: 0; }
+
+        /* 横スクロールできることを見せる */
+        .cs-scroll {
+          overflow-x: auto;
+          scrollbar-width: thin;
+        }
       `}</style>
 
       <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 4, flexWrap: "wrap" }}>
         <h1 style={{
           fontFamily: "var(--cs-font)", fontSize: 34, fontWeight: 700, margin: 0,
-          background: `linear-gradient(135deg,${theme.text},${theme.accent})`, WebkitBackgroundClip: "text", color: "transparent",
+          color: theme.text,
           letterSpacing: "0.02em",
         }}>
           CUSTOM RIFT LEDGER
         </h1>
         <span style={{ fontSize: 15, color: theme.textSub }}>{t("header.001")}</span>
-        <span style={{ marginLeft: "auto", fontSize: 13.5, color: theme.textSub, border: `1px solid ${theme.borderInput}`, borderRadius: 6, padding: "4px 12px" }}>
+        <span style={{ marginLeft: "auto", fontSize: 13, color: theme.textSub, border: `1px solid ${theme.borderInput}`, borderRadius: 6, padding: "4px 12px" }}>
           {t("header.002")} {ddVer ? t("header.024", { ver: ddVer }) : t("header.003")}
         </span>
         <span style={{ position: "relative" }}>
@@ -2565,19 +2614,19 @@ export default function CustomStats() {
           {themePickerOpen && (
             <div style={{ ...cardStyle, position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 20, width: 220, padding: 14 }}>
               <div style={{ fontSize: 13, color: theme.textSub, marginBottom: 10 }}>{t("header.005")}</div>
-              <label style={{ fontSize: 13.5, color: theme.textSub, display: "block", marginBottom: 3 }}>{t("header.006")}</label>
+              <label style={{ fontSize: 13, color: theme.textSub, display: "block", marginBottom: 3 }}>{t("header.006")}</label>
               <select className="cs-input" style={{ width: "100%", marginBottom: 10 }} value={colorKey} onChange={(e) => setColorKey(e.target.value)}>
                 {THEME_LIST.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
               </select>
-              <label style={{ fontSize: 13.5, color: theme.textSub, display: "block", marginBottom: 3 }}>{t("header.007")}</label>
+              <label style={{ fontSize: 13, color: theme.textSub, display: "block", marginBottom: 3 }}>{t("header.007")}</label>
               <select className="cs-input" style={{ width: "100%" }} value={fontKey} onChange={(e) => setFontKey(e.target.value)}>
                 {FONT_LIST.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
               </select>
-              <label style={{ fontSize: 13.5, color: theme.textSub, display: "block", marginTop: 10, marginBottom: 3 }}>Language / 言語 / 언어</label>
+              <label style={{ fontSize: 13, color: theme.textSub, display: "block", marginTop: 10, marginBottom: 3 }}>Language / 言語 / 언어</label>
               <div style={{ display: "flex", gap: 6 }}>
                 {[["ja", "日本語"], ["en", "English"], ["ko", "한국어"]].map(([code, label]) => (
                   <button key={code} className={lang === code ? "cs-btn" : "cs-btn-ghost"}
-                    style={{ flex: 1, padding: "5px 0", fontSize: 12.5 }}
+                    style={{ flex: 1, padding: "5px 0", fontSize: 13 }}
                     onClick={() => setLangState(code)}>
                     {label}
                   </button>
@@ -2707,10 +2756,10 @@ export default function CustomStats() {
                         {p._prov ? "-" : curRank}
                         {rankChange && <div>{rankChange}</div>}
                       </td>
-                      <td style={{ maxWidth: 200 }}><span style={{ fontWeight: 700, fontSize: 17, display: "inline-block", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", verticalAlign: "bottom" }} title={p.name}>{p.name}</span>{p.honorRank && <span title={t("players.050", { rank: rankLabel(p.honorRank) })} style={{ fontSize: 11, fontWeight: 700, color: theme.surface, background: theme.accent, borderRadius: 4, padding: "1px 5px", marginLeft: 5, whiteSpace: "nowrap" }}>{rankShortLang(p.honorRank)}</span>}{p._prov && <span style={{ fontSize: 12.5, color: theme.textFaint, fontWeight: 400 }}>{t("board.009")}</span>}</td>
-                      <td style={{ fontWeight: 600 }}>{p._role}</td>
+                      <td style={{ maxWidth: 200 }}><span style={{ fontWeight: 700, fontSize: 17, display: "inline-block", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", verticalAlign: "bottom" }} title={p.name}>{p.name}</span>{p.honorRank && <span title={t("players.050", { rank: rankLabel(p.honorRank) })} style={{ fontSize: 11, fontWeight: 700, color: theme.surface, background: theme.accent, borderRadius: 4, padding: "1px 5px", marginLeft: 5, whiteSpace: "nowrap" }}>{rankShortLang(p.honorRank)}</span>}{p._prov && <span style={{ fontSize: 13, color: theme.textFaint, fontWeight: 400 }}>{t("board.009")}</span>}</td>
+                      <td style={{ fontWeight: 700 }}>{p._role}</td>
                       <td><ProfBadge prof={p.roles[p._role].prof} /></td>
-                      <td style={{ fontSize: 18, fontWeight: 700 }}>
+                      <td style={{ fontSize: 19, fontWeight: 700 }}>
                         {p._mu.toFixed(1)}
                       </td>
                       <td style={{ color: theme.textSub }}>{p._wins}{t("board.010")}{p._losses}{t("board.011")}</td>
@@ -2734,7 +2783,7 @@ export default function CustomStats() {
                             <img key={j} src={h.won ? WIN_BADGE_IMG : LOSE_BADGE_IMG} alt={h.won ? t("shell.034") : t("shell.035")} title={h.won ? t("shell.034") : t("shell.035")}
                               style={{ width: 22, height: 22, objectFit: "contain", background: "var(--cs-badgeBg)", borderRadius: 4 }} />
                           ))}
-                          {roleHistory.length === 0 && <span style={{ fontSize: 13.5, color: theme.faintAccent }}>-</span>}
+                          {roleHistory.length === 0 && <span style={{ fontSize: 13, color: theme.faintAccent }}>-</span>}
                         </div>
                       </td>
                     </tr>
@@ -2756,7 +2805,7 @@ export default function CustomStats() {
               <datalist id="champList">
                 {[...(ddChamps ? ddChamps.map((x) => x.name) : CHAMPIONS), ...customChamps].map((ch) => <option key={ch} value={champLabel(ch)} />)}
               </datalist>
-              <div style={{ fontSize: 13.5, color: theme.textFaint, marginBottom: 10 }}>
+              <div style={{ fontSize: 13, color: theme.textFaint, marginBottom: 10 }}>
                 {t("report.002")}
               </div>
 
@@ -2786,7 +2835,7 @@ export default function CustomStats() {
                   <div style={{ flex: "1 1 380px", minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
                       <span style={{ fontSize: 14, fontWeight: 700 }}>{t("report.008")}</span>
-                      <span style={{ fontSize: 12.5, color: theme.textFaint }}>{t("report.013")}</span>
+                      <span style={{ fontSize: 13, color: theme.textFaint }}>{t("report.013")}</span>
                     </div>
 
                                           <>
@@ -2804,7 +2853,7 @@ export default function CustomStats() {
                                   value={r[f]} placeholder={f.toUpperCase()} onClick={(ev) => ev.stopPropagation()}
                                   onChange={(e) => setOcrRows(ocrRows.map((x, j) => (j === i ? { ...x, [f]: e.target.value } : x)))} />
                               ))}
-                              <span style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: r.playerId ? theme.text : theme.textFaint }}>
+                              <span style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: r.playerId ? theme.text : theme.textFaint }}>
                                 {r.playerId ? nameOf(r.playerId) : t("report.015")}
                               </span>
                             </div>
@@ -2813,12 +2862,12 @@ export default function CustomStats() {
                         <div style={{ marginTop: 10 }}>
                           {["A", "B"].map((side) => (
                             <div key={side} style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 6 }}>
-                              <span style={{ fontSize: 12.5, fontWeight: 700, color: side === "A" ? theme.accentBright : theme.teamB, width: 84, flexShrink: 0 }}>{sideLabel(side)}</span>
+                              <span style={{ fontSize: 13, fontWeight: 700, color: side === "A" ? theme.accentBright : theme.teamB, width: 84, flexShrink: 0 }}>{sideLabel(side)}</span>
                               {teamOf(side).map((e) => {
                                 const assigned = ocrRows.some((r) => r.playerId === e.playerId);
                                 return (
                                   <button key={e.playerId} className="cs-btn-ghost" style={{
-                                    padding: "4px 10px", fontSize: 13.5, whiteSpace: "nowrap",
+                                    padding: "4px 10px", fontSize: 13, whiteSpace: "nowrap",
                                     borderColor: assigned ? theme.borderTable : (side === "A" ? theme.accentBright : theme.teamB),
                                     color: assigned ? theme.textFaint : theme.text,
                                     opacity: assigned ? 0.55 : 1,
@@ -2837,7 +2886,7 @@ export default function CustomStats() {
                       </button>
                       <button className="cs-btn-ghost" onClick={clearOcr}>{t("report.020")}</button>
                     </div>
-                    <div style={{ fontSize: 12.5, color: theme.textFaint, marginTop: 4 }}>
+                    <div style={{ fontSize: 13, color: theme.textFaint, marginTop: 4 }}>
                       {t("report.021")}
                     </div>
                   </div>
@@ -2928,12 +2977,12 @@ export default function CustomStats() {
                   const profDiffs = ROLES.filter((role) => r.toProfs[role] !== r.fromProfs[role]);
                   return (
                     <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "6px 0", borderBottom: `1px solid ${theme.borderTable}` }}>
-                      <span style={{ fontWeight: 600 }}>{r.playerName}</span>
+                      <span style={{ fontWeight: 700 }}>{r.playerName}</span>
                       <span style={{ color: theme.textSub, display: "flex", flexDirection: "column", gap: 2 }}>
                         {r.toRank !== r.fromRank && <span>{t("shell.021")} {r.fromRank} → <b style={{ color: theme.accent }}>{r.toRank}</b></span>}
                         {profDiffs.length > 0 && <span>{t("playerReq.004")} {profDiffs.map((role) => `${role} ${r.fromProfs[role]}→${r.toProfs[role]}`).join(t("common.003"))}</span>}
                       </span>
-                      <span style={{ fontSize: 12.5, color: theme.textFaint }}>{new Date(r.ts).toLocaleString(dateLocale())}</span>
+                      <span style={{ fontSize: 13, color: theme.textFaint }}>{new Date(r.ts).toLocaleString(dateLocale())}</span>
                       <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
                         <button className="cs-btn" style={{ padding: "3px 12px", fontSize: 13 }} onClick={() => approveRankRequest(r.id)}>{t("playerReq.005")}</button>
                         <button className="cs-btn-ghost" style={{ padding: "3px 12px", fontSize: 13 }} onClick={() => rejectRankRequest(r.id)}>{t("playerReq.006")}</button>
@@ -2970,7 +3019,7 @@ export default function CustomStats() {
                           <tbody>
                             {m.entries.map((e) => (
                               <tr key={e.playerId}>
-                                <td style={{ color: e.team === "A" ? theme.accentBright : theme.teamB, fontWeight: 600 }}>{nameOf(e.playerId)}</td>
+                                <td style={{ color: e.team === "A" ? theme.accentBright : theme.teamB, fontWeight: 700 }}>{nameOf(e.playerId)}</td>
                                 <td>{e.role}</td>
                                 <td>{e.champion || "-"}</td>
                                 <td>{m.kda[e.playerId] ? `${m.kda[e.playerId].k}/${m.kda[e.playerId].d}/${m.kda[e.playerId].a}` : "-"}</td>
@@ -3029,14 +3078,14 @@ export default function CustomStats() {
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={chartData}>
                     <CartesianGrid stroke={theme.borderTable} />
-                    <XAxis dataKey="idx" stroke={theme.textFaint} fontSize={14} label={{ value: t("histP.004"), position: "insideBottom", offset: -3, fill: theme.textFaint, fontSize: 14.5 }} />
+                    <XAxis dataKey="idx" stroke={theme.textFaint} fontSize={14} label={{ value: t("histP.004"), position: "insideBottom", offset: -3, fill: theme.textFaint, fontSize: 14 }} />
                     <YAxis stroke={theme.textFaint} fontSize={14} domain={["auto", "auto"]} />
                     <Tooltip contentStyle={{ background: theme.surface, border: `1px solid ${theme.borderInput}`, fontSize: 15.5 }} />
                     <Line type="monotone" dataKey="mu" stroke={theme.accentBright} strokeWidth={2} dot={{ r: 2 }} name={t("board.004")} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
-              <div style={{ fontSize: 13.5, color: theme.textFaint, marginBottom: 8 }}>
+              <div style={{ fontSize: 13, color: theme.textFaint, marginBottom: 8 }}>
                 {t("histP.005")}
               </div>
               <table className="cs-table">
@@ -3060,7 +3109,7 @@ export default function CustomStats() {
             <EmptyState text={t("histP.001")} />
           ) : (
             <>
-              <div style={{ fontSize: 14.5, color: theme.textSub, marginBottom: 10 }}>
+              <div style={{ fontSize: 14, color: theme.textSub, marginBottom: 10 }}>
                 {t("histAll.001")} {approvedMatches.length} {t("histAll.002")}
               </div>
               <table className="cs-table">
@@ -3071,7 +3120,7 @@ export default function CustomStats() {
                     .map((m) => renderMatchRow(m, { readOnly: false }))}
                 </tbody>
               </table>
-              <div style={{ fontSize: 13.5, color: theme.textFaint, marginTop: 8 }}>
+              <div style={{ fontSize: 13, color: theme.textFaint, marginTop: 8 }}>
                 {t("histAll.003")}
               </div>
             </>
@@ -3098,79 +3147,79 @@ export default function CustomStats() {
         const RECORD_DEFS = [
           { key: "kill1", label: t("records.001"), rows: top("k").filter((e) => e.k > 0),
             cols: [
-              { label: t("shell.028"), get: (r) => r.name, style: { fontWeight: 600 } },
-              { label: t("records.002"), get: (r) => r.k, style: { fontWeight: 700, fontSize: 18 } },
+              { label: t("shell.028"), get: (r) => r.name, style: { fontWeight: 700 } },
+              { label: t("records.002"), get: (r) => r.k, style: { fontWeight: 700, fontSize: 19 } },
               { label: t("report.017"), get: (r) => <><ChampIcon name={r.champion} />{champLabel(r.champion)}</> },
-              { label: t("records.003"), get: (r) => dateOf(r.ts), style: { color: theme.textFaint, fontSize: 14.5 } },
+              { label: t("records.003"), get: (r) => dateOf(r.ts), style: { color: theme.textFaint, fontSize: 14 } },
             ] },
           { key: "assist1", label: t("records.004"), rows: top("a").filter((e) => e.a > 0),
             cols: [
-              { label: t("shell.028"), get: (r) => r.name, style: { fontWeight: 600 } },
-              { label: t("records.005"), get: (r) => r.a, style: { fontWeight: 700, fontSize: 18 } },
+              { label: t("shell.028"), get: (r) => r.name, style: { fontWeight: 700 } },
+              { label: t("records.005"), get: (r) => r.a, style: { fontWeight: 700, fontSize: 19 } },
               { label: t("report.017"), get: (r) => <><ChampIcon name={r.champion} />{champLabel(r.champion)}</> },
-              { label: t("records.003"), get: (r) => dateOf(r.ts), style: { color: theme.textFaint, fontSize: 14.5 } },
+              { label: t("records.003"), get: (r) => dateOf(r.ts), style: { color: theme.textFaint, fontSize: 14 } },
             ] },
           { key: "death1", label: t("records.006"), rows: top("d").filter((e) => e.d > 0),
             cols: [
-              { label: t("shell.028"), get: (r) => r.name, style: { fontWeight: 600 } },
-              { label: t("records.007"), get: (r) => r.d, style: { fontWeight: 700, fontSize: 18, color: theme.teamB } },
+              { label: t("shell.028"), get: (r) => r.name, style: { fontWeight: 700 } },
+              { label: t("records.007"), get: (r) => r.d, style: { fontWeight: 700, fontSize: 19, color: theme.teamB } },
               { label: t("report.017"), get: (r) => <><ChampIcon name={r.champion} />{champLabel(r.champion)}</> },
-              { label: t("records.003"), get: (r) => dateOf(r.ts), style: { color: theme.textFaint, fontSize: 14.5 } },
+              { label: t("records.003"), get: (r) => dateOf(r.ts), style: { color: theme.textFaint, fontSize: 14 } },
             ] },
           { key: "killTotal", label: t("records.008"), rows: [...agg].filter((x) => x.totalK > 0).sort((x, y) => y.totalK - x.totalK).slice(0, 10),
             cols: [
-              { label: t("shell.028"), get: (r) => r.name, style: { fontWeight: 600 } },
-              { label: t("records.008"), get: (r) => r.totalK, style: { fontWeight: 700, fontSize: 18 } },
+              { label: t("shell.028"), get: (r) => r.name, style: { fontWeight: 700 } },
+              { label: t("records.008"), get: (r) => r.totalK, style: { fontWeight: 700, fontSize: 19 } },
               { label: t("histP.004"), get: (r) => r.kdaGames, style: { color: theme.textSub } },
             ] },
           { key: "assistTotal", label: t("records.009"), rows: [...agg].filter((x) => x.totalA > 0).sort((x, y) => y.totalA - x.totalA).slice(0, 10),
             cols: [
-              { label: t("shell.028"), get: (r) => r.name, style: { fontWeight: 600 } },
-              { label: t("records.009"), get: (r) => r.totalA, style: { fontWeight: 700, fontSize: 18 } },
+              { label: t("shell.028"), get: (r) => r.name, style: { fontWeight: 700 } },
+              { label: t("records.009"), get: (r) => r.totalA, style: { fontWeight: 700, fontSize: 19 } },
               { label: t("histP.004"), get: (r) => r.kdaGames, style: { color: theme.textSub } },
             ] },
           { key: "deathTotal", label: t("records.010"), rows: [...agg].filter((x) => x.totalD > 0).sort((x, y) => y.totalD - x.totalD).slice(0, 10),
             cols: [
-              { label: t("shell.028"), get: (r) => r.name, style: { fontWeight: 600 } },
-              { label: t("records.010"), get: (r) => r.totalD, style: { fontWeight: 700, fontSize: 18, color: theme.teamB } },
+              { label: t("shell.028"), get: (r) => r.name, style: { fontWeight: 700 } },
+              { label: t("records.010"), get: (r) => r.totalD, style: { fontWeight: 700, fontSize: 19, color: theme.teamB } },
               { label: t("histP.004"), get: (r) => r.kdaGames, style: { color: theme.textSub } },
             ] },
           { key: "avgK", label: t("records.011"), rows: [...agg].filter((x) => x.kdaGames >= 3).sort((x, y) => y.avgK - x.avgK).slice(0, 10),
             cols: [
-              { label: t("shell.028"), get: (r) => r.name, style: { fontWeight: 600 } },
-              { label: t("records.011"), get: (r) => r.avgK.toFixed(1), style: { fontWeight: 700, fontSize: 18 } },
+              { label: t("shell.028"), get: (r) => r.name, style: { fontWeight: 700 } },
+              { label: t("records.011"), get: (r) => r.avgK.toFixed(1), style: { fontWeight: 700, fontSize: 19 } },
               { label: t("records.012"), get: (r) => r.kdaGames, style: { color: theme.textSub } },
             ] },
           { key: "avgA", label: t("records.013"), rows: [...agg].filter((x) => x.kdaGames >= 3).sort((x, y) => y.avgA - x.avgA).slice(0, 10),
             cols: [
-              { label: t("shell.028"), get: (r) => r.name, style: { fontWeight: 600 } },
-              { label: t("records.013"), get: (r) => r.avgA.toFixed(1), style: { fontWeight: 700, fontSize: 18 } },
+              { label: t("shell.028"), get: (r) => r.name, style: { fontWeight: 700 } },
+              { label: t("records.013"), get: (r) => r.avgA.toFixed(1), style: { fontWeight: 700, fontSize: 19 } },
               { label: t("records.012"), get: (r) => r.kdaGames, style: { color: theme.textSub } },
             ] },
           { key: "avgD", label: t("records.014"), rows: [...agg].filter((x) => x.kdaGames >= 3).sort((x, y) => y.avgD - x.avgD).slice(0, 10),
             cols: [
-              { label: t("shell.028"), get: (r) => r.name, style: { fontWeight: 600 } },
-              { label: t("records.014"), get: (r) => r.avgD.toFixed(1), style: { fontWeight: 700, fontSize: 18, color: theme.teamB } },
+              { label: t("shell.028"), get: (r) => r.name, style: { fontWeight: 700 } },
+              { label: t("records.014"), get: (r) => r.avgD.toFixed(1), style: { fontWeight: 700, fontSize: 19, color: theme.teamB } },
               { label: t("records.012"), get: (r) => r.kdaGames, style: { color: theme.textSub } },
             ] },
           { key: "wr", label: t("board.006"), rows: [...eligible].sort((x, y) => y.wr - x.wr).slice(0, 10),
             cols: [
-              { label: t("shell.028"), get: (r) => r.name, style: { fontWeight: 600 } },
-              { label: t("board.006"), get: (r) => `${Math.round(r.wr * 100)}%`, style: { fontWeight: 700, fontSize: 18 } },
+              { label: t("shell.028"), get: (r) => r.name, style: { fontWeight: 700 } },
+              { label: t("board.006"), get: (r) => `${Math.round(r.wr * 100)}%`, style: { fontWeight: 700, fontSize: 19 } },
               { label: t("histP.004"), get: (r) => r.games, style: { color: theme.textSub } },
             ] },
           { key: "kda", label: t("records.015"), rows: [...eligible].filter((x) => x.kdaGames >= 5).sort((x, y) => y.kdaRatio - x.kdaRatio).slice(0, 10),
             cols: [
-              { label: t("shell.028"), get: (r) => r.name, style: { fontWeight: 600 } },
-              { label: "KDA", get: (r) => r.kdaRatio.toFixed(2), style: { fontWeight: 700, fontSize: 18 } },
+              { label: t("shell.028"), get: (r) => r.name, style: { fontWeight: 700 } },
+              { label: "KDA", get: (r) => r.kdaRatio.toFixed(2), style: { fontWeight: 700, fontSize: 19 } },
               { label: t("records.012"), get: (r) => r.kdaGames, style: { color: theme.textSub } },
             ] },
           // 参加回数: 勝敗が確定した試合数。閾値を設けず全選手を対象にする(参加を促す指標のため)
           { key: "games", label: t("records.026"), headRight: t("records.027", { n: approvedMatches.length }),
             rows: [...agg].filter((x) => x.games > 0).sort((x, y) => y.games - x.games).slice(0, 10),
             cols: [
-              { label: t("shell.028"), get: (r) => r.name, style: { fontWeight: 600 } },
-              { label: t("records.026"), get: (r) => r.games, style: { fontWeight: 700, fontSize: 18 } },
+              { label: t("shell.028"), get: (r) => r.name, style: { fontWeight: 700 } },
+              { label: t("records.026"), get: (r) => r.games, style: { fontWeight: 700, fontSize: 19 } },
               { label: t("records.028"), get: (r) => (approvedMatches.length ? `${Math.round(r.games / approvedMatches.length * 100)}%` : "-"), style: { color: theme.textSub } },
               { label: t("board.006"), get: (r) => `${Math.round(r.wr * 100)}%`, style: { color: theme.textSub } },
             ] },
@@ -3196,11 +3245,11 @@ export default function CustomStats() {
               <div style={{ fontSize: 15, fontWeight: 700, color: theme.textSub }}>{t("records.025", { n: sideTotal })}</div>
               <div style={{ fontSize: 17, fontWeight: 700, color: theme.accentBright }}>
                 {t("records.018")} {sideTotal ? Math.round(sideAgg.A / sideTotal * 100) : "-"}%
-                <span style={{ fontSize: 13, color: theme.textFaint, fontWeight: 500 }}> ({sideAgg.A}{t("records.019")}</span>
+                <span style={{ fontSize: 13, color: theme.textFaint, fontWeight: 400 }}> ({sideAgg.A}{t("records.019")}</span>
               </div>
               <div style={{ fontSize: 17, fontWeight: 700, color: theme.teamB }}>
                 {t("records.020")} {sideTotal ? Math.round(sideAgg.B / sideTotal * 100) : "-"}%
-                <span style={{ fontSize: 13, color: theme.textFaint, fontWeight: 500 }}> ({sideAgg.B}{t("records.019")}</span>
+                <span style={{ fontSize: 13, color: theme.textFaint, fontWeight: 400 }}> ({sideAgg.B}{t("records.019")}</span>
               </div>
               {sideTotal > 0 && (
                 <div style={{ flex: "1 1 160px", minWidth: 120, height: 10, borderRadius: 5, overflow: "hidden", display: "flex", border: `1px solid ${theme.border}` }}>
@@ -3212,7 +3261,7 @@ export default function CustomStats() {
             <div className="cs-scroll" style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
               {["ALL", ...ROLES].map((r) => (
                 <button key={r} className="cs-btn-ghost"
-                  style={{ padding: "5px 12px", fontSize: 14.5, whiteSpace: "nowrap",
+                  style={{ padding: "5px 12px", fontSize: 14, whiteSpace: "nowrap",
                     borderColor: recordRole === r ? theme.accent : theme.borderInput,
                     color: recordRole === r ? theme.accent : theme.textSub,
                     fontWeight: recordRole === r ? 700 : 400 }}
@@ -3236,9 +3285,9 @@ export default function CustomStats() {
             <div className="cs-side-narrow">
               <div style={cardStyle}>
                 <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
-                  <div style={{ fontSize: 18, fontWeight: 700, color: theme.accent }}>{active.label}（{active.key.startsWith("kill1") || active.key === "assist1" || active.key === "death1" ? t("records.021") : active.key === "wr" || active.key === "kda" ? t("records.022") : t("records.023")}）</div>
+                  <div style={{ fontSize: 19, fontWeight: 700, color: theme.accent }}>{active.label}（{active.key.startsWith("kill1") || active.key === "assist1" || active.key === "death1" ? t("records.021") : active.key === "wr" || active.key === "kda" ? t("records.022") : t("records.023")}）</div>
                   {active.headRight && (
-                    <div style={{ fontSize: 18, fontWeight: 700, color: theme.textSub }}>{active.headRight}</div>
+                    <div style={{ fontSize: 19, fontWeight: 700, color: theme.textSub }}>{active.headRight}</div>
                   )}
                 </div>
                 {active.rows.length === 0 ? (
@@ -3266,10 +3315,10 @@ export default function CustomStats() {
                   <>
                     <div style={{ ...cardStyle, marginBottom: 12, display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                       <div>
-                        <div style={{ fontSize: 20, fontWeight: 800 }}>{detail.p.name}</div>
+                        <div style={{ fontSize: 20, fontWeight: 700 }}>{detail.p.name}</div>
                         <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
                           {detail.roleBadges.map(([role, n]) => (
-                            <span key={role} style={{ fontSize: 12.5, fontWeight: 700, padding: "2px 8px", borderRadius: 10, border: `1px solid ${theme.borderInput}`, color: theme.textSub }}>
+                            <span key={role} style={{ fontSize: 13, fontWeight: 700, padding: "2px 8px", borderRadius: 10, border: `1px solid ${theme.borderInput}`, color: theme.textSub }}>
                               {role} {n}
                             </span>
                           ))}
@@ -3277,31 +3326,31 @@ export default function CustomStats() {
                       </div>
                       <div style={{ display: "flex", gap: 20 }}>
                         <div style={{ textAlign: "center" }}>
-                          <div style={{ fontSize: 12.5, color: theme.textFaint }}>{t("records.031")}</div>
-                          <div style={{ fontSize: 20, fontWeight: 800 }}>{detail.games}</div>
+                          <div style={{ fontSize: 13, color: theme.textFaint }}>{t("records.031")}</div>
+                          <div style={{ fontSize: 20, fontWeight: 700 }}>{detail.games}</div>
                         </div>
                         <div style={{ textAlign: "center" }}>
-                          <div style={{ fontSize: 12.5, color: theme.textFaint }}>{t("board.006")}</div>
-                          <div style={{ fontSize: 20, fontWeight: 800, color: theme.accentBright }}>{Math.round(detail.wr * 100)}%</div>
+                          <div style={{ fontSize: 13, color: theme.textFaint }}>{t("board.006")}</div>
+                          <div style={{ fontSize: 20, fontWeight: 700, color: theme.accentBright }}>{Math.round(detail.wr * 100)}%</div>
                         </div>
                         <div style={{ textAlign: "center" }}>
-                          <div style={{ fontSize: 12.5, color: theme.textFaint }}>KDA</div>
-                          <div style={{ fontSize: 20, fontWeight: 800 }}>{detail.kdaRatio.toFixed(2)}</div>
+                          <div style={{ fontSize: 13, color: theme.textFaint }}>KDA</div>
+                          <div style={{ fontSize: 20, fontWeight: 700 }}>{detail.kdaRatio.toFixed(2)}</div>
                         </div>
                       </div>
                     </div>
 
                     <div className="cs-cols2" style={{ marginBottom: 12 }}>
                       <div style={cardStyle}>
-                        <div style={{ fontSize: 13.5, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("stats.012")}</div>
+                        <div style={{ fontSize: 13, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("stats.012")}</div>
                         {["A", "B"].map((s) => {
                           const st = detail.sideStat[s];
                           const pct = st.g ? Math.round((st.w / st.g) * 100) : 0;
                           return (
                             <div key={s} style={{ marginBottom: 8 }}>
-                              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13.5, fontWeight: 600 }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, fontWeight: 700 }}>
                                 <span>{sideLabel(s)} ({st.g})</span>
-                                <span style={{ fontWeight: 800 }}>{st.g ? `${pct}%` : "-"}</span>
+                                <span style={{ fontWeight: 700 }}>{st.g ? `${pct}%` : "-"}</span>
                               </div>
                               <div style={{ height: 6, borderRadius: 3, background: theme.borderTable, overflow: "hidden", marginTop: 3 }}>
                                 <div style={{ width: `${pct}%`, height: "100%", background: s === "A" ? theme.accentBright : theme.teamB }} />
@@ -3312,7 +3361,7 @@ export default function CustomStats() {
                       </div>
 
                       <div style={cardStyle}>
-                        <div style={{ fontSize: 13.5, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("records.016")}</div>
+                        <div style={{ fontSize: 13, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("records.016")}</div>
                         <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 8 }}>
                           {detail.recent.length === 0 ? (
                             <span style={{ fontSize: 13, color: theme.faintAccent }}>{t("stats.015")}</span>
@@ -3331,19 +3380,19 @@ export default function CustomStats() {
                     </div>
 
                     <div style={{ ...cardStyle, marginBottom: 12 }}>
-                      <div style={{ fontSize: 13.5, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("records.017")}</div>
+                      <div style={{ fontSize: 13, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("records.017")}</div>
                       {scoreBarRows(detail, cmpAvg)}
                     </div>
 
                     <div className="cs-cols2">
                       <div style={cardStyle}>
-                        <div style={{ fontSize: 13.5, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("records.029")}</div>
+                        <div style={{ fontSize: 13, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("records.029")}</div>
                         {detail.synergyList.length === 0 ? (
                           <div style={{ fontSize: 13, color: theme.faintAccent }}>{t("records.024")}</div>
                         ) : detail.synergyList.map((x) => pairRow(x, theme.accentBright))}
                       </div>
                       <div style={cardStyle}>
-                        <div style={{ fontSize: 13.5, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("records.030")}</div>
+                        <div style={{ fontSize: 13, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("records.030")}</div>
                         {detail.counterList.length === 0 ? (
                           <div style={{ fontSize: 13, color: theme.faintAccent }}>{t("records.024")}</div>
                         ) : detail.counterList.map((x) => pairRow(x, theme.teamB))}
@@ -3360,7 +3409,7 @@ export default function CustomStats() {
       {/* ---------- RATE TABLE(ランク別レート基準の早見表) ---------- */}
       {tab === "rateTable" && (
         <div>
-          <div style={{ ...cardStyle, marginBottom: 12, fontSize: 13, color: theme.textSub, lineHeight: 1.6 }}>
+          <div style={{ ...cardStyle, marginBottom: 12, fontSize: 13, color: theme.textSub, lineHeight: 1.7 }}>
             {t("board.015")}
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16, alignItems: "start" }}>
@@ -3370,7 +3419,7 @@ export default function CustomStats() {
                 <tbody>
                   {RANKS.map(([label, mu]) => (
                     <tr key={label}>
-                      <td style={{ fontWeight: 600 }}>{rankLabel(label)}</td>
+                      <td style={{ fontWeight: 700 }}>{rankLabel(label)}</td>
                       <td style={{ fontSize: 17, fontWeight: 700 }}>{mu}</td>
                     </tr>
                   ))}
@@ -3457,7 +3506,7 @@ export default function CustomStats() {
               <div style={{ fontSize: 13, color: theme.textSub }}>
                 {s.games ? t("scoutMulti.018", { w: s.wins, l: s.losses }) : t("scoutMulti.005")}{s.kdRatio ? t("scoutMulti.019", { kda: s.avgKda, kd: s.kdRatio }) : ""}
               </div>
-              <div style={{ fontSize: 12.5, color: theme.textFaint, marginTop: 2, display: "flex", gap: 8, flexWrap: "wrap", justifyContent: align === "right" ? "flex-end" : "flex-start" }}>
+              <div style={{ fontSize: 13, color: theme.textFaint, marginTop: 2, display: "flex", gap: 8, flexWrap: "wrap", justifyContent: align === "right" ? "flex-end" : "flex-start" }}>
                 {s.topChamps.length ? s.topChamps.map(([n, st]) => (
                   <span key={n} style={{ display: "inline-flex", alignItems: "center", gap: 2 }} title={champLabel(n)}>
                     <ChampIcon name={n} size={18} />
@@ -3513,7 +3562,7 @@ export default function CustomStats() {
                   return (
                     <tr key={role} style={{ boxShadow: gapWarn ? `inset 0 0 0 2px ${theme.teamB}` : "none" }}>
                       {sideCell(sa, "right")}
-                      <td style={{ fontWeight: 800, fontSize: 15 }}>
+                      <td style={{ fontWeight: 700, fontSize: 15 }}>
                         {role}
                         {diff != null && (
                           <div style={{ fontSize: 12, fontWeight: 700, color: diff > 0 ? theme.accentBright : diff < 0 ? theme.teamB : theme.textFaint }}>
@@ -3548,7 +3597,7 @@ export default function CustomStats() {
               </tbody>
             </table>
             {matchupWarnings.length > 0 && (
-              <div style={{ fontSize: 12.5, color: theme.textSub, marginTop: 8 }}>
+              <div style={{ fontSize: 13, color: theme.textSub, marginTop: 8 }}>
                 {t("scoutMulti.022", { th: matchupThreshold })}
               </div>
             )}
@@ -3643,10 +3692,10 @@ export default function CustomStats() {
                                 background: p.id === sp.id ? theme.surfaceAlt : theme.surfaceWhite,
                                 opacity: p.status === "rest" ? 0.55 : 1,
                               }}>
-                              <div style={{ fontWeight: 600, fontSize: 15, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              <div style={{ fontWeight: 700, fontSize: 15, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                                 {p.name}{p.status === "rest" && <span style={{ fontSize: 12, color: theme.teamB, marginLeft: 4 }}>{t("stats.006")}</span>}{p.adjust && <span style={{ fontSize: 12, color: theme.accent, marginLeft: 4 }}>{t("stats.007")}</span>}
                               </div>
-                              <div style={{ fontSize: 12.5, color: theme.textFaint }}>
+                              <div style={{ fontSize: 13, color: theme.textFaint }}>
                                 {rankLabel(p.rank)}{wr != null && t("stats.026", { wr })}
                               </div>
                             </div>
@@ -3658,34 +3707,34 @@ export default function CustomStats() {
 
                 <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
                   <div style={{ ...cardStyle, flex: "1 1 160px" }}>
-                    <div style={{ fontSize: 14.5, color: theme.textSub, marginBottom: 6 }}>{t("stats.010")}</div>
+                    <div style={{ fontSize: 14, color: theme.textSub, marginBottom: 6 }}>{t("stats.010")}</div>
                     <div style={{ fontSize: 24, fontWeight: 700 }}>
                       {approvedMatches.length ? Math.round((sp.wins + sp.losses) / approvedMatches.length * 100) : 0}%
-                      <span style={{ fontSize: 14, color: theme.textFaint, fontWeight: 500 }}>{t("stats.027", { a: sp.wins + sp.losses, b: approvedMatches.length })}</span>
+                      <span style={{ fontSize: 14, color: theme.textFaint, fontWeight: 400 }}>{t("stats.027", { a: sp.wins + sp.losses, b: approvedMatches.length })}</span>
                     </div>
                   </div>
                   <div style={{ ...cardStyle, flex: "1 1 160px" }}>
-                    <div style={{ fontSize: 14.5, color: theme.textSub, marginBottom: 6 }}>{t("records.015")}</div>
+                    <div style={{ fontSize: 14, color: theme.textSub, marginBottom: 6 }}>{t("records.015")}</div>
                     <div style={{ fontSize: 24, fontWeight: 700 }}>
                       {profile.kdaRatio.toFixed(2)}
-                      {cmpAvg.kdaRatio != null && <span style={{ fontSize: 14, color: theme.textFaint, fontWeight: 500 }}> {t("records.035", { v: cmpAvg.kdaRatio.toFixed(2) })}</span>}
+                      {cmpAvg.kdaRatio != null && <span style={{ fontSize: 14, color: theme.textFaint, fontWeight: 400 }}> {t("records.035", { v: cmpAvg.kdaRatio.toFixed(2) })}</span>}
                     </div>
                   </div>
                   <div style={{ ...cardStyle, flex: "1 1 160px" }}>
-                    <div style={{ fontSize: 14.5, color: theme.textSub, marginBottom: 6 }}>{t("board.006")}</div>
+                    <div style={{ fontSize: 14, color: theme.textSub, marginBottom: 6 }}>{t("board.006")}</div>
                     <div style={{ fontSize: 24, fontWeight: 700 }}>
                       {Math.round(profile.wr * 100)}%
-                      {cmpAvg.wr != null && <span style={{ fontSize: 14, color: theme.textFaint, fontWeight: 500 }}> {t("records.035", { v: `${Math.round(cmpAvg.wr * 100)}%` })}</span>}
+                      {cmpAvg.wr != null && <span style={{ fontSize: 14, color: theme.textFaint, fontWeight: 400 }}> {t("records.035", { v: `${Math.round(cmpAvg.wr * 100)}%` })}</span>}
                     </div>
                   </div>
                   <div style={{ ...cardStyle, flex: "1 1 200px" }}>
-                    <div style={{ fontSize: 14.5, color: theme.textSub, marginBottom: 6 }}>{t("stats.012")}</div>
+                    <div style={{ fontSize: 14, color: theme.textSub, marginBottom: 6 }}>{t("stats.012")}</div>
                     {["A", "B"].map((s) => {
                       const st = profile.sideStat[s];
                       return (
                         <div key={s} style={{ fontSize: 15, fontWeight: 700, color: s === "A" ? theme.accentBright : theme.teamB }}>
                           {sideLabel(s)}: {st.g ? `${Math.round((st.w / st.g) * 100)}%` : "-"}
-                          <span style={{ fontSize: 12.5, color: theme.textFaint, fontWeight: 500 }}> ({st.w}{t("board.010")}{st.g - st.w}{t("stats.013")}</span>
+                          <span style={{ fontSize: 13, color: theme.textFaint, fontWeight: 400 }}> ({st.w}{t("board.010")}{st.g - st.w}{t("stats.013")}</span>
                         </div>
                       );
                     })}
@@ -3700,7 +3749,7 @@ export default function CustomStats() {
                         color: statsSubTab === key ? theme.accent : theme.textSub,
                         fontWeight: statsSubTab === key ? 700 : 500 }}
                       onClick={() => setStatsSubTab(key)}>
-                      {label}{key === "log" && hist.length > 0 && <span style={{ marginLeft: 6, fontSize: 12.5, color: theme.textFaint }}>{hist.length}</span>}
+                      {label}{key === "log" && hist.length > 0 && <span style={{ marginLeft: 6, fontSize: 13, color: theme.textFaint }}>{hist.length}</span>}
                     </button>
                   ))}
                 </div>
@@ -3710,13 +3759,13 @@ export default function CustomStats() {
                     <div className="cs-cols2-wide">
                       <div>
                         <div style={{ ...cardStyle, marginBottom: 16 }}>
-                          <div style={{ fontSize: 14.5, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("records.017")}{t("stats.032")}</div>
+                          <div style={{ fontSize: 14, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("records.017")}{t("stats.032")}</div>
                           {scoreBarRows(profile, cmpAvg)}
                         </div>
                       </div>
                       <div>
                         <div style={{ ...cardStyle, marginBottom: 16 }}>
-                          <div style={{ fontSize: 14.5, color: theme.textSub, marginBottom: 6 }}>{t("stats.014")}</div>
+                          <div style={{ fontSize: 14, color: theme.textSub, marginBottom: 6 }}>{t("stats.014")}</div>
                           <div style={{ display: "flex", gap: 6, alignItems: "center", minHeight: 36, flexWrap: "wrap" }}>
                             {profile.recent.slice(0, 8).map((h, j) => (
                               <img key={j} src={h.won ? WIN_BADGE_IMG : LOSE_BADGE_IMG} alt={h.won ? t("shell.034") : t("shell.035")} title={h.won ? t("shell.034") : t("shell.035")}
@@ -3726,12 +3775,12 @@ export default function CustomStats() {
                           </div>
                         </div>
                         <div style={{ ...cardStyle, marginBottom: 16 }}>
-                          <div style={{ fontSize: 14.5, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("stats.033")}</div>
+                          <div style={{ fontSize: 14, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("stats.033")}</div>
                           {bestRoles.map((r) => (
                             <div key={r.role} style={{ marginBottom: 8 }}>
-                              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13.5 }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
                                 <span style={{ fontWeight: 700 }}>{r.role}</span>
-                                <span style={{ fontSize: 12.5, color: theme.textSub }}>{t("stats.041", { mu: r.mu.toFixed(1), w: r.wins, l: r.losses })}</span>
+                                <span style={{ fontSize: 13, color: theme.textSub }}>{t("stats.041", { mu: r.mu.toFixed(1), w: r.wins, l: r.losses })}</span>
                               </div>
                               <div style={{ height: 6, borderRadius: 3, background: theme.borderTable, overflow: "hidden", marginTop: 3 }}>
                                 <div style={{ width: `${Math.max(0, Math.min(100, (r.mu / 130) * 100))}%`, height: "100%", background: theme.accentBright }} />
@@ -3740,7 +3789,7 @@ export default function CustomStats() {
                           ))}
                         </div>
                         <div style={{ ...cardStyle, marginBottom: 16 }}>
-                          <div style={{ fontSize: 14.5, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("stats.016")}</div>
+                          <div style={{ fontSize: 14, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("stats.016")}</div>
                           {topChamps.length ? (
                             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 8 }}>
                               {topChamps.map(([n, cnt]) => (
@@ -3756,20 +3805,20 @@ export default function CustomStats() {
 
                     {trendText && (
                       <div style={{ ...cardStyle, marginBottom: 16 }}>
-                        <div style={{ fontSize: 14.5, color: theme.textSub, marginBottom: 6, fontWeight: 700 }}>{t("stats.038")}</div>
-                        <div style={{ fontSize: 14.5, lineHeight: 1.7 }}>{trendText}</div>
+                        <div style={{ fontSize: 14, color: theme.textSub, marginBottom: 6, fontWeight: 700 }}>{t("stats.038")}</div>
+                        <div style={{ fontSize: 14, lineHeight: 1.7 }}>{trendText}</div>
                       </div>
                     )}
 
                     <div className="cs-cols2">
                       <div style={cardStyle}>
-                        <div style={{ fontSize: 14.5, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("records.029")}</div>
+                        <div style={{ fontSize: 14, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("records.029")}</div>
                         {profile.synergyList.length === 0 ? (
                           <div style={{ fontSize: 13, color: theme.faintAccent }}>{t("records.024")}</div>
                         ) : profile.synergyList.map((x) => pairRow(x, theme.accentBright))}
                       </div>
                       <div style={cardStyle}>
-                        <div style={{ fontSize: 14.5, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("records.030")}</div>
+                        <div style={{ fontSize: 14, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("records.030")}</div>
                         {profile.counterList.length === 0 ? (
                           <div style={{ fontSize: 13, color: theme.faintAccent }}>{t("records.024")}</div>
                         ) : profile.counterList.map((x) => pairRow(x, theme.teamB))}
@@ -3790,7 +3839,7 @@ export default function CustomStats() {
                           const av = (f) => n ? (h.reduce((s, x) => s + (x[f] || 0), 0) / n).toFixed(1) : "-";
                           return (
                             <tr key={r.role}>
-                              <td style={{ fontWeight: 600 }}>{r.role}</td>
+                              <td style={{ fontWeight: 700 }}>{r.role}</td>
                               <td><ProfBadge prof={sp.roles[r.role].prof} /></td>
                               <td><ProfBadge prof={effectiveProf(sp.roles[r.role].mu, effectiveBaseMu(sp))} /></td>
                               <td style={{ fontSize: 17, fontWeight: 700 }}>{sp.roles[r.role].mu.toFixed(1)}</td>
@@ -3827,7 +3876,7 @@ export default function CustomStats() {
                           <tbody>
                             {shown.map(([name, b]) => (
                               <tr key={name}>
-                                <td style={{ fontWeight: 600 }}><ChampIcon name={name} />{champLabel(name)}</td>
+                                <td style={{ fontWeight: 700 }}><ChampIcon name={name} />{champLabel(name)}</td>
                                 <td>{b.games}</td>
                                 <td style={{ color: theme.textSub }}>{b.wins}{t("board.010")}{b.games - b.wins}{t("board.011")}</td>
                                 <td>{Math.round((b.wins / b.games) * 100)}%</td>
@@ -3886,7 +3935,7 @@ export default function CustomStats() {
                           {logRows.map((h, i) => (
                             <tr key={i}>
                               <td style={{ color: theme.textSub }}>{new Date(h.ts).toLocaleDateString(dateLocale())}</td>
-                              <td style={{ color: h.side === "A" ? theme.accentBright : theme.teamB, fontWeight: 600 }}>{h.side ? sideLabel(h.side) : "-"}</td>
+                              <td style={{ color: h.side === "A" ? theme.accentBright : theme.teamB, fontWeight: 700 }}>{h.side ? sideLabel(h.side) : "-"}</td>
                               <td>{h.role}</td>
                               <td>{h.champion ? <><ChampIcon name={h.champion} />{champLabel(h.champion)}</> : "-"}</td>
                               <td style={{ fontSize: 17, fontWeight: 700 }}>{h.k != null ? `${h.k}/${h.d}/${h.a}` : "-"}</td>
@@ -3918,7 +3967,7 @@ export default function CustomStats() {
             <div style={{ ...cardStyle, marginBottom: 16, borderColor: theme.accent, display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
               <div style={{ flex: "1 1 240px" }}>
                 <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>{t("balance.002")}</div>
-                <div style={{ fontSize: 13.5, color: theme.textSub }}>
+                <div style={{ fontSize: 13, color: theme.textSub }}>
                   {t("balance.003")}
                 </div>
               </div>
@@ -3942,14 +3991,14 @@ export default function CustomStats() {
                   <div style={{ fontSize: 13, color: theme.textSub, marginBottom: 10 }}>{t("balance.064")}</div>
 
                   {locked.length === 0 ? (
-                    <div style={{ fontSize: 13.5, color: theme.textFaint, marginBottom: 10 }}>{t("balance.070")}</div>
+                    <div style={{ fontSize: 13, color: theme.textFaint, marginBottom: 10 }}>{t("balance.070")}</div>
                   ) : (
                     <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
                       {locked.map((p) => {
                         const pf = prefsMap[p.id] || {};
                         return (
                           <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", borderBottom: `1px solid ${theme.borderTable}`, paddingBottom: 6 }}>
-                            <span style={{ fontSize: 15, fontWeight: 600, minWidth: 80 }}>{p.name}</span>
+                            <span style={{ fontSize: 15, fontWeight: 700, minWidth: 80 }}>{p.name}</span>
                             <select className="cs-input" style={{ padding: "4px 6px", fontSize: 13 }} value={pf.team || "AUTO"}
                               onChange={(e) => setLockPref(p.id, { team: e.target.value })}>
                               <option value="AUTO">{t("balance.015")}</option>
@@ -3963,7 +4012,7 @@ export default function CustomStats() {
                                 <option key={r} value={r}>{r}</option>
                               ))}
                             </select>
-                            <button className="cs-btn-ghost" style={{ padding: "3px 10px", fontSize: 12.5, color: theme.teamB, borderColor: theme.teamB }}
+                            <button className="cs-btn-ghost" style={{ padding: "3px 10px", fontSize: 13, color: theme.teamB, borderColor: theme.teamB }}
                               onClick={() => setLockPref(p.id, { team: "AUTO", role: "AUTO" })}>
                               {t("balance.065")}
                             </button>
@@ -3993,7 +4042,7 @@ export default function CustomStats() {
                       setPrefsBatch({ [xId]: { team: "A", role }, [yId]: { team: "B", role } });
                     }} />
                     {locked.length > 0 && (
-                      <button className="cs-btn-ghost" style={{ padding: "5px 14px", fontSize: 13.5, color: theme.teamB, borderColor: theme.teamB, fontWeight: 700 }}
+                      <button className="cs-btn-ghost" style={{ padding: "5px 14px", fontSize: 13, color: theme.teamB, borderColor: theme.teamB, fontWeight: 700 }}
                         onClick={async () => {
                           if (!(await themedConfirm(t("balance.073")))) return;
                           const patches = {};
@@ -4011,14 +4060,14 @@ export default function CustomStats() {
             {/* 対面レート格差の警告しきい値(全端末共有・管理者PASSで変更) */}
             <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: theme.textSub, marginBottom: 16 }}>
               <span>{t("balance.079", { v: matchupThreshold })}</span>
-              <button className="cs-btn-ghost" style={{ padding: "3px 10px", fontSize: 12.5 }} onClick={editMatchupThreshold}>
+              <button className="cs-btn-ghost" style={{ padding: "3px 10px", fontSize: 13 }} onClick={editMatchupThreshold}>
                 {t("balance.083")}
               </button>
             </div>
 
             {/* 対面レート格差の警告バナー: 2カラムの狭い右側ではなく全幅で表示する(折り返し防止) */}
             {matchupWarnings.length > 0 && (
-              <div style={{ border: `1px solid ${theme.teamB}`, background: theme.surfaceAlt, borderRadius: 6, padding: 10, marginBottom: 16, fontSize: 13.5 }}>
+              <div className="cs-prose" style={{ border: `1px solid ${theme.teamB}`, background: theme.surfaceAlt, borderRadius: 6, padding: 10, marginBottom: 16, fontSize: 13 }}>
                 <div style={{ color: theme.teamB, fontWeight: 700, marginBottom: 4 }}>
                   {t("balance.077", { n: matchupWarnings.length, th: matchupThreshold })}
                 </div>
@@ -4062,7 +4111,7 @@ export default function CustomStats() {
                 </div>
 
                 {session.roster.length > 0 && (
-                  <div style={{ fontSize: 13.5, color: theme.textFaint, marginBottom: 12, lineHeight: 1.7 }}>
+                  <div style={{ fontSize: 13, color: theme.textFaint, marginBottom: 12, lineHeight: 1.7 }}>
                     {t("balance.056", { n: Math.min(10, session.roster.length) })}
                     {seating.overflow && <span style={{ color: theme.teamB }}> {t("balance.012")}</span>}
                   </div>
@@ -4079,14 +4128,14 @@ export default function CustomStats() {
                       return (
                         <div key={id} style={{ borderBottom: `1px solid ${theme.borderTable}`, paddingBottom: 8 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
-                            <span style={{ fontSize: 15, fontWeight: 600, minWidth: 80 }}>{p.name}</span>
+                            <span style={{ fontSize: 15, fontWeight: 700, minWidth: 80 }}>{p.name}</span>
                             <select className="cs-input" style={{ padding: "4px 6px", fontSize: 13 }} value={pref.team}
                               onChange={(e) => setPref(id, { team: e.target.value })}>
                               <option value="AUTO">{t("balance.015")}</option>
                               <option value="A">{t("balance.016")}</option>
                               <option value="B">{t("balance.017")}</option>
                             </select>
-                            <button className="cs-btn-ghost" style={{ padding: "3px 8px", fontSize: 12.5, color: theme.teamB, borderColor: theme.teamB }}
+                            <button className="cs-btn-ghost" style={{ padding: "3px 8px", fontSize: 13, color: theme.teamB, borderColor: theme.teamB }}
                               onClick={() => setPref(id, { force: "bench" })}>
                               {t("balance.018")}
                             </button>
@@ -4143,13 +4192,13 @@ export default function CustomStats() {
                       {balanceResult.manual && <span style={{ color: theme.accent, fontWeight: 700, marginLeft: 6 }}>{t("balance.030")}</span>}
                     </div>
                     {liveNgCount > 0 && (
-                      <div style={{ ...cardStyle, borderColor: theme.teamB, marginBottom: 12, color: theme.teamB, fontSize: 13.5, fontWeight: 600 }}>
+                      <div style={{ ...cardStyle, borderColor: theme.teamB, marginBottom: 12, color: theme.teamB, fontSize: 13, fontWeight: 700 }}>
                         {t("balance.031")}{liveNgCount}{t("balance.032")}
                       </div>
                     )}
                     {swapSel && (
                       <div style={{ marginBottom: 12 }}>
-                        <button className="cs-btn" style={{ fontSize: 14.5, padding: "8px 18px" }} onClick={() => setSubPickerOpen(true)}>
+                        <button className="cs-btn" style={{ fontSize: 14, padding: "8px 18px" }} onClick={() => setSubPickerOpen(true)}>
                           {t("balance.059")}
                         </button>
                       </div>
@@ -4164,7 +4213,7 @@ export default function CustomStats() {
                           <div onClick={(e) => e.stopPropagation()}
                             style={{ ...cardStyle, background: theme.surface, width: "min(560px, 96vw)", maxHeight: "80vh", overflowY: "auto", padding: 22, boxShadow: "0 8px 40px rgba(0,0,0,.4)" }}>
                             <div style={{ fontSize: 19, fontWeight: 700, color: theme.accent, marginBottom: 4 }}>{t("balance.059")}</div>
-                            <div style={{ fontSize: 14.5, color: theme.textSub, marginBottom: 14 }}>
+                            <div style={{ fontSize: 14, color: theme.textSub, marginBottom: 14 }}>
                               {slot ? `${slot.role} / ${slot.name}` : ""} → {t("balance.060")}
                             </div>
                             <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
@@ -4174,7 +4223,7 @@ export default function CustomStats() {
                                 const ng = slot && (p.ngRoles || []).includes(slot.role);
                                 return (
                                   <button key={p.id} className="cs-btn-ghost" disabled={ng}
-                                    style={{ padding: "10px 18px", fontSize: 16, fontWeight: 600, opacity: ng ? 0.4 : 1,
+                                    style={{ padding: "10px 18px", fontSize: 16, fontWeight: 700, opacity: ng ? 0.4 : 1,
                                       borderColor: ng ? theme.borderInput : theme.accent }}
                                     onClick={() => handleSubstitute(p.id)}>
                                     {p.name}{ng ? " (NG)" : ""}
@@ -4183,7 +4232,7 @@ export default function CustomStats() {
                               })}
                             </div>
                             <div style={{ marginTop: 18, textAlign: "right" }}>
-                              <button className="cs-btn-ghost" style={{ padding: "8px 20px", fontSize: 14.5 }} onClick={() => setSubPickerOpen(false)}>
+                              <button className="cs-btn-ghost" style={{ padding: "8px 20px", fontSize: 14 }} onClick={() => setSubPickerOpen(false)}>
                                 {t("balance.071")}
                               </button>
                             </div>
@@ -4238,7 +4287,7 @@ export default function CustomStats() {
                                     <span style={{ color: theme.textFaint, fontSize: 14 }}> ({bp.mu.toFixed(1)})</span>
                                     {liveWanted && <span title={t("balance.034")} style={{ color: theme.accent, marginLeft: 4 }}>★</span>}
                                     {liveNg && <span title={t("balance.035")} style={{ color: theme.teamB, marginLeft: 4, fontWeight: 700 }}>⚠ NG</span>}
-                                    {gapWarn && <span title={t("balance.076")} style={{ color: theme.teamB, fontWeight: 700, fontSize: 12.5, marginLeft: 6 }}>⚠ {t("balance.078", { diff: gapWarn.diff.toFixed(1) })}</span>}
+                                    {gapWarn && <span title={t("balance.076")} style={{ color: theme.teamB, fontWeight: 700, fontSize: 13, marginLeft: 6 }}>⚠ {t("balance.078", { diff: gapWarn.diff.toFixed(1) })}</span>}
                                     {p?.summonerName && (
                                       // カスタム招待でそのまま貼れるよう、Riot IDをタップでクリップボードにコピーできるようにする
                                       <span onClick={(ev) => {
@@ -4250,7 +4299,7 @@ export default function CustomStats() {
                                         } catch { /* クリップボード非対応環境では何もしない */ }
                                       }}
                                         title={p.summonerName}
-                                        style={{ color: theme.textSub, fontSize: 13, marginLeft: 8, cursor: "pointer", textDecoration: "underline dotted", fontWeight: 500 }}>
+                                        style={{ color: theme.textSub, fontSize: 13, marginLeft: 8, cursor: "pointer", textDecoration: "underline dotted", fontWeight: 400 }}>
                                         {p.summonerName}
                                       </span>
                                     )}
@@ -4258,30 +4307,30 @@ export default function CustomStats() {
                                       <span style={{ color: theme.accentBright, fontSize: 12, marginLeft: 6, fontWeight: 700 }}>{t("scoutMulti.020")}</span>
                                     )}
                                   </div>
-                                  <div style={{ fontSize: 14.5, color: theme.text, marginTop: 3, fontWeight: 600 }}>
+                                  <div style={{ fontSize: 14, color: theme.text, marginTop: 3, fontWeight: 700 }}>
                                     {t("balance.036")} <b style={{ color: wr == null ? theme.textFaint : wr >= 50 ? theme.accentBright : theme.teamB }}>
                                       {wr == null ? t("stats.015") : `${wr}%`}
                                     </b>
-                                    {total > 0 && <span style={{ color: theme.textSub, fontWeight: 500 }}>{t("balance.054", { total, w: p.wins, l: p.losses })}</span>}
+                                    {total > 0 && <span style={{ color: theme.textSub, fontWeight: 400 }}>{t("balance.054", { total, w: p.wins, l: p.losses })}</span>}
                                     {link && (
-                                      <a href={link} target="_blank" rel="noopener noreferrer" onClick={(ev) => ev.stopPropagation()} style={{ display: "inline-flex", alignItems: "center", gap: 3, color: theme.accentBright, marginLeft: 10, fontWeight: 600 }}>
+                                      <a href={link} target="_blank" rel="noopener noreferrer" onClick={(ev) => ev.stopPropagation()} style={{ display: "inline-flex", alignItems: "center", gap: 3, color: theme.accentBright, marginLeft: 10, fontWeight: 700 }}>
                                         <ExternalLink size={14} />{t("scoutMulti.002")}
                                       </a>
                                     )}
                                   </div>
-                                  <div style={{ fontSize: 14.5, color: theme.text, marginTop: 3, fontWeight: 600 }}>
+                                  <div style={{ fontSize: 14, color: theme.text, marginTop: 3, fontWeight: 700 }}>
                                     {bp.role}{t("balance.038")}{" "}
                                     {bestChamp ? (
                                       <>
                                         <ChampIcon name={bestChamp[0]} size={16} />
                                         <b style={{ color: theme.text }}>{champLabel(bestChamp[0])}</b>
-                                        <span style={{ color: theme.textSub, fontWeight: 500 }}>
+                                        <span style={{ color: theme.textSub, fontWeight: 400 }}>
                                           {t("balance.039")}{" "}
                                           <b style={{ color: theme.accentBright, fontWeight: 700 }}>{Math.round((bestChamp[1].wins / bestChamp[1].games) * 100)}%</b>
                                           {bestChamp[1].kn > 0 && ` KDA: ${(bestChamp[1].k / bestChamp[1].kn).toFixed(1)}/${(bestChamp[1].d / bestChamp[1].kn).toFixed(1)}/${(bestChamp[1].a / bestChamp[1].kn).toFixed(1)}`}）
                                         </span>
                                       </>
-                                    ) : <span style={{ color: theme.textFaint, fontWeight: 500 }}>{t("stats.015")}</span>}
+                                    ) : <span style={{ color: theme.textFaint, fontWeight: 400 }}>{t("stats.015")}</span>}
                                   </div>
                                 </div>
                               );
@@ -4296,8 +4345,8 @@ export default function CustomStats() {
                       <datalist id="champListBan">
                         {[...(ddChamps ? ddChamps.map((x) => x.name) : CHAMPIONS), ...customChamps].map((ch) => <option key={ch} value={champLabel(ch)} />)}
                       </datalist>
-                      <div style={{ fontSize: 14.5, fontWeight: 700, marginBottom: 4 }}>{t("balance.040")}</div>
-                      <div style={{ fontSize: 12.5, color: theme.textFaint, marginBottom: 10 }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{t("balance.040")}</div>
+                      <div style={{ fontSize: 13, color: theme.textFaint, marginBottom: 10 }}>
                         {t("balance.041")}
                       </div>
                       <div className="cs-cols2">
@@ -4306,7 +4355,7 @@ export default function CustomStats() {
                           const list = (balanceResult.banProtect || { A: [], B: [] })[side] || [];
                           return (
                             <div key={side}>
-                              <div style={{ color, fontWeight: 700, marginBottom: 6, fontSize: 14.5 }}>{sideLabel(side)}</div>
+                              <div style={{ color, fontWeight: 700, marginBottom: 6, fontSize: 14 }}>{sideLabel(side)}</div>
                               <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8, minHeight: 26 }}>
                                 {list.length === 0 && <span style={{ fontSize: 13, color: theme.textFaint }}>{t("balance.042")}</span>}
                                 {list.map((champ) => (
@@ -4317,11 +4366,11 @@ export default function CustomStats() {
                                 ))}
                               </div>
                               <div style={{ display: "flex", gap: 6 }}>
-                                <input className="cs-input" list="champListBan" style={{ flex: 1, minWidth: 0, padding: "5px 8px", fontSize: 13.5 }}
+                                <input className="cs-input" list="champListBan" style={{ flex: 1, minWidth: 0, padding: "5px 8px", fontSize: 13 }}
                                   placeholder={t("balance.043")} value={banInput[side]}
                                   onChange={(e) => setBanInput({ ...banInput, [side]: e.target.value })}
                                   onKeyDown={(e) => { if (e.key === "Enter") { addBanProtect(side, banInput[side]); setBanInput({ ...banInput, [side]: "" }); } }} />
-                                <button className="cs-btn-ghost" style={{ padding: "5px 12px", fontSize: 13.5 }}
+                                <button className="cs-btn-ghost" style={{ padding: "5px 12px", fontSize: 13 }}
                                   onClick={() => { addBanProtect(side, banInput[side]); setBanInput({ ...banInput, [side]: "" }); }}>{t("balance.044")}</button>
                               </div>
                             </div>
@@ -4331,10 +4380,10 @@ export default function CustomStats() {
                     </div>
                     </div>
 
-                    <div style={{ fontSize: 13.5, color: theme.textFaint, marginTop: 8, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                    <div style={{ fontSize: 13, color: theme.textFaint, marginTop: 8, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                       <span>{t("balance.045")} {balanceResult.diff.toFixed(1)} {t("balance.046")} {balanceResult.laneDiff.toFixed(1)}</span>
                       <button className="cs-btn-ghost" title={t("balance.084")}
-                        style={{ padding: "1px 8px", fontSize: 12.5, lineHeight: 1.5, fontWeight: 700 }}
+                        style={{ padding: "1px 8px", fontSize: 13, lineHeight: 1.5, fontWeight: 700 }}
                         onClick={() => themedAlert([
                           t("balance.084"), "",
                           t("balance.085"), "",
@@ -4450,7 +4499,7 @@ export default function CustomStats() {
                 {(p.prefRoles || []).length ? p.prefRoles.map((r) => `★${r}`).join(" ") : "-"}
               </div>
             </div>
-            <div style={{ fontSize: 12, color: theme.textSub, flexShrink: 0, textAlign: "right" }}>
+            <div className="cs-prose" style={{ fontSize: 12, color: theme.textSub, textAlign: "right" }}>
               {rightText(p, colKey)}
             </div>
           </div>
@@ -4479,8 +4528,8 @@ export default function CustomStats() {
                           border: `1px solid ${p.id === myPlayerId ? theme.accentBright : theme.borderInput}`,
                           background: p.id === myPlayerId ? theme.surfaceAlt : theme.surfaceWhite,
                         }}>
-                        <div style={{ fontWeight: 600, fontSize: 15 }}>{p.name}</div>
-                        <div style={{ fontSize: 12.5, color: theme.textFaint }}>{rankLabel(p.rank)}</div>
+                        <div style={{ fontWeight: 700, fontSize: 15 }}>{p.name}</div>
+                        <div style={{ fontSize: 13, color: theme.textFaint }}>{rankLabel(p.rank)}</div>
                       </div>
                     ))}
                 </div>
@@ -4490,9 +4539,9 @@ export default function CustomStats() {
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
                   <div>
                     <div style={{ fontSize: 15, fontWeight: 700, color: theme.accent }}>{t("attend.017")}</div>
-                    <div style={{ fontSize: 12.5, color: theme.textFaint }}>{t("attend.018")}</div>
+                    <div style={{ fontSize: 13, color: theme.textFaint }}>{t("attend.018")}</div>
                   </div>
-                  <div style={{ fontSize: 12.5, color: theme.textFaint }}>
+                  <div style={{ fontSize: 13, color: theme.textFaint }}>
                     {myPlayer.respondedAt && t("attend.019", { time: new Date(myPlayer.respondedAt).toLocaleTimeString(dateLocale(), { hour: "2-digit", minute: "2-digit" }) })}
                   </div>
                 </div>
@@ -4501,11 +4550,11 @@ export default function CustomStats() {
                     <div style={{ fontWeight: 700, fontSize: 17 }}>{myPlayer.name}</div>
                     <div style={{ fontSize: 13, color: theme.textSub }}>{rankLabel(myPlayer.rank)} ・ {t("stats.004")} {myPlayer.wins}{t("board.010")}{myPlayer.losses}{t("board.011")}</div>
                   </div>
-                  <button className="cs-btn-ghost" style={{ padding: "3px 10px", fontSize: 12.5, marginLeft: "auto" }} onClick={() => setMyPickerOpen(true)}>{t("attend.030")}</button>
+                  <button className="cs-btn-ghost" style={{ padding: "3px 10px", fontSize: 13, marginLeft: "auto" }} onClick={() => setMyPickerOpen(true)}>{t("attend.030")}</button>
                 </div>
 
                 <div style={{ fontSize: 13, color: theme.textSub, marginBottom: 6, fontWeight: 700 }}>{t("attend.025")}</div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(90px, 1fr))", gap: 6, marginBottom: 6 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(90px, 130px))", gap: 6, marginBottom: 6 }}>
                   {ROLES.map((r) => {
                     const wanted = (myPlayer.prefRoles || []).includes(r);
                     const isNg = (myPlayer.ngRoles || []).includes(r);
@@ -4516,7 +4565,7 @@ export default function CustomStats() {
                           background: isNg ? theme.teamB : wanted ? theme.accent : theme.surfaceAlt,
                           color: isNg || wanted ? "#FFF8EC" : theme.text,
                         }}>
-                        <div style={{ fontSize: 12.5, fontWeight: 700 }}>{r}{wanted && " ★"}{isNg && " ✕"}</div>
+                        <div style={{ fontSize: 13, fontWeight: 700 }}>{r}{wanted && " ★"}{isNg && " ✕"}</div>
                         <div style={{ fontSize: 17, fontWeight: 700 }}>{myPlayer.roles[r].mu.toFixed(1)}</div>
                         <div style={{ fontSize: 11, opacity: 0.85 }}>{t("board.019")}<ProfBadge prof={myPlayer.roles[r].prof} /></div>
                       </div>
@@ -4564,17 +4613,17 @@ export default function CustomStats() {
 
             <div style={{ ...cardStyle, marginBottom: 16 }}>
               <div style={{ fontSize: 13, color: theme.textSub, marginBottom: 4 }}>{t("attend.001")}</div>
-              <div style={{ fontSize: 22, fontWeight: 800, marginBottom: 4 }}>
+              <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>
                 {matchesPossible >= 1 ? t("attend.002", { n: activeCount, m: matchesPossible }) : t("attend.003", { n: activeCount })}
               </div>
               {matchesPossible >= 1 && (buckets.adjust.length > 0 || remainder > 0) && (
-                <div style={{ fontSize: 12.5, color: theme.textFaint, marginBottom: 14 }}>
+                <div style={{ fontSize: 13, color: theme.textFaint, marginBottom: 14 }}>
                   {buckets.adjust.length > 0 && t("attend.004", { n: buckets.adjust.length })}
                   {remainder > 0 && t("attend.005", { n: 10 - remainder })}
                 </div>
               )}
               {need > 0 && (
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 14 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 260px))", gap: 14 }}>
                   {roleForecast.map((r) => {
                     const statusLabel = r.status === "short" ? t("attend.009") : r.status === "exact" ? t("attend.008") : r.status === "over" ? t("attend.007") : t("attend.006");
                     const barColor = r.status === "short" ? theme.teamB : r.status === "over" ? theme.accent : theme.accentBright;
@@ -4599,7 +4648,7 @@ export default function CustomStats() {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
               <div>
                 <span style={{ fontSize: 15, fontWeight: 700 }}>{t("attend.011", { n: players.length })}</span>
-                <span style={{ fontSize: 12.5, color: theme.textFaint, marginLeft: 10 }}>{t("attend.012")}</span>
+                <span style={{ fontSize: 13, color: theme.textFaint, marginLeft: 10 }}>{t("attend.012")}</span>
               </div>
               <div style={{ display: "flex", gap: 10 }}>
                 <button className="cs-btn-ghost" style={{ padding: "4px 12px", fontSize: 13 }} onClick={() => setTab("playerList")}>{t("attend.014")}</button>
@@ -4616,10 +4665,10 @@ export default function CustomStats() {
                       <span style={{ fontWeight: 700, color: col.color }}>{arr.length}</span>
                     </div>
                     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                      {shown.length === 0 ? <span style={{ fontSize: 12.5, color: theme.faintAccent }}>-</span> : shown.map((p) => renderCard(p, col.key))}
+                      {shown.length === 0 ? <span style={{ fontSize: 13, color: theme.faintAccent }}>-</span> : shown.map((p) => renderCard(p, col.key))}
                     </div>
                     {arr.length > 6 && !attendExpanded[col.key] && (
-                      <button className="cs-btn-ghost" style={{ marginTop: 8, padding: "3px 10px", fontSize: 12.5, width: "100%" }}
+                      <button className="cs-btn-ghost" style={{ marginTop: 8, padding: "3px 10px", fontSize: 13, width: "100%" }}
                         onClick={() => setAttendExpanded({ ...attendExpanded, [col.key]: true })}>
                         {t("attend.016", { n: arr.length - 6 })}
                       </button>
@@ -4641,7 +4690,7 @@ export default function CustomStats() {
               <button className="cs-btn-ghost" style={{ padding: "3px 10px", fontSize: 13 }} title={t("balance.006")} onClick={resetTodayCount}>{t("balance.007")}</button>
             </div>
             {activePlayersByQueue.length === 0 ? (
-              <div style={{ fontSize: 13.5, color: theme.textFaint }}>{t("queue.002")}</div>
+              <div style={{ fontSize: 13, color: theme.textFaint }}>{t("queue.002")}</div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                 {activePlayersByQueue.map((p, i) => {
@@ -4651,8 +4700,8 @@ export default function CustomStats() {
                       display: "flex", alignItems: "center", gap: 8, padding: "4px 6px", borderRadius: 4,
                       background: seatCandidate ? "rgba(217,143,50,0.08)" : "transparent",
                     }}>
-                      <span style={{ fontSize: 12.5, color: seatCandidate ? theme.accentBright : theme.textFaint, fontWeight: 700, width: 22, textAlign: "right" }}>{i + 1}</span>
-                      <span style={{ fontSize: 14.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }} title={p.name}>
+                      <span style={{ fontSize: 13, color: seatCandidate ? theme.accentBright : theme.textFaint, fontWeight: 700, width: 22, textAlign: "right" }}>{i + 1}</span>
+                      <span style={{ fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }} title={p.name}>
                         {p.name}{p.adjust && <span style={{ fontSize: 11.5, color: theme.accent, marginLeft: 5 }}>{t("queue.003")}</span>}
                       </span>
                       <span style={{ fontSize: 13, color: theme.textSub, flexShrink: 0 }}>{t("balance.009")} {todayCounts[p.id] || 0} {t("scoutMulti.006")}</span>
@@ -4672,11 +4721,11 @@ export default function CustomStats() {
         <div style={{ maxWidth: 900 }}>
           <div style={{ ...cardStyle, padding: 0, overflow: "hidden" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 20px", borderBottom: `1px solid ${theme.borderTable}` }}>
-              <span style={{ fontSize: 18, fontWeight: 700 }}>{t("players.001")}</span>
+              <span style={{ fontSize: 19, fontWeight: 700 }}>{t("players.001")}</span>
               <X size={20} style={{ cursor: "pointer", color: theme.textFaint }} onClick={resetNewPlayerForm} />
             </div>
             <div style={{ padding: 20 }}>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16, marginBottom: 16 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 420px))", gap: 16, marginBottom: 16 }}>
                 <div>
                   <label style={{ ...labelStyle, fontSize: 14 }}>{t("players.002")}</label>
                   <input className="cs-input" style={{ width: "100%", boxSizing: "border-box" }} placeholder={t("players.070")}
@@ -4708,7 +4757,7 @@ export default function CustomStats() {
                       const pt = Math.round(baseMu * PROF_RATE[newProfs[r]] * 10) / 10;
                       return (
                         <div key={r} style={{ border: `1px solid ${theme.borderInput}`, borderRadius: 8, padding: "8px 2px", textAlign: "center", minWidth: 0 }}>
-                          <div style={{ fontSize: 12.5, fontWeight: 700, color: theme.textSub, marginBottom: 6 }}>{r}</div>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: theme.textSub, marginBottom: 6 }}>{r}</div>
                           <div style={{ display: "flex", justifyContent: "center", gap: 3, marginBottom: 6 }}>
                             {PROFS.map((pf) => (
                               <button key={pf} onClick={() => setNewProfs({ ...newProfs, [r]: pf })}
@@ -4744,10 +4793,10 @@ export default function CustomStats() {
       )}
 
       {tab === "playerData" && (
-        <div style={{ maxWidth: 640 }}>
+        <div>
           <div style={{ ...cardStyle, marginBottom: 16 }}>
             <label style={labelStyle}>{t("players.008")}</label>
-            <div style={{ fontSize: 13.5, color: theme.textFaint, marginBottom: 8 }}>
+            <div style={{ fontSize: 13, color: theme.textFaint, marginBottom: 8 }}>
               {t("players.009")}
             </div>
             <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap", alignItems: "center" }}>
@@ -4767,7 +4816,7 @@ export default function CustomStats() {
           {customChamps.length > 0 && (
             <div style={{ ...cardStyle, marginBottom: 16 }}>
               <label style={labelStyle}>{t("players.046", { n: customChamps.length })}</label>
-              <div style={{ fontSize: 13.5, color: theme.textFaint, marginBottom: 8 }}>
+              <div style={{ fontSize: 13, color: theme.textFaint, marginBottom: 8 }}>
                 {t("players.018")}
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
@@ -4837,8 +4886,8 @@ export default function CustomStats() {
               <input className="cs-input" style={{ flex: "1 1 220px" }} placeholder={t("players.051")}
                 value={playerSearch} onChange={(e) => { setPlayerSearch(e.target.value); setListLimit(20); }} />
               <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ fontSize: 13.5, color: theme.textSub }}>{t("players.022")}</span>
-                <select className="cs-input" style={{ padding: "4px 8px", fontSize: 13.5 }} value={playerSort} onChange={(e) => setPlayerSort(e.target.value)}>
+                <span style={{ fontSize: 13, color: theme.textSub }}>{t("players.022")}</span>
+                <select className="cs-input" style={{ padding: "4px 8px", fontSize: 13 }} value={playerSort} onChange={(e) => setPlayerSort(e.target.value)}>
                   <option value="name">{t("players.023")}</option>
                   <option value="rate_desc">{t("players.024")}</option>
                   <option value="rate_asc">{t("players.025")}</option>
@@ -4859,7 +4908,7 @@ export default function CustomStats() {
                 ["noResponse", t("attend.037"), players.filter(isStaleResponse).length],
               ].map(([key, label, count]) => (
                 <button key={key} className="cs-btn-ghost" style={{
-                  padding: "3px 12px", fontSize: 13.5,
+                  padding: "3px 12px", fontSize: 13,
                   borderColor: playerFilter === key ? theme.accent : theme.borderInput,
                   color: playerFilter === key ? theme.accent : theme.textSub,
                   fontWeight: playerFilter === key ? 700 : 500,
@@ -4868,7 +4917,7 @@ export default function CustomStats() {
                 </button>
               ))}
               {myPlayerId && (
-                <button className="cs-btn-ghost" style={{ padding: "3px 12px", fontSize: 13.5, marginLeft: "auto" }} onClick={jumpToMe}>
+                <button className="cs-btn-ghost" style={{ padding: "3px 12px", fontSize: 13, marginLeft: "auto" }} onClick={jumpToMe}>
                   {t("players.062")}
                 </button>
               )}
@@ -5000,7 +5049,7 @@ export default function CustomStats() {
                               {myReq && (() => {
                                 const profDiffs = ROLES.filter((r) => myReq.toProfs[r] !== myReq.fromProfs[r]);
                                 return (
-                                  <div style={{ fontSize: 12.5, color: theme.accent, padding: "6px 4px" }}>
+                                  <div style={{ fontSize: 13, color: theme.accent, padding: "6px 4px" }}>
                                     <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                                       <span>{t("players.035")}</span>
                                       <button className="cs-btn-ghost" style={{ padding: "1px 8px", fontSize: 11.5 }} onClick={() => cancelRankRequest(myReq.id)}>{t("players.036")}</button>
@@ -5013,15 +5062,15 @@ export default function CustomStats() {
                               {!myReq && rankReqOpenFor === p.id && (
                                 <div style={{ padding: 8 }}>
                                   <div style={{ fontSize: 12, color: theme.textSub, marginBottom: 4 }}>{t("players.037")}</div>
-                                  <select className="cs-input" style={{ padding: "3px 6px", fontSize: 12.5, marginBottom: 8 }} value={rankReqValue} onChange={(e) => setRankReqValue(e.target.value)}>
+                                  <select className="cs-input" style={{ padding: "3px 6px", fontSize: 13, marginBottom: 8 }} value={rankReqValue} onChange={(e) => setRankReqValue(e.target.value)}>
                                     {RANKS.map(([label]) => <option key={label} value={label}>{rankLabel(label)}</option>)}
                                   </select>
                                   <div style={{ fontSize: 12, color: theme.textSub, marginBottom: 4 }}>{t("players.038")}</div>
                                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
                                     {ROLES.map((r) => (
-                                      <label key={r} style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 12.5 }}>
+                                      <label key={r} style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 13 }}>
                                         {r}
-                                        <select className="cs-input" style={{ padding: "2px 4px", fontSize: 12.5 }}
+                                        <select className="cs-input" style={{ padding: "2px 4px", fontSize: 13 }}
                                           value={rankReqProfs[r] ?? p.roles[r].prof}
                                           onChange={(e) => setRankReqProfs({ ...rankReqProfs, [r]: e.target.value })}>
                                           {PROFS.map((pr) => <option key={pr} value={pr}>{pr}</option>)}
@@ -5029,14 +5078,14 @@ export default function CustomStats() {
                                       </label>
                                     ))}
                                   </div>
-                                  <button className="cs-btn" style={{ padding: "3px 10px", fontSize: 12.5, marginRight: 6 }}
+                                  <button className="cs-btn" style={{ padding: "3px 10px", fontSize: 13, marginRight: 6 }}
                                     onClick={async () => {
                                       const toProfs = {};
                                       ROLES.forEach((r) => { toProfs[r] = rankReqProfs[r] ?? p.roles[r].prof; });
                                       await submitRankRequest(p.id, rankReqValue, toProfs);
                                       setRankReqOpenFor(null); setRankReqProfs({});
                                     }}>{t("players.039")}</button>
-                                  <button className="cs-btn-ghost" style={{ padding: "3px 10px", fontSize: 12.5 }} onClick={() => { setRankReqOpenFor(null); setRankReqProfs({}); }}>{t("players.040")}</button>
+                                  <button className="cs-btn-ghost" style={{ padding: "3px 10px", fontSize: 13 }} onClick={() => { setRankReqOpenFor(null); setRankReqProfs({}); }}>{t("players.040")}</button>
                                 </div>
                               )}
                               {editId === p.id && editForm && (
@@ -5117,7 +5166,7 @@ const cardStyle = { background: theme.surface, border: `1px solid ${theme.border
 
 function EmptyState({ text }) {
   return (
-    <div style={{ ...cardStyle, textAlign: "center", color: theme.textFaint, padding: 32, fontSize: 16.5 }}>
+    <div style={{ ...cardStyle, textAlign: "center", color: theme.textFaint, padding: 32, fontSize: 15 }}>
       {text}
     </div>
   );
@@ -5173,7 +5222,7 @@ function MatchEditForm({ form, players, setEntryField, setKda, setEntryPlayer, s
 function MatchTeams({ m, nameOf }) {
   const side = (t, color) => (
     <div style={{ flex: 1 }}>
-      <span style={{ color: m.winner === t ? color : theme.textSub, fontWeight: 600 }}>
+      <span style={{ color: m.winner === t ? color : theme.textSub, fontWeight: 700 }}>
         {sideLabel(t)} {m.winner === t && "🏆"}
       </span>
       <div style={{ color: theme.textSub }}>
@@ -5182,7 +5231,7 @@ function MatchTeams({ m, nameOf }) {
     </div>
   );
   return (
-    <div style={{ display: "flex", gap: 16, fontSize: 16.5 }}>
+    <div style={{ display: "flex", gap: 16, fontSize: 15 }}>
       {side("A", theme.accentBright)}
       {side("B", theme.teamB)}
     </div>
