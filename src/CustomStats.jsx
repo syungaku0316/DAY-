@@ -1898,13 +1898,6 @@ export default function CustomStats() {
     setEditMatchId(null); setEditMatchForm(null);
   };
 
-  const toggleRoster = async (playerId) => {
-    const inRoster = session.roster.includes(playerId);
-    const nextRoster = inRoster ? session.roster.filter((id) => id !== playerId) : [...session.roster, playerId];
-    const next = { ...session, roster: nextRoster, balance: null };
-    setSession(next);
-    await saveSession(next);
-  };
   const setPref = async (playerId, patch) => {
     const cur = (session.prefs || {})[playerId] || { team: "AUTO", roles: [] };
     const next = { ...session, prefs: { ...(session.prefs || {}), [playerId]: { ...cur, ...patch } }, balance: null };
@@ -2097,41 +2090,6 @@ export default function CustomStats() {
     await notifyMatchupGaps(result, prevRoles);
   };
 
-  const runBalance = async () => {
-    const chosen = seating.seatedIds
-      .map((id) => players.find((p) => p.id === id))
-      .filter(Boolean)
-      .map((p) => {
-        const pref = (session.prefs || {})[p.id] || { team: "AUTO" };
-        return {
-          id: p.id, name: p.name, roles: p.roles,
-          lockedTeam: pref.team === "AUTO" ? null : pref.team,
-          lockedRole: pref.role && pref.role !== "AUTO" ? pref.role : null,
-          prefRoles: p.prefRoles || [], ngRoles: p.ngRoles || [],
-        };
-      });
-
-    // 同一チーム内で同じレーンが複数人固定されていないか事前チェック(具体的なアラートを出すため)
-    const seen = {}; // "A_TOP" -> playerName
-    for (const c of chosen) {
-      if (!c.lockedTeam || !c.lockedRole) continue;
-      const key = `${c.lockedTeam}_${c.lockedRole}`;
-      if (seen[key]) {
-        themedAlert(t("balance.061", { team: sideLabel(c.lockedTeam), role: c.lockedRole }), [c.lockedRole]);
-        return;
-      }
-      seen[key] = c.name;
-    }
-
-    const result = bestBalancedSplit(chosen);
-    setBalanceResult(result);
-    // 他端末でも同じ結果を確認できるよう共有sessionに保存(未実行に戻さないよう割当不能時はnullで明示クリア)
-    const nextSession = { ...session, balance: result || null };
-    setSession(nextSession);
-    await saveSession(nextSession);
-    await notifyMatchupGaps(result);
-  };
-
   // 登録済み全メンバーから直接10人を自動選出してチーム編成まで一括実行。
   // 調整枠は「アクティブ不足時」に加え「レート差が大きい場合」にも入替投入される
   const AUTO_DIFF_THRESHOLD = 12; // このpt差を超えたら調整枠での改善を試みる
@@ -2247,7 +2205,6 @@ export default function CustomStats() {
     const benchIds = roster.map((p) => p.id).filter((id) => !seatedIds.includes(id));
     return { seatedIds, benchIds, overflow: forceSeat.length > 10 };
   }, [session, players, todayCounts]);
-  const filledCount = seating.seatedIds.length;
 
   const leaderboard = useMemo(() => {
     const rated = players.map((p) => {
