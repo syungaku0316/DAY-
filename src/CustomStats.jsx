@@ -2755,7 +2755,7 @@ export default function CustomStats() {
                         {p._prov ? "-" : curRank}
                         {rankChange && <div>{rankChange}</div>}
                       </td>
-                      <td style={{ maxWidth: 200 }}><span style={{ fontWeight: 700, fontSize: 17, display: "inline-block", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", verticalAlign: "bottom" }} title={p.name}>{p.name}</span>{p.honorRank && <span title={t("players.050", { rank: rankLabel(p.honorRank) })} style={{ fontSize: 11, fontWeight: 700, color: theme.surface, background: theme.accent, borderRadius: 4, padding: "1px 5px", marginLeft: 5, whiteSpace: "nowrap" }}>{rankShortLang(p.honorRank)}</span>}{p._prov && <span style={{ fontSize: 13, color: theme.textFaint, fontWeight: 400 }}>{t("board.009")}</span>}</td>
+                      <td style={{ maxWidth: 200 }}><span style={{ fontWeight: 700, fontSize: 17, display: "inline-block", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", verticalAlign: "bottom" }} title={p.name}>{p.name}</span>{p.honorRank && <span title={t("players.072", { honor: rankLabel(p.honorRank), rank: rankLabel(p.rank || "アンランク") })} style={{ fontSize: 11.5, fontWeight: 700, color: theme.accent, border: `1px solid ${theme.accentBright}`, borderRadius: 4, padding: "1px 5px", marginLeft: 6, whiteSpace: "nowrap", flexShrink: 0 }}>↑{rankShortLang(p.honorRank)}</span>}{p._prov && <span style={{ fontSize: 13, color: theme.textFaint, fontWeight: 400 }}>{t("board.009")}</span>}</td>
                       <td style={{ fontWeight: 700 }}>{p._role}</td>
                       <td><ProfBadge prof={p.roles[p._role].prof} /></td>
                       <td style={{ fontSize: 19, fontWeight: 700 }}>
@@ -4899,6 +4899,7 @@ export default function CustomStats() {
               <button className="cs-btn-ghost" style={{ padding: "4px 10px", fontSize: 13 }} onClick={() => setAllInactive(false)}>{t("players.021")}</button>
               <span style={{ fontSize: 12, color: theme.textFaint, marginLeft: "auto" }}>
                 {t("players.045", { a: searched.length, b: players.length })} ・ {t("players.032")}（◎1.00 〇0.92 △0.85 ×0.75）
+                {players.some((p) => p.honorRank) && <> ・ {t("players.071")}</>}
               </span>
             </div>
 
@@ -4928,12 +4929,6 @@ export default function CustomStats() {
                                   {t("players.065")}
                                 </span>
                               )}
-                              {p.honorRank && (
-                                <span title={t("players.050", { rank: rankLabel(p.honorRank) })}
-                                  style={{ fontSize: 11, fontWeight: 700, color: theme.surface, background: theme.accent, borderRadius: 4, padding: "1px 6px" }}>
-                                  {t("players.047")} {rankShortLang(p.honorRank)}
-                                </span>
-                              )}
                               {opggUrl(p.summonerName) && (
                                 <a href={opggUrl(p.summonerName)} target="_blank" rel="noopener noreferrer" style={{ color: theme.accentBright, display: "inline-flex" }}>
                                   <ExternalLink size={13} />
@@ -4941,7 +4936,14 @@ export default function CustomStats() {
                               )}
                             </div>
                           </td>
-                          <td>{p.rank ? rankShortLang(p.rank) : "-"}</td>
+                          <td title={p.honorRank ? t("players.072", { honor: rankLabel(p.honorRank), rank: rankLabel(p.rank || "アンランク") }) : undefined}>
+                            {p.honorRank ? (
+                              <>
+                                <span style={{ color: theme.accent, fontWeight: 700 }}>↑{rankShortLang(p.honorRank)}</span>
+                                <span style={{ color: theme.textFaint, fontSize: 12.5, marginLeft: 4 }}>({p.rank ? rankShortLang(p.rank) : "-"})</span>
+                              </>
+                            ) : (p.rank ? rankShortLang(p.rank) : "-")}
+                          </td>
                           <td>
                             <div style={{ display: "inline-flex", borderRadius: 6, overflow: "hidden", border: `1px solid ${theme.borderInput}` }}>
                               {statusModes.map(([mode, label]) => {
