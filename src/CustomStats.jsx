@@ -1216,9 +1216,8 @@ export default function CustomStats() {
   const [myPickerSearch, setMyPickerSearch] = useState("");
   const [selfForm, setSelfForm] = useState({ from: "", to: "", memo: "" });
   const [attendExpanded, setAttendExpanded] = useState({ active: false, adjust: false, rest: false, noResponse: false });
-  // 選手一覧タブ: 検索・チェックボックス選択・表示件数
+  // 選手一覧タブ: 検索・表示件数
   const [playerSearch, setPlayerSearch] = useState("");
-  const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [listLimit, setListLimit] = useState(20);
   const myPlayerSyncedRef = useRef(null);
   useEffect(() => {
@@ -4841,35 +4840,6 @@ export default function CustomStats() {
         const searched = !searchLower ? sortedPlayersForList : sortedPlayersForList.filter((p) =>
           p.name.toLowerCase().includes(searchLower) || (p.summonerName || "").toLowerCase().includes(searchLower));
         const shown = searched.slice(0, listLimit);
-        const allSelectedOnPage = shown.length > 0 && shown.every((p) => selectedIds.has(p.id));
-        const toggleSelectAll = () => {
-          const next = new Set(selectedIds);
-          if (allSelectedOnPage) shown.forEach((p) => next.delete(p.id));
-          else shown.forEach((p) => next.add(p.id));
-          setSelectedIds(next);
-        };
-        const toggleSelect = (id) => {
-          const next = new Set(selectedIds);
-          if (next.has(id)) next.delete(id); else next.add(id);
-          setSelectedIds(next);
-        };
-        const bulkSetParticipation = async (mode) => {
-          const ids = selectedIds;
-          const next = players.map((p) => (!ids.has(p.id) ? p : {
-            ...p, status: mode === "rest" ? "rest" : "active", adjust: mode === "adjust", respondedAt: Date.now(),
-          }));
-          setPlayers(next);
-          await saveShared("players", next);
-        };
-        const bulkDelete = async () => {
-          if (!selectedIds.size) return;
-          if (!(await requireAdminPass(t("players.052", { n: selectedIds.size })))) return;
-          if (!(await themedConfirm(t("shell.039")))) return;
-          const next = players.filter((p) => !selectedIds.has(p.id));
-          setPlayers(next);
-          await saveShared("players", next);
-          setSelectedIds(new Set());
-        };
         const jumpToMe = () => {
           if (!myPlayerId) return;
           const idx = searched.findIndex((p) => p.id === myPlayerId);
@@ -4923,16 +4893,6 @@ export default function CustomStats() {
               )}
             </div>
 
-            {selectedIds.size > 0 && (
-              <div style={{ ...cardStyle, marginBottom: 10, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                <span style={{ fontWeight: 700, fontSize: 14 }}>{t("players.054", { n: selectedIds.size })}</span>
-                <button className="cs-btn-ghost" style={{ padding: "4px 12px", fontSize: 13 }} onClick={() => bulkSetParticipation("active")}>{t("players.055")}</button>
-                <button className="cs-btn-ghost" style={{ padding: "4px 12px", fontSize: 13 }} onClick={() => bulkSetParticipation("adjust")}>{t("players.056")}</button>
-                <button className="cs-btn-ghost" style={{ padding: "4px 12px", fontSize: 13 }} onClick={() => bulkSetParticipation("rest")}>{t("players.057")}</button>
-                <button className="cs-btn-ghost" style={{ padding: "4px 12px", fontSize: 13, color: theme.teamB, borderColor: theme.teamB }} onClick={bulkDelete}>{t("players.058")}</button>
-              </div>
-            )}
-
             <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
               <span style={{ fontWeight: 700, fontSize: 13, color: theme.textSub }}>{t("players.059")}</span>
               <button className="cs-btn-ghost" style={{ padding: "4px 10px", fontSize: 13 }} onClick={() => setAllInactive(true)}>{t("players.020")}</button>
@@ -4946,7 +4906,6 @@ export default function CustomStats() {
               <table className="cs-table">
                 <thead>
                   <tr>
-                    <th><input type="checkbox" checked={allSelectedOnPage} onChange={toggleSelectAll} /></th>
                     <th>{t("shell.028")}</th>
                     <th>{t("board.016")}</th>
                     <th>{t("players.063")}</th>
@@ -4961,7 +4920,6 @@ export default function CustomStats() {
                     return (
                       <React.Fragment key={p.id}>
                         <tr id={`player-row-${p.id}`} style={{ background: p.id === myPlayerId ? theme.surfaceAlt : "transparent" }}>
-                          <td><input type="checkbox" checked={selectedIds.has(p.id)} onChange={() => toggleSelect(p.id)} /></td>
                           <td>
                             <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                               <span style={{ fontWeight: 700 }}>{p.name}</span>
@@ -5045,7 +5003,7 @@ export default function CustomStats() {
                         </tr>
                         {expanded && (
                           <tr>
-                            <td colSpan={10} style={{ background: theme.surfaceAlt }}>
+                            <td colSpan={9} style={{ background: theme.surfaceAlt }}>
                               {myReq && (() => {
                                 const profDiffs = ROLES.filter((r) => myReq.toProfs[r] !== myReq.fromProfs[r]);
                                 return (
