@@ -4940,9 +4940,6 @@ export default function CustomStats() {
                                 </a>
                               )}
                             </div>
-                            {(p.ngRoles || []).length > 0 && (
-                              <div style={{ fontSize: 11.5, color: theme.teamB, marginTop: 2 }}>{t("players.034")} {p.ngRoles.join("、")}</div>
-                            )}
                           </td>
                           <td>{p.rank ? rankShortLang(p.rank) : "-"}</td>
                           <td>
@@ -4966,7 +4963,9 @@ export default function CustomStats() {
                             const wanted = (p.prefRoles || []).includes(r);
                             const isNg = (p.ngRoles || []).includes(r);
                             return (
-                              <td key={r} onClick={() => cyclePrefRole(p.id, r)} title={t("players.031")} style={{ padding: 4, cursor: "pointer" }}>
+                              <td key={r} onClick={() => cyclePrefRole(p.id, r)}
+                                title={isNg ? `${t("players.034")} ${r}` : t("players.031")}
+                                style={{ padding: 4, cursor: "pointer" }}>
                                 <div style={{
                                   borderRadius: 6, padding: "4px 2px", textAlign: "center", minWidth: 46,
                                   background: isNg ? theme.teamB : wanted ? theme.accent : theme.surfaceAlt,
