@@ -1207,6 +1207,7 @@ export default function CustomStats() {
   const [statsPickerOpen, setStatsPickerOpen] = useState(false);
   const [statsSearch, setStatsSearch] = useState("");
   const [statsSubTab, setStatsSubTab] = useState("overview");
+  const [balanceSubTab, setBalanceSubTab] = useState("build");
   const [statsLogFilter, setStatsLogFilter] = useState("ALL");
   // 出欠ボード: 「自分」の識別は自己申告(端末localStorage)。本人確認ではない。
   const [myPlayerId, setMyPlayerIdState] = useState(() => {
@@ -3963,6 +3964,18 @@ export default function CustomStats() {
             <EmptyState text={t("balance.001")} />
           ) : (
             <div>
+            <div className="cs-scroll" style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
+              {[["build", t("balance.091")], ["pin", t("balance.092")]].map(([key, label]) => (
+                <button key={key} className="cs-btn-ghost"
+                  style={{ padding: "6px 16px", fontSize: 14, whiteSpace: "nowrap",
+                    borderColor: balanceSubTab === key ? theme.accent : theme.borderInput,
+                    color: balanceSubTab === key ? theme.accent : theme.textSub,
+                    fontWeight: balanceSubTab === key ? 700 : 500 }}
+                  onClick={() => setBalanceSubTab(key)}>
+                  {label}
+                </button>
+              ))}
+            </div>
             <div style={{ ...cardStyle, marginBottom: 16, borderColor: theme.accent, display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
               <div style={{ flex: "1 1 240px" }}>
                 <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>{t("balance.002")}</div>
