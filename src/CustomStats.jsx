@@ -4035,15 +4035,17 @@ export default function CustomStats() {
               );
             })()}
 
-            {/* 対面レート格差の警告しきい値(全端末共有・管理者PASSで変更) */}
+            </>
+            )}
+
+            {/* 対面レート格差の警告しきい値(全端末共有・管理者PASSで変更): 事前固定タブ限定の設定ではなく
+                下の警告バナーの発火ラインなので、どちらのサブタブでも見えるようにここに置く */}
             <div style={{ ...cardStyle, marginBottom: 16, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
               <span style={{ fontSize: 13, color: theme.textSub }}>{t("balance.079", { v: matchupThreshold })}</span>
               <button className="cs-btn-ghost" style={{ padding: "3px 10px", fontSize: 13 }} onClick={editMatchupThreshold}>
                 {t("balance.083")}
               </button>
             </div>
-            </>
-            )}
 
             {/* 対面レート格差の警告バナー */}
             {matchupWarnings.length > 0 && (
