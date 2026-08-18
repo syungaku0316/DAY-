@@ -4906,11 +4906,11 @@ export default function CustomStats() {
               <table className="cs-table">
                 <thead>
                   <tr>
-                    <th>{t("shell.028")}</th>
-                    <th>{t("board.016")}</th>
-                    <th>{t("players.063")}</th>
-                    {ROLES.map((r) => <th key={r}>{r}</th>)}
-                    <th>{t("players.064")}</th>
+                    <th style={{ width: "100%", textAlign: "left" }}>{t("shell.028")}</th>
+                    <th style={{ width: 1 }}>{t("board.016")}</th>
+                    <th style={{ width: 1 }}>{t("players.063")}</th>
+                    {ROLES.map((r) => <th key={r} style={{ width: 1 }}>{r}</th>)}
+                    <th style={{ width: 1 }}>{t("players.064")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -4920,8 +4920,8 @@ export default function CustomStats() {
                     return (
                       <React.Fragment key={p.id}>
                         <tr id={`player-row-${p.id}`} style={{ background: p.id === myPlayerId ? theme.surfaceAlt : "transparent" }}>
-                          <td>
-                            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                          <td style={{ textAlign: "left" }}>
+                            <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                               <span style={{ fontWeight: 700 }}>{p.name}</span>
                               {p.id === myPlayerId && (
                                 <span style={{ fontSize: 11, fontWeight: 700, color: theme.accent, border: `1px solid ${theme.accent}`, borderRadius: 10, padding: "0 6px" }}>
@@ -4983,6 +4983,7 @@ export default function CustomStats() {
                           <td>
                             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                               <button className="cs-btn-ghost" style={{ padding: "2px 8px", fontSize: 11.5 }}
+                                title={t("players.041")}
                                 onClick={() => {
                                   if (editId === p.id) { setEditId(null); setEditForm(null); return; }
                                   if (rankReqOpenFor === p.id) { setRankReqOpenFor(null); setRankReqProfs({}); return; }
@@ -4993,7 +4994,7 @@ export default function CustomStats() {
                                   setRankReqProfs(initProfs);
                                   setRankReqOpenFor(p.id);
                                 }}>
-                                {t("players.041")}
+                                {t("players.069")}
                               </button>
                               <Pencil size={15} style={{ cursor: "pointer", color: theme.accent, flexShrink: 0 }} onClick={() => startEdit(p)} />
                               <Trash2 size={15} style={{ cursor: "pointer", color: theme.textFaint, flexShrink: 0 }} onClick={() => removePlayer(p.id)} />
