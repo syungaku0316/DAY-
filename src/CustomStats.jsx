@@ -3983,9 +3983,19 @@ export default function CustomStats() {
                   {t("balance.003")}
                 </div>
               </div>
-              <button className="cs-btn" style={{ padding: "10px 20px", fontSize: 15 }} onClick={autoAssignAll}>
-                {t("balance.004")}
-              </button>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <button className="cs-btn-ghost"
+                  style={{ padding: "6px 14px", fontSize: 13, fontWeight: 700, color: theme.teamB, borderColor: theme.teamB }}
+                  title={t("balance.006")} onClick={resetTodayCount}>{t("balance.007")}</button>
+                {session.roster.length > 0 && (
+                  <button className="cs-btn-ghost"
+                    style={{ padding: "6px 14px", fontSize: 13, fontWeight: 700, color: theme.teamB, borderColor: theme.teamB }}
+                    onClick={clearRoster}>{t("balance.008")}</button>
+                )}
+                <button className="cs-btn" style={{ padding: "10px 20px", fontSize: 15, marginLeft: 4 }} onClick={autoAssignAll}>
+                  {t("balance.004")}
+                </button>
+              </div>
             </div>
 
             {balanceSubTab === "pin" && (
@@ -4094,99 +4104,6 @@ export default function CustomStats() {
             )}
 
             <div className="cs-side-narrow">
-              {/* 左: 本日の参加者(セッション共有・全員の画面で同期) */}
-              <div style={cardStyle}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 6 }}>
-                  <label style={{ ...labelStyle, marginBottom: 0 }}>{t("balance.005")}</label>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <button className="cs-btn-ghost" style={{ padding: "7px 16px", fontSize: 14, fontWeight: 700, color: theme.teamB, borderColor: theme.teamB, borderWidth: 2 }} title={t("balance.006")} onClick={resetTodayCount}>{t("balance.007")}</button>
-                    {session.roster.length > 0 && (
-                      <button className="cs-btn-ghost" style={{ padding: "7px 16px", fontSize: 14, fontWeight: 700, color: theme.teamB, borderColor: theme.teamB, borderWidth: 2 }} onClick={clearRoster}>{t("balance.008")}</button>
-                    )}
-                  </div>
-                </div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
-                  {players.filter((p) => p.status !== "rest").map((p) => {
-                    const on = session.roster.includes(p.id);
-                    const tc = todayCounts[p.id] || 0;
-                    const adj = !!p.adjust;
-                    return (
-                      <button key={p.id} onClick={() => toggleRoster(p.id)} className="cs-btn-ghost"
-                        style={{
-                          borderColor: on ? theme.accent : theme.borderInput,
-                          borderStyle: adj ? "dashed" : "solid",
-                          color: on ? theme.accent : theme.textSub, padding: "6px 12px", fontWeight: on ? 700 : 500,
-                        }}>
-                        {p.name}{adj && <span style={{ fontSize: 11, color: theme.accent, marginLeft: 3 }}>{t("stats.007")}</span>}{tc > 0 && <span style={{ fontSize: 12, color: theme.textFaint, marginLeft: 4 }}>{t("balance.053", { n: tc })}</span>}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {session.roster.length > 0 && (
-                  <div style={{ fontSize: 13, color: theme.textFaint, marginBottom: 12, lineHeight: 1.7 }}>
-                    {t("balance.056", { n: Math.min(10, session.roster.length) })}
-                    {seating.overflow && <span style={{ color: theme.teamB }}> {t("balance.012")}</span>}
-                  </div>
-                )}
-
-                {session.roster.length > 0 && (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
-                    <label style={labelStyle}>{t("balance.013")}{seating.seatedIds.length}{t("balance.014")}</label>
-                    {seating.seatedIds.map((id) => {
-                      const p = players.find((x) => x.id === id);
-                      if (!p) return null;
-                      const pref = (session.prefs || {})[id] || { team: "AUTO" };
-                      const wants = p.prefRoles || [];
-                      return (
-                        <div key={id} style={{ borderBottom: `1px solid ${theme.borderTable}`, paddingBottom: 8 }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
-                            <span style={{ fontSize: 15, fontWeight: 700, minWidth: 80 }}>{p.name}</span>
-                            <select className="cs-input" style={{ padding: "4px 6px", fontSize: 13 }} value={pref.team}
-                              onChange={(e) => setPref(id, { team: e.target.value })}>
-                              <option value="AUTO">{t("balance.015")}</option>
-                              <option value="A">{t("balance.016")}</option>
-                              <option value="B">{t("balance.017")}</option>
-                            </select>
-                            <button className="cs-btn-ghost" style={{ padding: "3px 8px", fontSize: 13, color: theme.teamB, borderColor: theme.teamB }}
-                              onClick={() => setPref(id, { force: "bench" })}>
-                              {t("balance.018")}
-                            </button>
-                          </div>
-                          <div style={{ fontSize: 13, color: theme.textFaint }}>
-                            {t("balance.019")} {wants.length ? wants.join(" / ") : t("balance.020")}
-                            <span style={{ marginLeft: 6, fontSize: 11.5 }}>{t("balance.021")}</span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {seating.benchIds.length > 0 && (
-                  <div style={{ marginBottom: 14 }}>
-                    <label style={labelStyle}>{t("balance.022")}{seating.benchIds.length}{t("balance.023")}</label>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                      {seating.benchIds.map((id) => {
-                        const p = players.find((x) => x.id === id);
-                        if (!p) return null;
-                        return (
-                          <span key={id} style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `1px solid ${theme.borderInput}`, borderRadius: 6, padding: "4px 10px", fontSize: 14, color: theme.textSub }}>
-                            {p.name}
-                            <button className="cs-btn-ghost" style={{ padding: "2px 6px", fontSize: 11.5 }} onClick={() => setPref(id, { force: "seat" })}>{t("balance.024")}</button>
-                          </span>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                <button className="cs-btn" style={{ width: "100%" }} disabled={filledCount < 2 || filledCount > 10} onClick={runBalance}>
-                  {t("balance.055", { n: filledCount })}
-                </button>
-                {filledCount > 10 && <div style={{ fontSize: 13, color: theme.teamB, marginTop: 6 }}>{t("balance.026")}</div>}
-              </div>
-
               {/* 右: 結果 */}
               <div style={{ minWidth: 0 }}>
                 {balanceResult === undefined && <EmptyState text={t("balance.027")} />}
