@@ -1126,7 +1126,7 @@ function TabButton({ active, onClick, icon: Icon, label, badge }) {
     <button onClick={onClick} style={{
       display: "flex", alignItems: "center", gap: 6,
       padding: "9px 14px", borderRadius: 6, border: "none", cursor: "pointer",
-      background: active ? "linear-gradient(135deg, var(--cs-headFrom), var(--cs-headTo))" : "transparent",
+      background: active ? "linear-gradient(135deg, var(--cs-btnFrom), var(--cs-btnTo))" : "transparent",
       color: active ? theme.surface : theme.textSub,
       fontWeight: active ? 700 : 500, fontSize: 17,
       fontFamily: "var(--cs-font)",
@@ -2407,7 +2407,7 @@ export default function CustomStats() {
           style={{ padding: "10px 12px", fontSize: 16, border: `1px solid ${theme.borderInput}`, borderRadius: 6, width: 200, textAlign: "center" }} />
         <div style={{ marginTop: 12 }}>
           <button onClick={() => { if (gateInput === VIEW_PASS) { localStorage.setItem("crl-gate", VIEW_PASS); setGateOk(true); } }}
-            style={{ background: "linear-gradient(135deg,var(--cs-headFrom),var(--cs-headTo))", color: "#FFFFFF", border: "none", borderRadius: 6, padding: "10px 28px", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+            style={{ background: "linear-gradient(135deg,var(--cs-btnFrom),var(--cs-btnTo))", color: "#FFFFFF", border: "none", borderRadius: 6, padding: "10px 28px", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
             {t("shell.069")}
           </button>
         </div>
@@ -2472,10 +2472,11 @@ export default function CustomStats() {
           --cs-text:#1B3A56; --cs-textSub:#5B7C99; --cs-textFaint:#8FADC7;
           --cs-surface:#FFFFFF; --cs-surfaceAlt:#F4F9FD; --cs-surfaceWhite:#FDFEFF;
           --cs-border:#C3DCEA; --cs-borderInput:#B0D2E5; --cs-borderTable:#DCEBF3;
-          --cs-accent:#0F5FA3; --cs-accentBright:#2483C9; --cs-accentDeep:#0D4A80;
+          --cs-accent:#0F5FA3; --cs-accentBright:#2483C9; --cs-accentDeep:#0D4A80; --cs-btnFrom:#2483C9; --cs-btnTo:#0F5FA3;
           --cs-teamB:#C94F14; --cs-faintAccent:#B7CEE0; --cs-faintAccent2:#A9C1DA;
           --cs-profGreat:#8A3FA0; --cs-profGood:#2483C9; --cs-profFair:#C99A1E; --cs-profWeak:#9AA3AD;
-          --cs-headFrom:#1E78BC; --cs-headTo:#0F5FA3; --cs-headBFrom:#C94F14; --cs-headBTo:#9E3C0D; --cs-badgeBg:transparent;
+          --cs-headAFrom:#1E78BC; --cs-headATo:#0F5FA3; --cs-headBFrom:#C94F14; --cs-headBTo:#9E3C0D; --cs-badgeBg:transparent;
+          --cs-headNeutral:#C3D6E4; --cs-headNeutralText:#0F2A3D;
           --cs-font:'Noto Sans JP','Hiragino Kaku Gothic ProN','Yu Gothic','Meiryo',sans-serif;
         }
         .spin { animation: spin 1s linear infinite; }
@@ -2485,11 +2486,11 @@ export default function CustomStats() {
         .cs-scroll::-webkit-scrollbar-thumb { background: ${theme.borderInput}; border-radius: 3px; }
         .cs-input { background:${theme.surfaceWhite}; border:1px solid ${theme.borderInput}; color:${theme.text}; border-radius:6px; padding:8px 10px; font-size:16.5px; font-family:var(--cs-font); }
         .cs-input:focus { outline: 1px solid ${theme.accentBright}; }
-        .cs-btn { background:linear-gradient(135deg,var(--cs-headFrom),var(--cs-headTo)); color:#FFFFFF; border:none; border-radius:6px; padding:9px 16px; font-weight:700; font-size:16.5px; cursor:pointer; }
+        .cs-btn { background:linear-gradient(135deg,var(--cs-btnFrom),var(--cs-btnTo)); color:#FFFFFF; border:none; border-radius:6px; padding:9px 16px; font-weight:700; font-size:16.5px; cursor:pointer; }
         .cs-btn:disabled { opacity:.4; cursor:not-allowed; }
         .cs-btn-ghost { background:transparent; border:1px solid ${theme.borderInput}; color:${theme.text}; border-radius:6px; padding:9px 16px; font-size:16.5px; cursor:pointer; }
         table.cs-table { width:100%; border-collapse:separate; border-spacing:0; font-size:16.5px; border-radius:8px; overflow:hidden; }
-        table.cs-table th { text-align:center; background:linear-gradient(135deg,var(--cs-headFrom),var(--cs-headTo)); color:#FFFFFF; font-weight:700; font-size:14.5px; padding:9px 10px; border-bottom:none; }
+        table.cs-table th { text-align:center; background:var(--cs-headNeutral); color:var(--cs-headNeutralText); font-weight:700; font-size:14.5px; padding:9px 10px; border-bottom:none; white-space:nowrap; }
         table.cs-table td { padding:10px; border-bottom:1px solid ${theme.borderTable}; text-align:center; background:${theme.surface}; line-height:1.4; }
         table.cs-table tbody tr:nth-child(even) td { background:${theme.surfaceAlt}; }
         .cs-cols2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
@@ -2643,7 +2644,7 @@ export default function CustomStats() {
                   style={{
                     display: "flex", alignItems: "center", gap: 6, padding: "10px 18px", borderRadius: 8,
                     border: `1px solid ${on ? "transparent" : theme.borderTable}`,
-                    background: on ? "linear-gradient(135deg, var(--cs-headFrom), var(--cs-headTo))" : theme.surfaceAlt,
+                    background: on ? "linear-gradient(135deg, var(--cs-btnFrom), var(--cs-btnTo))" : theme.surfaceAlt,
                     color: on ? "#FFFFFF" : theme.textSub,
                     fontWeight: on ? 700 : 500, fontSize: 15, fontFamily: "inherit",
                     cursor: "pointer", whiteSpace: "nowrap",
@@ -3491,7 +3492,7 @@ export default function CustomStats() {
                     <span style={{ color: theme.teamB }}>{t("scoutMulti.010")} {100 - pct}%</span>
                   </div>
                   <div style={{ display: "flex", height: 16, borderRadius: 8, overflow: "hidden" }}>
-                    <div style={{ width: `${pct}%`, background: `linear-gradient(135deg, var(--cs-headFrom), var(--cs-headTo))` }} />
+                    <div style={{ width: `${pct}%`, background: `linear-gradient(135deg, var(--cs-headAFrom), var(--cs-headATo))` }} />
                     <div style={{ width: `${100 - pct}%`, background: `linear-gradient(135deg, var(--cs-headBFrom), var(--cs-headBTo))` }} />
                   </div>
                   <div style={{ fontSize: 12, color: theme.textFaint, marginTop: 6 }}>
@@ -3503,9 +3504,9 @@ export default function CustomStats() {
             <table className="cs-table">
               <thead>
                 <tr>
-                  <th style={{ width: "44%", background: "linear-gradient(135deg, var(--cs-headFrom), var(--cs-headTo))" }}>{t("report.011")}</th>
+                  <th style={{ width: "44%", background: "linear-gradient(135deg, var(--cs-headAFrom), var(--cs-headATo))", color: "#FFFFFF" }}>{t("report.011")}</th>
                   <th style={{ width: "12%" }}>{t("shell.030")}</th>
-                  <th style={{ width: "44%", background: "linear-gradient(135deg, var(--cs-headBFrom), var(--cs-headBTo))" }}>{t("report.012")}</th>
+                  <th style={{ width: "44%", background: "linear-gradient(135deg, var(--cs-headBFrom), var(--cs-headBTo))", color: "#FFFFFF" }}>{t("report.012")}</th>
                 </tr>
               </thead>
               <tbody>
