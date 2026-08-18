@@ -3988,6 +3988,8 @@ export default function CustomStats() {
               </button>
             </div>
 
+            {balanceSubTab === "pin" && (
+            <>
             {/* 事前固定(レーン・対面): マッチング実行前に選手のチーム・レーンを固定する */}
             {(() => {
               const activePool = players.filter((p) => p.status !== "rest");
@@ -4028,9 +4030,6 @@ export default function CustomStats() {
                               onClick={() => setLockPref(p.id, { team: "AUTO", role: "AUTO" })}>
                               {t("balance.065")}
                             </button>
-                            {(pf.team && pf.team !== "AUTO") && (pf.role && pf.role !== "AUTO") && (
-                              <span style={{ fontSize: 12, color: theme.accent, fontWeight: 700 }}>{sideLabel(pf.team)} {pf.role}</span>
-                            )}
                           </div>
                         );
                       })}
@@ -4070,12 +4069,14 @@ export default function CustomStats() {
             })()}
 
             {/* 対面レート格差の警告しきい値(全端末共有・管理者PASSで変更) */}
-            <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: theme.textSub, marginBottom: 16 }}>
-              <span>{t("balance.079", { v: matchupThreshold })}</span>
+            <div style={{ ...cardStyle, marginBottom: 16, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 13, color: theme.textSub }}>{t("balance.079", { v: matchupThreshold })}</span>
               <button className="cs-btn-ghost" style={{ padding: "3px 10px", fontSize: 13 }} onClick={editMatchupThreshold}>
                 {t("balance.083")}
               </button>
             </div>
+            </>
+            )}
 
             {/* 対面レート格差の警告バナー: 2カラムの狭い右側ではなく全幅で表示する(折り返し防止) */}
             {matchupWarnings.length > 0 && (
