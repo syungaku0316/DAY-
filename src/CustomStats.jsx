@@ -4088,7 +4088,7 @@ export default function CustomStats() {
             </>
             )}
 
-            {/* 対面レート格差の警告バナー: 2カラムの狭い右側ではなく全幅で表示する(折り返し防止) */}
+            {/* 対面レート格差の警告バナー */}
             {matchupWarnings.length > 0 && (
               <div className="cs-prose" style={{ border: `1px solid ${theme.teamB}`, background: theme.surfaceAlt, borderRadius: 6, padding: 10, marginBottom: 16, fontSize: 13 }}>
                 <div style={{ color: theme.teamB, fontWeight: 700, marginBottom: 4 }}>
@@ -4103,7 +4103,6 @@ export default function CustomStats() {
               </div>
             )}
 
-            <div className="cs-side-narrow">
               {/* 右: 結果 */}
               <div style={{ minWidth: 0 }}>
                 {balanceResult === undefined && <EmptyState text={t("balance.027")} />}
@@ -4366,7 +4365,6 @@ export default function CustomStats() {
                   );
                 })()}
               </div>
-            </div>
             </div>
           )}
         </div>
