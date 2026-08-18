@@ -21,7 +21,7 @@ export const THEME_PRESETS = {
     headBFrom: "#A8471A", headBTo: "#A8471A",
     badgeBg: "transparent",
     headNeutral: "#C3D6E4", headNeutralText: "#0F2A3D",
-    profGreat: "#8A3FA0", profGood: "#1B7FBE", profFair: "#A67F14", profWeak: "#9AA3AD",
+    profGreat: "#8A3FA0", profGood: "#2E8B57", profFair: "#A67F14", profWeak: "#9AA3AD",
   },
   red: {
     label: "紅",
@@ -34,7 +34,7 @@ export const THEME_PRESETS = {
     faintAccent: "#DC9DA0", faintAccent2: "#CF8C8F",
     headAFrom: "#A82026", headATo: "#A82026", headBFrom: "#135F86", headBTo: "#135F86", badgeBg: "transparent",
     headNeutral: "#E0CBCC", headNeutralText: "#420B0F",
-    profGreat: "#8A3FA0", profGood: "#A82026", profFair: "#A67F14", profWeak: "#9AA3AD",
+    profGreat: "#8A3FA0", profGood: "#2E8B57", profFair: "#A67F14", profWeak: "#9AA3AD",
   },
   green: {
     label: "若草",
@@ -47,7 +47,7 @@ export const THEME_PRESETS = {
     faintAccent: "#9DDCA8", faintAccent2: "#8CCF98",
     headAFrom: "#1DA844", headATo: "#1DA844", headBFrom: "#B44E18", headBTo: "#B44E18", badgeBg: "transparent",
     headNeutral: "#C6DCC9", headNeutralText: "#0B421A",
-    profGreat: "#8A3FA0", profGood: "#1DA844", profFair: "#A67F14", profWeak: "#9AA3AD",
+    profGreat: "#8A3FA0", profGood: "#2E8B57", profFair: "#A67F14", profWeak: "#9AA3AD",
   },
   purple: {
     label: "藤",
@@ -60,7 +60,7 @@ export const THEME_PRESETS = {
     faintAccent: "#B99DDC", faintAccent2: "#A88CCF",
     headAFrom: "#6D1DA8", headATo: "#6D1DA8", headBFrom: "#B4571F", headBTo: "#B4571F", badgeBg: "transparent",
     headNeutral: "#CFC4DC", headNeutralText: "#250B42",
-    profGreat: "#C93524", profGood: "#6D1DA8", profFair: "#A67F14", profWeak: "#9AA3AD",
+    profGreat: "#C93524", profGood: "#2E8B57", profFair: "#A67F14", profWeak: "#9AA3AD",
   },
   yellow: {
     label: "山吹",
@@ -73,7 +73,7 @@ export const THEME_PRESETS = {
     faintAccent: "#DCCB9D", faintAccent2: "#CFBC8C",
     headAFrom: "#9C7A08", headATo: "#9C7A08", headBFrom: "#135F86", headBTo: "#135F86", badgeBg: "transparent",
     headNeutral: "#DCD3B9", headNeutralText: "#42310B",
-    profGreat: "#8A3FA0", profGood: "#B8890A", profFair: "#C4551C", profWeak: "#9AA3AD",
+    profGreat: "#8A3FA0", profGood: "#2E8B57", profFair: "#C4551C", profWeak: "#9AA3AD",
   },
   orange: {
     label: "橙",
@@ -86,7 +86,7 @@ export const THEME_PRESETS = {
     faintAccent: "#DCBB9D", faintAccent2: "#CFAA8C",
     headAFrom: "#C46312", headATo: "#C46312", headBFrom: "#135F86", headBTo: "#135F86", badgeBg: "transparent",
     headNeutral: "#DCC9B4", headNeutralText: "#42220B",
-    profGreat: "#8A3FA0", profGood: "#C46312", profFair: "#A67F14", profWeak: "#9AA3AD",
+    profGreat: "#8A3FA0", profGood: "#2E8B57", profFair: "#A67F14", profWeak: "#9AA3AD",
   },
   deepblue: {
     label: "濃紺",
@@ -99,7 +99,7 @@ export const THEME_PRESETS = {
     faintAccent: "#9DB9DC", faintAccent2: "#8CA9CF",
     headAFrom: "#1D5AA8", headATo: "#1D5AA8", headBFrom: "#B4571F", headBTo: "#B4571F", badgeBg: "transparent",
     headNeutral: "#C2CDDE", headNeutralText: "#0B2542",
-    profGreat: "#8A3FA0", profGood: "#1D5AA8", profFair: "#C99A1E", profWeak: "#9AA3AD",
+    profGreat: "#8A3FA0", profGood: "#2E8B57", profFair: "#C99A1E", profWeak: "#9AA3AD",
   },
   dark: {
     label: "ダーク",
@@ -112,7 +112,7 @@ export const THEME_PRESETS = {
     faintAccent: "#3A4653", faintAccent2: "#333E4A",
     headAFrom: "#2E6FA0", headATo: "#2E6FA0", headBFrom: "#A8542A", headBTo: "#A8542A", badgeBg: "#E8EDF2",
     headNeutral: "#2A323D", headNeutralText: "#E8EDF2",
-    profGreat: "#B571D9", profGood: "#6BC1F5", profFair: "#E0C15C", profWeak: "#7C8894",
+    profGreat: "#B571D9", profGood: "#6BBF89", profFair: "#E0C15C", profWeak: "#7C8894",
   },
   sakura: {
     label: "桜",
@@ -125,7 +125,7 @@ export const THEME_PRESETS = {
     faintAccent: "#DC9DB6", faintAccent2: "#CF8CA7",
     headAFrom: "#B82064", headATo: "#B82064", headBFrom: "#0F6E86", headBTo: "#0F6E86", badgeBg: "transparent",
     headNeutral: "#DFC7D2", headNeutralText: "#420B22",
-    profGreat: "#8A3FA0", profGood: "#B82064", profFair: "#A67F14", profWeak: "#9AA3AD",
+    profGreat: "#8A3FA0", profGood: "#2E8B57", profFair: "#A67F14", profWeak: "#9AA3AD",
   },
   mint: {
     label: "青磁",
@@ -138,7 +138,7 @@ export const THEME_PRESETS = {
     faintAccent: "#96D8C9", faintAccent2: "#85CBBB",
     headAFrom: "#0F9682", headATo: "#0F9682", headBFrom: "#A84E1C", headBTo: "#A84E1C", badgeBg: "transparent",
     headNeutral: "#BCD9D1", headNeutralText: "#08443B",
-    profGreat: "#8A3FA0", profGood: "#0F9682", profFair: "#A67F14", profWeak: "#9AA3AD",
+    profGreat: "#8A3FA0", profGood: "#2E8B57", profFair: "#A67F14", profWeak: "#9AA3AD",
   },
   sumi: {
     label: "墨",
@@ -151,7 +151,7 @@ export const THEME_PRESETS = {
     faintAccent: "#C4C4BA", faintAccent2: "#B7B7AC",
     headAFrom: "#3A3A38", headATo: "#3A3A38", headBFrom: "#9A1B09", headBTo: "#9A1B09", badgeBg: "transparent",
     headNeutral: "#D6D6CE", headNeutralText: "#282825",
-    profGreat: "#6E4A85", profGood: "#3E6690", profFair: "#8A6C0C", profWeak: "#9AA3AD",
+    profGreat: "#6E4A85", profGood: "#2E8B57", profFair: "#8A6C0C", profWeak: "#9AA3AD",
   },
   midnight: {
     label: "宵闇（ダーク紺）",
@@ -164,7 +164,7 @@ export const THEME_PRESETS = {
     faintAccent: "#37425C", faintAccent2: "#303A52",
     headAFrom: "#3D5A8F", headATo: "#3D5A8F", headBFrom: "#A0562E", headBTo: "#A0562E", badgeBg: "#E5EAF4",
     headNeutral: "#242C3F", headNeutralText: "#E5EAF4",
-    profGreat: "#BC85DD", profGood: "#9AB8EC", profFair: "#DFC26A", profWeak: "#7C8894",
+    profGreat: "#BC85DD", profGood: "#6BBF89", profFair: "#DFC26A", profWeak: "#7C8894",
   },
   nibi: {
     label: "鈍色（低刺激ライト）",
@@ -177,7 +177,7 @@ export const THEME_PRESETS = {
     faintAccent: "#BCC7CE", faintAccent2: "#AFBBC3",
     headAFrom: "#4E7089", headATo: "#4E7089", headBFrom: "#8F5636", headBTo: "#8F5636", badgeBg: "transparent",
     headNeutral: "#CBD2D7", headNeutralText: "#1F272D",
-    profGreat: "#7E5E93", profGood: "#5F829B", profFair: "#9C8351", profWeak: "#9AA3AD",
+    profGreat: "#7E5E93", profGood: "#2E8B57", profFair: "#9C8351", profWeak: "#9AA3AD",
   },
   kinari: {
     label: "生成り（紙）",
@@ -190,7 +190,7 @@ export const THEME_PRESETS = {
     faintAccent: "#CCC4AF", faintAccent2: "#C0B7A0",
     headAFrom: "#70634A", headATo: "#70634A", headBFrom: "#7C4736", headBTo: "#7C4736", badgeBg: "transparent",
     headNeutral: "#D8D1C0", headNeutralText: "#2C2820",
-    profGreat: "#7E5E93", profGood: "#6E7F5A", profFair: "#9C7B45", profWeak: "#9F988A",
+    profGreat: "#7E5E93", profGood: "#2E8B57", profFair: "#9C7B45", profWeak: "#9F988A",
   },
   susutake: {
     label: "煤竹（ダーク茶）",
@@ -203,7 +203,7 @@ export const THEME_PRESETS = {
     faintAccent: "#463E34", faintAccent2: "#3E362D",
     headAFrom: "#7A6444", headATo: "#7A6444", headBFrom: "#8F5638", headBTo: "#8F5638", badgeBg: "#E6E0D8",
     headNeutral: "#362F29", headNeutralText: "#E6E0D8",
-    profGreat: "#B08BC6", profGood: "#D6B885", profFair: "#C9B25C", profWeak: "#8A8178",
+    profGreat: "#B08BC6", profGood: "#6BBF89", profFair: "#C9B25C", profWeak: "#8A8178",
   },
   koke: {
     label: "苔（ダーク緑）",
@@ -216,7 +216,7 @@ export const THEME_PRESETS = {
     faintAccent: "#39463B", faintAccent2: "#323E34",
     headAFrom: "#4E6B4A", headATo: "#4E6B4A", headBFrom: "#8F5F38", headBTo: "#8F5F38", badgeBg: "#DFE6DC",
     headNeutral: "#2A342C", headNeutralText: "#DFE6DC",
-    profGreat: "#A98FC4", profGood: "#A3C69B", profFair: "#CCB964", profWeak: "#7E877B",
+    profGreat: "#A98FC4", profGood: "#6BBF89", profFair: "#CCB964", profWeak: "#7E877B",
   },
 };
 
