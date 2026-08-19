@@ -3720,6 +3720,20 @@ export default function CustomStats() {
                           <div style={{ fontSize: 14, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("records.017")}{t("stats.032")}</div>
                           {scoreBarRows(profile, cmpAvg)}
                         </div>
+                        <div className="cs-cols2">
+                          <div style={cardStyle}>
+                            <div style={{ fontSize: 14, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("records.029")}</div>
+                            {profile.synergyList.length === 0 ? (
+                              <div style={{ fontSize: 13, color: theme.faintAccent }}>{t("records.024")}</div>
+                            ) : profile.synergyList.map((x) => pairRow(x, theme.accentBright))}
+                          </div>
+                          <div style={cardStyle}>
+                            <div style={{ fontSize: 14, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("records.030")}</div>
+                            {profile.counterList.length === 0 ? (
+                              <div style={{ fontSize: 13, color: theme.faintAccent }}>{t("records.024")}</div>
+                            ) : profile.counterList.map((x) => pairRow(x, theme.teamB))}
+                          </div>
+                        </div>
                       </div>
                       <div>
                         <div style={{ ...cardStyle, marginBottom: 16 }}>
@@ -3767,21 +3781,6 @@ export default function CustomStats() {
                         <div style={{ fontSize: 14, lineHeight: 1.7 }}>{trendText}</div>
                       </div>
                     )}
-
-                    <div className="cs-cols2">
-                      <div style={cardStyle}>
-                        <div style={{ fontSize: 14, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("records.029")}</div>
-                        {profile.synergyList.length === 0 ? (
-                          <div style={{ fontSize: 13, color: theme.faintAccent }}>{t("records.024")}</div>
-                        ) : profile.synergyList.map((x) => pairRow(x, theme.accentBright))}
-                      </div>
-                      <div style={cardStyle}>
-                        <div style={{ fontSize: 14, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("records.030")}</div>
-                        {profile.counterList.length === 0 ? (
-                          <div style={{ fontSize: 13, color: theme.faintAccent }}>{t("records.024")}</div>
-                        ) : profile.counterList.map((x) => pairRow(x, theme.teamB))}
-                      </div>
-                    </div>
                   </>
                 )}
 
