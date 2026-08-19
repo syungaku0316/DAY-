@@ -2495,7 +2495,7 @@ export default function CustomStats() {
         table.cs-table tbody tr:nth-child(even) td { background:${theme.surfaceAlt}; }
         .cs-cols2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
         .cs-cols2-wide { display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:start; }
-        .cs-side-narrow { display:grid; grid-template-columns:minmax(280px,440px) 1fr; gap:20px; align-items:start; }
+        .cs-side-narrow { display:grid; grid-template-columns:minmax(280px,max-content) 1fr; gap:20px; align-items:start; }
         .cs-reprow { display:grid; grid-template-columns:86px 1fr 1fr 44px 44px 44px 20px; gap:5px; align-items:center; }
         .cs-reprow6 { display:grid; grid-template-columns:70px 1fr 1fr 46px 46px 46px; gap:6px; align-items:center; }
         .cs-reg-split { display:grid; grid-template-columns:150px minmax(0,1fr); gap:16px; }
