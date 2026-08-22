@@ -4333,6 +4333,7 @@ export default function CustomStats() {
       {tab === "attendance" && (() => {
         if (players.length === 0) return <EmptyState text={t("stats.002")} />;
         const myPlayer = players.find((p) => p.id === myPlayerId) || null;
+        const myRankReq = myPlayer ? rankRequests.find((r) => r.playerId === myPlayer.id) : null;
 
         const bucketOf = (p) => (isStaleResponse(p) ? "noResponse" : p.status === "rest" ? "rest" : p.adjust ? "adjust" : "active");
         const buckets = { active: [], adjust: [], rest: [], noResponse: [] };
@@ -4459,7 +4460,60 @@ export default function CustomStats() {
                     );
                   })}
                 </div>
-                <div style={{ fontSize: 11.5, color: theme.textFaint, marginBottom: 14 }}>{t("attend.026")}</div>
+                <div style={{ fontSize: 11.5, color: theme.textFaint, marginBottom: 6 }}>{t("attend.026")}</div>
+
+                {myRankReq ? (() => {
+                  const profDiffs = ROLES.filter((r) => myRankReq.toProfs[r] !== myRankReq.fromProfs[r]);
+                  return (
+                    <div style={{ fontSize: 13, color: theme.accent, marginBottom: 14 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                        <span>{t("players.035")}</span>
+                        <button className="cs-btn-ghost" style={{ padding: "1px 8px", fontSize: 11.5 }} onClick={() => cancelRankRequest(myRankReq.id)}>{t("players.036")}</button>
+                      </div>
+                      {myRankReq.toRank !== myRankReq.fromRank && <div>{t("shell.021")} {rankShortLang(myRankReq.fromRank)} → {rankShortLang(myRankReq.toRank)}</div>}
+                      {profDiffs.length > 0 && <div>{t("playerReq.004")} {profDiffs.map((r) => `${r} ${myRankReq.fromProfs[r]}→${myRankReq.toProfs[r]}`).join("、")}</div>}
+                    </div>
+                  );
+                })() : rankReqOpenFor === myPlayer.id ? (
+                  <div style={{ marginBottom: 14 }}>
+                    <div style={{ fontSize: 12, color: theme.textSub, marginBottom: 4 }}>{t("players.037")}</div>
+                    <select className="cs-input" style={{ padding: "3px 6px", fontSize: 13, marginBottom: 8 }} value={rankReqValue} onChange={(e) => setRankReqValue(e.target.value)}>
+                      {RANKS.map(([label]) => <option key={label} value={label}>{rankLabel(label)}</option>)}
+                    </select>
+                    <div style={{ fontSize: 12, color: theme.textSub, marginBottom: 4 }}>{t("players.038")}</div>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+                      {ROLES.map((r) => (
+                        <label key={r} style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 13 }}>
+                          {r}
+                          <select className="cs-input" style={{ padding: "2px 4px", fontSize: 13 }}
+                            value={rankReqProfs[r] ?? myPlayer.roles[r].prof}
+                            onChange={(e) => setRankReqProfs({ ...rankReqProfs, [r]: e.target.value })}>
+                            {PROFS.map((pr) => <option key={pr} value={pr}>{pr}</option>)}
+                          </select>
+                        </label>
+                      ))}
+                    </div>
+                    <button className="cs-btn" style={{ padding: "3px 10px", fontSize: 13, marginRight: 6 }}
+                      onClick={async () => {
+                        const toProfs = {};
+                        ROLES.forEach((r) => { toProfs[r] = rankReqProfs[r] ?? myPlayer.roles[r].prof; });
+                        await submitRankRequest(myPlayer.id, rankReqValue, toProfs);
+                        setRankReqOpenFor(null); setRankReqProfs({});
+                      }}>{t("players.039")}</button>
+                    <button className="cs-btn-ghost" style={{ padding: "3px 10px", fontSize: 13 }} onClick={() => { setRankReqOpenFor(null); setRankReqProfs({}); }}>{t("players.040")}</button>
+                  </div>
+                ) : (
+                  <div style={{ marginBottom: 14 }}>
+                    <button className="cs-btn-ghost" style={{ padding: "3px 10px", fontSize: 13 }}
+                      onClick={() => {
+                        setRankReqValue(myPlayer.rank || "アンランク");
+                        const initProfs = {};
+                        ROLES.forEach((r) => { initProfs[r] = myPlayer.roles[r].prof; });
+                        setRankReqProfs(initProfs);
+                        setRankReqOpenFor(myPlayer.id);
+                      }}>{t("players.041")}</button>
+                  </div>
+                )}
 
                 <div style={{ fontSize: 13, color: theme.textSub, marginBottom: 6, fontWeight: 700 }}>{t("attend.020")}</div>
                 <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
