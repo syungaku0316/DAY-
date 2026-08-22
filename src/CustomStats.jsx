@@ -4893,7 +4893,7 @@ export default function CustomStats() {
                         </tr>
                         {expanded && (
                           <tr>
-                            <td colSpan={9} style={{ background: theme.surfaceAlt }}>
+                            <td colSpan={9} style={{ background: theme.surfaceAlt, textAlign: "left" }}>
                               {myReq && (() => {
                                 const profDiffs = ROLES.filter((r) => myReq.toProfs[r] !== myReq.fromProfs[r]);
                                 return (
