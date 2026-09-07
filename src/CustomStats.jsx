@@ -264,7 +264,8 @@ function initRoles(profMap, baseMu, unranked) {
 
 // 旧データ(単一mu/sigma)を移行
 function migratePlayer(p) {
-  const kdaHistory = p.kdaHistory || [];
+  // 承認順が時系列と食い違うと直近成績/レート推移が乱れるため、読み込み時に時系列へ正規化
+  const kdaHistory = [...(p.kdaHistory || [])].sort((a, b) => (a.ts || 0) - (b.ts || 0));
   const rawStatus = p.status || (p.inactive ? "rest" : "active");
   const status = rawStatus === "adjust" ? "active" : rawStatus; // active/rest の2値
   const adjust = status === "rest" ? false : (rawStatus === "adjust" || !!p.adjust);
@@ -740,7 +741,7 @@ function applyMatchToPlayers(players, match) {
         ...((match.kda || {})[p.id] || {}), matchId: match.id, ts: match.timestamp,
         role: entry.role, mu: r.muAfter, delta: r.delta,
         won, champion: entry.champion || "", side: entry.team,
-      }],
+      }].sort((a, b) => (a.ts || 0) - (b.ts || 0)),
     };
   });
 }
@@ -1501,7 +1502,13 @@ export default function CustomStats() {
     // 原子的にpending→approvedへ。他端末が先に承認済みなら中断(レート二重反映防止)
     const claimed = await claimApproval(matchId);
     if (!claimed) { themedAlert(t("shell.016")); return; }
-    const nextPlayers = applyMatchToPlayers(players, match);
+    // 承認済みに、より新しい試合がある場合(=後から報告された古い試合の承認)は
+    // 差分適用だと以降のレート/履歴が時系列とずれるため全再計算する
+    const priorApproved = matches.filter((m) => m.status === "approved");
+    const isLate = priorApproved.some((m) => m.timestamp > match.timestamp);
+    const nextPlayers = isLate
+      ? recomputeAll(players, [...priorApproved, { ...match, status: "approved" }])
+      : applyMatchToPlayers(players, match);
     setPlayers(nextPlayers);
     setMatches(matches.map((m) => (m.id === matchId ? { ...m, status: "approved", image: null } : m)));
     await saveShared("players", nextPlayers);
@@ -2258,8 +2265,9 @@ export default function CustomStats() {
     if (!p) return [];
     const prof = p.roles[chartRole]?.prof || "△";
     const points = [{ idx: 0, mu: Math.round(effectiveBaseMu(p) * PROF_RATE[prof] * 10) / 10 }];
-    p.kdaHistory.filter((h) => h.role === chartRole).forEach((h, i) =>
-      points.push({ idx: i + 1, mu: Math.round(h.mu * 10) / 10 }));
+    p.kdaHistory.filter((h) => h.role === chartRole)
+      .slice().sort((a, b) => (a.ts || 0) - (b.ts || 0))
+      .forEach((h, i) => points.push({ idx: i + 1, mu: Math.round(h.mu * 10) / 10 }));
     return points;
   }, [players, chartPlayerId, chartRole]);
 
@@ -2686,7 +2694,7 @@ export default function CustomStats() {
                 {leaderboard.map((p, i) => {
                   const total = p._wins + p._losses;
                   const wr = total ? Math.round((p._wins / total) * 100) : 0;
-                  const roleHistory = p.kdaHistory.filter((h) => h.role === p._role);
+                  const roleHistory = p.kdaHistory.filter((h) => h.role === p._role).slice().sort((a, b) => (a.ts || 0) - (b.ts || 0));
                   const kdaGames = roleHistory.filter((h) => h.k != null);
                   const avgK = kdaGames.length ? (kdaGames.reduce((s, h) => s + h.k, 0) / kdaGames.length) : null;
                   const avgD = kdaGames.length ? (kdaGames.reduce((s, h) => s + h.d, 0) / kdaGames.length) : null;
