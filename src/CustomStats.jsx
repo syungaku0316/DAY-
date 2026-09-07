@@ -1227,7 +1227,9 @@ function ChampGrowthTab() {
   const th = { padding: "7px 10px", textAlign: "right", whiteSpace: "nowrap", color: theme.textSub, cursor: "pointer", fontWeight: 600 };
   const td = { padding: "7px 10px", textAlign: "right", whiteSpace: "nowrap", borderBottom: `1px solid ${theme.borderTable}` };
   // 注目列の帯。ヘッダ〜全セルに同じ背景と左右罫を敷いて1本の帯に見せる
-  const band = { background: theme.surfaceAlt, borderLeft: `1px solid ${theme.borderTable}`, borderRight: `1px solid ${theme.borderTable}` };
+  const band = { background: theme.surfaceAlt, borderLeft: `1px solid ${theme.border}`, borderRight: `1px solid ${theme.border}` };
+  // ヘッダ〜本体の境目は borderTable だと地色に溶けるため border(濃いめ)を使う
+  const headRow = { borderBottom: `2px solid ${theme.border}` };
   const arrow = (k, st) => (st.key === k ? (st.dir === "asc" ? " ▲" : " ▼") : "");
 
   return (
@@ -1274,7 +1276,7 @@ function ChampGrowthTab() {
               <div className="cs-scroll" style={{ overflowX: "auto", marginBottom: 16 }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                   <thead>
-                    <tr style={{ borderBottom: `2px solid ${theme.borderTable}` }}>
+                    <tr style={headRow}>
                       <th style={{ ...th, textAlign: "left", cursor: "default" }}>{t("growth.007")}</th>
                       {COMPARE_LEVELS.map((lv) => (
                         <th key={lv} style={{ ...th, cursor: "default", ...(lv === 18 ? band : null), color: lv === 18 ? theme.accent : theme.textSub }}>
@@ -1359,7 +1361,7 @@ function ChampGrowthTab() {
           <div className="cs-scroll" style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
-                <tr style={{ borderBottom: `2px solid ${theme.borderTable}` }}>
+                <tr style={headRow}>
                   <th style={{ ...th, textAlign: "right", cursor: "default", color: theme.textFaint, width: 34, padding: "7px 4px" }}>#</th>
                   <th style={{ ...th, textAlign: "left" }} onClick={() => toggleCmpSort("label")}>
                     {t("growth.016")}{arrow("label", cmpSort)}
