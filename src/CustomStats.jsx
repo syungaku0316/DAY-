@@ -1109,6 +1109,50 @@ function ItemEfficiencyTab() {
   );
 }
 
+// セグメンテッドコントロール1個分。variant: "solid"(主タブ) / "soft"(絞り込み)
+function SegBtn({ active, onClick, children, variant = "soft" }) {
+  const solid = variant === "solid";
+  return (
+    <button onClick={onClick} style={{
+      padding: solid ? "6px 18px" : "4px 13px",
+      fontSize: solid ? 14 : 13,
+      lineHeight: 1.5,
+      border: "none", borderRadius: 6, cursor: "pointer",
+      fontFamily: "inherit", whiteSpace: "nowrap",
+      background: active
+        ? (solid ? "linear-gradient(135deg, var(--cs-btnFrom), var(--cs-btnTo))" : theme.accent)
+        : "transparent",
+      color: active ? theme.surface : theme.textSub,
+      fontWeight: active ? 700 : 500,
+      transition: "background .12s",
+    }}>{children}</button>
+  );
+}
+
+function SegGroup({ label, children }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+      {label && <span style={{ fontSize: 12, color: theme.textFaint, whiteSpace: "nowrap" }}>{label}</span>}
+      <div className="cs-scroll" style={{
+        display: "flex", gap: 2, padding: 3, borderRadius: 8,
+        background: theme.surfaceAlt, border: `1px solid ${theme.borderTable}`,
+        overflowX: "auto", maxWidth: "100%",
+      }}>{children}</div>
+    </div>
+  );
+}
+
+// 成長倍率の相対バー。同一表内の最小〜最大を 8〜100% に写像する
+// (0起点だと倍率が僅差のとき全部同じ長さに見えて比較にならないため)
+function GrowthBar({ value, min, max }) {
+  const pct = max > min ? 8 + 92 * ((value - min) / (max - min)) : 60;
+  return (
+    <div style={{ width: 46, height: 5, background: theme.borderTable, borderRadius: 3, overflow: "hidden", flexShrink: 0 }}>
+      <div style={{ width: `${Math.max(0, Math.min(100, pct))}%`, height: "100%", background: theme.accent, borderRadius: 3 }} />
+    </div>
+  );
+}
+
 function ChampGrowthTab() {
   const lang = getLang();
   const [sub, setSub] = useState("detail"); // detail | compare
@@ -1166,8 +1210,25 @@ function ChampGrowthTab() {
   const toggleCmpSort = (key) =>
     setCmpSort((c) => (c.key === key ? { key, dir: c.dir === "asc" ? "desc" : "asc" } : { key, dir: key === "label" ? "asc" : "desc" }));
 
-  const th = { padding: "6px 8px", textAlign: "right", whiteSpace: "nowrap", color: theme.textSub, cursor: "pointer" };
-  const td = { padding: "5px 8px", textAlign: "right", whiteSpace: "nowrap", borderBottom: `1px solid ${theme.borderTable}` };
+  const span = (arr) => (arr.length ? { min: Math.min(...arr), max: Math.max(...arr) } : { min: 0, max: 0 });
+  const cmpSpan = useMemo(
+    () => span(cmpRows.filter((r) => r.l1).map((r) => r.l18 / r.l1)),
+    [cmpRows]
+  );
+  const detailSpan = useMemo(() => {
+    if (!s) return { min: 0, max: 0 };
+    const vals = rows.filter((r) => !r.flat).map((r) => {
+      const v1 = computeAt(s, 1)[r.key], v18 = computeAt(s, 18)[r.key];
+      return v1 ? v18 / v1 : 0;
+    }).filter(Boolean);
+    return span(vals);
+  }, [s, rows]);
+
+  const th = { padding: "7px 10px", textAlign: "right", whiteSpace: "nowrap", color: theme.textSub, cursor: "pointer", fontWeight: 600 };
+  const td = { padding: "7px 10px", textAlign: "right", whiteSpace: "nowrap", borderBottom: `1px solid ${theme.borderTable}` };
+  // 注目列の帯。ヘッダ〜全セルに同じ背景と左右罫を敷いて1本の帯に見せる
+  const band = { background: theme.surfaceAlt, borderLeft: `1px solid ${theme.borderTable}`, borderRight: `1px solid ${theme.borderTable}` };
+  const arrow = (k, st) => (st.key === k ? (st.dir === "asc" ? " ▲" : " ▼") : "");
 
   return (
     <div>
@@ -1177,15 +1238,12 @@ function ChampGrowthTab() {
         <div style={{ marginTop: 2, color: theme.textFaint }}>{t("growth.015")}</div>
       </div>
 
-      <div className="cs-scroll" style={{ display: "flex", gap: 4, marginBottom: 12 }}>
-        {[["detail", t("growth.005")], ["compare", t("growth.006")]].map(([k, lb]) => (
-          <button key={k} className="cs-btn-ghost" onClick={() => setSub(k)}
-            style={{ padding: "6px 16px", fontSize: 14, whiteSpace: "nowrap",
-              borderColor: sub === k ? theme.accent : theme.borderInput,
-              color: sub === k ? theme.accent : theme.textSub, fontWeight: sub === k ? 700 : 400 }}>
-            {lb}
-          </button>
-        ))}
+      <div style={{ marginBottom: 14 }}>
+        <SegGroup>
+          {[["detail", t("growth.005")], ["compare", t("growth.006")]].map(([k, lb]) => (
+            <SegBtn key={k} variant="solid" active={sub === k} onClick={() => setSub(k)}>{lb}</SegBtn>
+          ))}
+        </SegGroup>
       </div>
 
       {sub === "detail" && (
@@ -1216,29 +1274,47 @@ function ChampGrowthTab() {
               <div className="cs-scroll" style={{ overflowX: "auto", marginBottom: 16 }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                   <thead>
-                    <tr style={{ borderBottom: `1px solid ${theme.borderTable}` }}>
+                    <tr style={{ borderBottom: `2px solid ${theme.borderTable}` }}>
                       <th style={{ ...th, textAlign: "left", cursor: "default" }}>{t("growth.007")}</th>
                       {COMPARE_LEVELS.map((lv) => (
-                        <th key={lv} style={{ ...th, cursor: "default" }}>Lv{lv}</th>
+                        <th key={lv} style={{ ...th, cursor: "default", ...(lv === 18 ? band : null), color: lv === 18 ? theme.accent : theme.textSub }}>
+                          Lv{lv}
+                        </th>
                       ))}
-                      <th style={{ ...th, cursor: "default" }}>{t("growth.008")}</th>
+                      <th style={{ ...th, cursor: "default", paddingLeft: 18 }}>{t("growth.008")}</th>
                       <th style={{ ...th, cursor: "default" }}>{t("growth.009")}</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((r) => {
+                    {rows.map((r, ri) => {
                       const vals = COMPARE_LEVELS.map((lv) => computeAt(s, lv)[r.key]);
                       const v1 = vals[0], v18 = vals[vals.length - 1];
+                      const ratio = v1 ? v18 / v1 : 0;
                       return (
-                        <tr key={r.key}>
-                          <td style={{ ...td, textAlign: "left", fontWeight: 600 }}>{t(r.labelKey)}</td>
-                          {vals.map((v, i) => (
-                            <td key={i} style={{ ...td, color: i === vals.length - 1 ? theme.accent : theme.text, fontWeight: i === vals.length - 1 ? 700 : 400 }}>
-                              {fmt(v, r.dec)}
-                            </td>
-                          ))}
-                          <td style={{ ...td, color: theme.textSub }}>{r.flat ? "—" : `+${fmt(r.isAS ? s.asPerLv / 100 : s[r.raw], r.dec)}`}</td>
-                          <td style={{ ...td, color: theme.textSub }}>{r.flat ? "—" : ratioOf(v1, v18)}</td>
+                        <tr key={r.key} style={{ background: ri % 2 ? theme.surfaceAlt + "55" : "transparent" }}>
+                          <td style={{ ...td, textAlign: "left", fontWeight: 700 }}>{t(r.labelKey)}</td>
+                          {vals.map((v, i) => {
+                            const isLast = i === vals.length - 1;
+                            return (
+                              <td key={i} style={{
+                                ...td, ...(isLast ? band : null),
+                                color: isLast ? theme.accent : theme.text,
+                                fontWeight: isLast ? 700 : 400,
+                                fontVariantNumeric: "tabular-nums",
+                              }}>{fmt(v, r.dec)}</td>
+                            );
+                          })}
+                          <td style={{ ...td, color: theme.textSub, paddingLeft: 18, fontVariantNumeric: "tabular-nums" }}>
+                            {r.flat ? "—" : `+${fmt(r.isAS ? s.asPerLv / 100 : s[r.raw], r.dec)}`}
+                          </td>
+                          <td style={{ ...td, color: theme.textSub }}>
+                            {r.flat ? "—" : (
+                              <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 7 }}>
+                                <GrowthBar value={ratio} min={detailSpan.min} max={detailSpan.max} />
+                                <span style={{ fontVariantNumeric: "tabular-nums", minWidth: 40, textAlign: "right" }}>{ratioOf(v1, v18)}</span>
+                              </div>
+                            )}
+                          </td>
                         </tr>
                       );
                     })}
@@ -1268,45 +1344,52 @@ function ChampGrowthTab() {
 
       {sub === "compare" && (
         <>
-          <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
-            <label style={{ fontSize: 13, color: theme.textSub }}>
-              {t("growth.013")}{" "}
-              <select className="cs-input" value={cmpStat} onChange={(e) => setCmpStat(e.target.value)} style={{ padding: "5px 8px", fontSize: 13 }}>
-                {STAT_ROWS.filter((r) => !r.flat).map((r) => (
-                  <option key={r.key} value={r.key}>{t(r.labelKey)}</option>
-                ))}
-              </select>
-            </label>
-            <label style={{ fontSize: 13, color: theme.textSub }}>
-              {t("growth.014")}{" "}
-              <select className="cs-input" value={cmpLv} onChange={(e) => setCmpLv(Number(e.target.value))} style={{ padding: "5px 8px", fontSize: 13 }}>
-                {COMPARE_LEVELS.map((lv) => <option key={lv} value={lv}>Lv{lv}</option>)}
-              </select>
-            </label>
+          <div style={{ display: "flex", gap: 14, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
+            <SegGroup label={t("growth.013")}>
+              {STAT_ROWS.filter((r) => !r.flat).map((r) => (
+                <SegBtn key={r.key} active={cmpStat === r.key} onClick={() => setCmpStat(r.key)}>{t(r.labelKey)}</SegBtn>
+              ))}
+            </SegGroup>
+            <SegGroup label={t("growth.014")}>
+              {COMPARE_LEVELS.map((lv) => (
+                <SegBtn key={lv} active={cmpLv === lv} onClick={() => setCmpLv(lv)}>Lv{lv}</SegBtn>
+              ))}
+            </SegGroup>
           </div>
           <div className="cs-scroll" style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
-                <tr style={{ borderBottom: `1px solid ${theme.borderTable}` }}>
+                <tr style={{ borderBottom: `2px solid ${theme.borderTable}` }}>
+                  <th style={{ ...th, textAlign: "right", cursor: "default", color: theme.textFaint, width: 34, padding: "7px 4px" }}>#</th>
                   <th style={{ ...th, textAlign: "left" }} onClick={() => toggleCmpSort("label")}>
-                    {t("growth.016")}{cmpSort.key === "label" ? (cmpSort.dir === "asc" ? " ▲" : " ▼") : ""}
+                    {t("growth.016")}{arrow("label", cmpSort)}
                   </th>
-                  <th style={th} onClick={() => toggleCmpSort("l1")}>Lv1{cmpSort.key === "l1" ? (cmpSort.dir === "asc" ? " ▲" : " ▼") : ""}</th>
-                  <th style={{ ...th, color: theme.accent }} onClick={() => toggleCmpSort("cur")}>Lv{cmpLv}{cmpSort.key === "cur" ? (cmpSort.dir === "asc" ? " ▲" : " ▼") : ""}</th>
-                  <th style={th} onClick={() => toggleCmpSort("l18")}>Lv18{cmpSort.key === "l18" ? (cmpSort.dir === "asc" ? " ▲" : " ▼") : ""}</th>
-                  <th style={th} onClick={() => toggleCmpSort("ratio")}>{t("growth.009")}{cmpSort.key === "ratio" ? (cmpSort.dir === "asc" ? " ▲" : " ▼") : ""}</th>
+                  <th style={th} onClick={() => toggleCmpSort("l1")}>Lv1{arrow("l1", cmpSort)}</th>
+                  <th style={{ ...th, ...band, color: theme.accent }} onClick={() => toggleCmpSort("cur")}>Lv{cmpLv}{arrow("cur", cmpSort)}</th>
+                  <th style={th} onClick={() => toggleCmpSort("l18")}>Lv18{arrow("l18", cmpSort)}</th>
+                  <th style={{ ...th, paddingLeft: 18 }} onClick={() => toggleCmpSort("ratio")}>{t("growth.009")}{arrow("ratio", cmpSort)}</th>
                 </tr>
               </thead>
               <tbody>
-                {cmpRows.map(({ en, label, l1, cur, l18, row }) => (
-                  <tr key={en} style={{ cursor: "pointer" }} onClick={() => { setSelected(en); setSub("detail"); }}>
-                    <td style={{ ...td, textAlign: "left", fontWeight: 600 }}>{label}</td>
-                    <td style={td}>{fmt(l1, row.dec)}</td>
-                    <td style={{ ...td, color: theme.accent, fontWeight: 700 }}>{fmt(cur, row.dec)}</td>
-                    <td style={td}>{fmt(l18, row.dec)}</td>
-                    <td style={{ ...td, color: theme.textSub }}>{ratioOf(l1, l18)}</td>
-                  </tr>
-                ))}
+                {cmpRows.map(({ en, label, l1, cur, l18, row }, i) => {
+                  const on = en === selected;
+                  return (
+                    <tr key={en} className="cs-growth-row" style={{ cursor: "pointer", background: on ? theme.surfaceAlt : i % 2 ? theme.surfaceAlt + "55" : "transparent" }}
+                      onClick={() => { setSelected(en); setSub("detail"); }}>
+                      <td style={{ ...td, color: theme.textFaint, padding: "7px 4px", fontVariantNumeric: "tabular-nums" }}>{i + 1}</td>
+                      <td style={{ ...td, textAlign: "left", fontWeight: 700 }}>{label}</td>
+                      <td style={{ ...td, color: theme.textSub, fontVariantNumeric: "tabular-nums" }}>{fmt(l1, row.dec)}</td>
+                      <td style={{ ...td, ...band, color: theme.accent, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{fmt(cur, row.dec)}</td>
+                      <td style={{ ...td, fontVariantNumeric: "tabular-nums" }}>{fmt(l18, row.dec)}</td>
+                      <td style={{ ...td, color: theme.textSub, paddingLeft: 18 }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 7 }}>
+                          <GrowthBar value={l1 ? l18 / l1 : 0} min={cmpSpan.min} max={cmpSpan.max} />
+                          <span style={{ fontVariantNumeric: "tabular-nums", minWidth: 40, textAlign: "right" }}>{ratioOf(l1, l18)}</span>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -2706,6 +2789,7 @@ export default function CustomStats() {
         .cs-btn { background:linear-gradient(135deg,var(--cs-btnFrom),var(--cs-btnTo)); color:#FFFFFF; border:none; border-radius:6px; padding:9px 16px; font-weight:700; font-size:16.5px; cursor:pointer; }
         .cs-btn:disabled { opacity:.4; cursor:not-allowed; }
         .cs-btn-ghost { background:transparent; border:1px solid ${theme.borderInput}; color:${theme.text}; border-radius:6px; padding:9px 16px; font-size:16.5px; cursor:pointer; }
+        .cs-growth-row:hover td { background:${theme.surfaceAlt} !important; }
         table.cs-table { width:100%; border-collapse:separate; border-spacing:0; font-size:16.5px; border-radius:8px; overflow:hidden; }
         table.cs-table th { text-align:center; background:var(--cs-headNeutral); color:var(--cs-headNeutralText); font-weight:700; font-size:14.5px; padding:9px 10px; border-bottom:none; white-space:nowrap; }
         table.cs-table td { padding:10px; border-bottom:1px solid ${theme.borderTable}; text-align:center; background:${theme.surface}; line-height:1.4; }
