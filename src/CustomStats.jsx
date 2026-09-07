@@ -5,9 +5,11 @@ import { initializeApp } from "firebase/app";
 import { getDatabase, ref, onValue, set as fbSet, remove as fbRemove, runTransaction } from "firebase/database";
 import {
   Trophy, Swords, CheckCircle2, History, Users, UserPlus,
-  Scale, Trash2, Loader2, X, UserRound, Pencil, Medal, ExternalLink, ListOrdered, Palette, Coins, RefreshCw
+  Scale, Trash2, Loader2, X, UserRound, Pencil, Medal, ExternalLink, ListOrdered, Palette, Coins, RefreshCw, TrendingUp
 } from "lucide-react";
 import { computeEfficiency, PERCENT_DISPLAY_KEYS } from "./itemEfficiency.js";
+import { CHAMPSTATS, CHAMPSTATS_PATCH } from "./champStats.js";
+import { computeAt, STAT_ROWS, COMPARE_LEVELS, MAX_LEVEL } from "./champGrowth.js";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from "recharts";
@@ -1102,6 +1104,213 @@ function ItemEfficiencyTab() {
             </tbody>
           </table>
         </div>
+      )}
+    </div>
+  );
+}
+
+function ChampGrowthTab() {
+  const lang = getLang();
+  const [sub, setSub] = useState("detail"); // detail | compare
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState("Aatrox");
+  const [simLv, setSimLv] = useState(11);
+  const [cmpStat, setCmpStat] = useState("hp");
+  const [cmpLv, setCmpLv] = useState(11);
+  const [cmpSort, setCmpSort] = useState({ key: "cur", dir: "desc" });
+
+  const names = useMemo(() => Object.keys(CHAMPSTATS), []);
+  const labelOf = useCallback((en) => {
+    const st = CHAMPSTATS[en];
+    if (!st) return en;
+    return lang === "ja" ? (st.nameJa || en) : lang === "ko" ? (st.nameKo || en) : en;
+  }, [lang]);
+  const collator = useMemo(
+    () => new Intl.Collator(lang === "ko" ? "ko" : lang === "en" ? "en" : "ja"),
+    [lang]
+  );
+
+  const list = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    let arr = names.map((en) => ({ en, label: labelOf(en) }));
+    if (q) arr = arr.filter((x) => x.label.toLowerCase().includes(q) || x.en.toLowerCase().includes(q));
+    return arr.sort((a, b) => collator.compare(a.label, b.label));
+  }, [names, query, labelOf, collator]);
+
+  const s = CHAMPSTATS[selected];
+  const isMana = s && s.resource === "MANA";
+  const rows = useMemo(() => STAT_ROWS.filter((r) => !r.manaOnly || isMana), [isMana]);
+
+  const fmt = (v, dec) => {
+    if (v == null || Number.isNaN(v)) return "—";
+    return dec > 0 ? v.toFixed(dec) : Math.round(v).toString();
+  };
+  const ratioOf = (v1, v18) => (!v1 || Number.isNaN(v1) ? "—" : `${(v18 / v1).toFixed(2)}×`);
+
+  const cmpRows = useMemo(() => {
+    const row = STAT_ROWS.find((r) => r.key === cmpStat) || STAT_ROWS[0];
+    const arr = names.map((en) => {
+      const st = CHAMPSTATS[en];
+      const at = (lv) => computeAt(st, lv)[row.key];
+      return { en, label: labelOf(en), l1: at(1), cur: at(cmpLv), l18: at(18), row };
+    });
+    const dir = cmpSort.dir === "asc" ? 1 : -1;
+    arr.sort((a, b) => {
+      if (cmpSort.key === "label") return collator.compare(a.label, b.label) * dir;
+      if (cmpSort.key === "ratio") return ((a.l18 / (a.l1 || 1)) - (b.l18 / (b.l1 || 1))) * dir;
+      return (a[cmpSort.key] - b[cmpSort.key]) * dir;
+    });
+    return arr;
+  }, [names, cmpStat, cmpLv, cmpSort, labelOf, collator]);
+
+  const toggleCmpSort = (key) =>
+    setCmpSort((c) => (c.key === key ? { key, dir: c.dir === "asc" ? "desc" : "asc" } : { key, dir: key === "label" ? "asc" : "desc" }));
+
+  const th = { padding: "6px 8px", textAlign: "right", whiteSpace: "nowrap", color: theme.textSub, cursor: "pointer" };
+  const td = { padding: "5px 8px", textAlign: "right", whiteSpace: "nowrap", borderBottom: `1px solid ${theme.borderTable}` };
+
+  return (
+    <div>
+      <div style={{ ...cardStyle, marginBottom: 12, fontSize: 13, color: theme.textSub, lineHeight: 1.7 }}>
+        {t("growth.002")}
+        <div style={{ marginTop: 4, color: theme.textFaint }}>{t("growth.003").replace("{ver}", CHAMPSTATS_PATCH)}</div>
+        <div style={{ marginTop: 2, color: theme.textFaint }}>{t("growth.015")}</div>
+      </div>
+
+      <div className="cs-scroll" style={{ display: "flex", gap: 4, marginBottom: 12 }}>
+        {[["detail", t("growth.005")], ["compare", t("growth.006")]].map(([k, lb]) => (
+          <button key={k} className="cs-btn-ghost" onClick={() => setSub(k)}
+            style={{ padding: "6px 16px", fontSize: 14, whiteSpace: "nowrap",
+              borderColor: sub === k ? theme.accent : theme.borderInput,
+              color: sub === k ? theme.accent : theme.textSub, fontWeight: sub === k ? 700 : 400 }}>
+            {lb}
+          </button>
+        ))}
+      </div>
+
+      {sub === "detail" && (
+        <>
+          <input className="cs-input" placeholder={t("growth.004")} value={query} onChange={(e) => setQuery(e.target.value)}
+            style={{ width: "100%", maxWidth: 320, padding: "7px 10px", fontSize: 14, marginBottom: 8, boxSizing: "border-box" }} />
+          <div className="cs-scroll" style={{ display: "flex", flexWrap: "wrap", gap: 4, maxHeight: 132, overflowY: "auto", marginBottom: 14 }}>
+            {list.map((c) => (
+              <button key={c.en} className="cs-btn-ghost" onClick={() => { setSelected(c.en); setQuery(""); }}
+                style={{ padding: "3px 9px", fontSize: 12, whiteSpace: "nowrap",
+                  borderColor: selected === c.en ? theme.accent : theme.borderInput,
+                  background: selected === c.en ? theme.accent : "transparent",
+                  color: selected === c.en ? theme.surface : theme.textSub, fontWeight: selected === c.en ? 700 : 400 }}>
+                {c.label}
+              </button>
+            ))}
+          </div>
+
+          {!s && <div style={{ ...cardStyle, textAlign: "center", padding: 24, color: theme.textFaint }}>{t("growth.012")}</div>}
+
+          {s && (
+            <>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 18, fontWeight: 700 }}>{labelOf(selected)}</span>
+                {!isMana && <span style={{ fontSize: 12, color: theme.textFaint }}>{t("growth.011")}</span>}
+              </div>
+
+              <div className="cs-scroll" style={{ overflowX: "auto", marginBottom: 16 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ borderBottom: `1px solid ${theme.borderTable}` }}>
+                      <th style={{ ...th, textAlign: "left", cursor: "default" }}>{t("growth.007")}</th>
+                      {COMPARE_LEVELS.map((lv) => (
+                        <th key={lv} style={{ ...th, cursor: "default" }}>Lv{lv}</th>
+                      ))}
+                      <th style={{ ...th, cursor: "default" }}>{t("growth.008")}</th>
+                      <th style={{ ...th, cursor: "default" }}>{t("growth.009")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((r) => {
+                      const vals = COMPARE_LEVELS.map((lv) => computeAt(s, lv)[r.key]);
+                      const v1 = vals[0], v18 = vals[vals.length - 1];
+                      return (
+                        <tr key={r.key}>
+                          <td style={{ ...td, textAlign: "left", fontWeight: 600 }}>{t(r.labelKey)}</td>
+                          {vals.map((v, i) => (
+                            <td key={i} style={{ ...td, color: i === vals.length - 1 ? theme.accent : theme.text, fontWeight: i === vals.length - 1 ? 700 : 400 }}>
+                              {fmt(v, r.dec)}
+                            </td>
+                          ))}
+                          <td style={{ ...td, color: theme.textSub }}>{r.flat ? "—" : `+${fmt(r.isAS ? s.asPerLv / 100 : s[r.raw], r.dec)}`}</td>
+                          <td style={{ ...td, color: theme.textSub }}>{r.flat ? "—" : ratioOf(v1, v18)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              <div style={{ ...cardStyle, marginBottom: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
+                  <span style={{ fontWeight: 700, fontSize: 14, whiteSpace: "nowrap" }}>{t("growth.010").replace("{n}", simLv)}</span>
+                  <input type="range" min={1} max={MAX_LEVEL} value={simLv} onChange={(e) => setSimLv(Number(e.target.value))}
+                    style={{ flex: 1, minWidth: 160, accentColor: theme.accent }} />
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: "6px 14px" }}>
+                  {rows.map((r) => (
+                    <div key={r.key} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, borderBottom: `1px solid ${theme.borderTable}`, padding: "3px 0" }}>
+                      <span style={{ color: theme.textSub }}>{t(r.labelKey)}</span>
+                      <span style={{ fontWeight: 700 }}>{fmt(computeAt(s, simLv)[r.key], r.dec)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+        </>
+      )}
+
+      {sub === "compare" && (
+        <>
+          <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
+            <label style={{ fontSize: 13, color: theme.textSub }}>
+              {t("growth.013")}{" "}
+              <select className="cs-input" value={cmpStat} onChange={(e) => setCmpStat(e.target.value)} style={{ padding: "5px 8px", fontSize: 13 }}>
+                {STAT_ROWS.filter((r) => !r.flat).map((r) => (
+                  <option key={r.key} value={r.key}>{t(r.labelKey)}</option>
+                ))}
+              </select>
+            </label>
+            <label style={{ fontSize: 13, color: theme.textSub }}>
+              {t("growth.014")}{" "}
+              <select className="cs-input" value={cmpLv} onChange={(e) => setCmpLv(Number(e.target.value))} style={{ padding: "5px 8px", fontSize: 13 }}>
+                {COMPARE_LEVELS.map((lv) => <option key={lv} value={lv}>Lv{lv}</option>)}
+              </select>
+            </label>
+          </div>
+          <div className="cs-scroll" style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr style={{ borderBottom: `1px solid ${theme.borderTable}` }}>
+                  <th style={{ ...th, textAlign: "left" }} onClick={() => toggleCmpSort("label")}>
+                    {t("growth.016")}{cmpSort.key === "label" ? (cmpSort.dir === "asc" ? " ▲" : " ▼") : ""}
+                  </th>
+                  <th style={th} onClick={() => toggleCmpSort("l1")}>Lv1{cmpSort.key === "l1" ? (cmpSort.dir === "asc" ? " ▲" : " ▼") : ""}</th>
+                  <th style={{ ...th, color: theme.accent }} onClick={() => toggleCmpSort("cur")}>Lv{cmpLv}{cmpSort.key === "cur" ? (cmpSort.dir === "asc" ? " ▲" : " ▼") : ""}</th>
+                  <th style={th} onClick={() => toggleCmpSort("l18")}>Lv18{cmpSort.key === "l18" ? (cmpSort.dir === "asc" ? " ▲" : " ▼") : ""}</th>
+                  <th style={th} onClick={() => toggleCmpSort("ratio")}>{t("growth.009")}{cmpSort.key === "ratio" ? (cmpSort.dir === "asc" ? " ▲" : " ▼") : ""}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {cmpRows.map(({ en, label, l1, cur, l18, row }) => (
+                  <tr key={en} style={{ cursor: "pointer" }} onClick={() => { setSelected(en); setSub("detail"); }}>
+                    <td style={{ ...td, textAlign: "left", fontWeight: 600 }}>{label}</td>
+                    <td style={td}>{fmt(l1, row.dec)}</td>
+                    <td style={{ ...td, color: theme.accent, fontWeight: 700 }}>{fmt(cur, row.dec)}</td>
+                    <td style={td}>{fmt(l18, row.dec)}</td>
+                    <td style={{ ...td, color: theme.textSub }}>{ratioOf(l1, l18)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </div>
   );
@@ -2637,6 +2846,7 @@ export default function CustomStats() {
             { id: "records", icon: Medal, label: t("shell.014") },
             { id: "rateTable", icon: ListOrdered, label: t("board.014") },
             { id: "itemEfficiency", icon: Coins, label: t("items.001") },
+            { id: "champGrowth", icon: TrendingUp, label: t("growth.001") },
           ] },
         ];
         GROUPS.forEach((g) => { g.badge = g.tabs.reduce((sum, x) => sum + (x.badge || 0), 0); });
@@ -3412,6 +3622,8 @@ export default function CustomStats() {
 
       {/* ---------- ITEM EFFICIENCY(アイテム金銭効率) ---------- */}
       {tab === "itemEfficiency" && <ItemEfficiencyTab />}
+
+      {tab === "champGrowth" && <ChampGrowthTab />}
 
       {/* ---------- PERSONAL STATS ---------- */}
       {/* ---------- SCOUT: MULTI SEARCH(ロール別対面比較) ---------- */}
