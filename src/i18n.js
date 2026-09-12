@@ -1,6 +1,8 @@
 // 自動生成: 多言語辞書 (ja/ko/en)
 export const DICT = {
   "ja": {
+    "changelog.001": "更新履歴",
+    "changelog.002": "最近の更新",
     "board.019": "習熟度",
     "stats.029": "すべて表示（{n}体）",
     "stats.028": "閉じる",
@@ -516,6 +518,8 @@ export const DICT = {
     "growth.029": "攻撃射程"
   },
   "en": {
+    "changelog.001": "What's New",
+    "changelog.002": "Recent Updates",
     "board.019": "Proficiency",
     "stats.029": "Show all ({n})",
     "stats.028": "Collapse",
@@ -1031,6 +1035,8 @@ export const DICT = {
     "growth.029": "Attack Range"
   },
   "ko": {
+    "changelog.001": "업데이트 내역",
+    "changelog.002": "최근 업데이트",
     "board.019": "숙련도",
     "stats.029": "전체 표시({n}개)",
     "stats.028": "접기",

@@ -5,7 +5,7 @@ import { initializeApp } from "firebase/app";
 import { getDatabase, ref, onValue, set as fbSet, remove as fbRemove, runTransaction } from "firebase/database";
 import {
   Trophy, Swords, CheckCircle2, History, Users, UserPlus,
-  Scale, Trash2, Loader2, X, UserRound, Pencil, Medal, ExternalLink, ListOrdered, Palette, Coins, RefreshCw, TrendingUp
+  Scale, Trash2, Loader2, X, UserRound, Pencil, Medal, ExternalLink, ListOrdered, Palette, Coins, RefreshCw, TrendingUp, Sparkles
 } from "lucide-react";
 import { computeEfficiency, PERCENT_DISPLAY_KEYS } from "./itemEfficiency.js";
 import { CHAMPSTATS, CHAMPSTATS_PATCH } from "./champStats.js";
@@ -15,6 +15,14 @@ import {
 } from "recharts";
 import { t, setLang, getLang, rankLabel, rankShortLang, initialLang, dateLocale } from "./i18n.js";
 import { champLabel, champCanonical } from "./champNames.js";
+
+/* 更新履歴。リリースのたびに先頭へ追記(手動管理)。Discordコピー文面と同様、UI言語に関わらず日本語固定 */
+const CHANGELOG = [
+  { date: "2026-09-08", text: "チャンピオン基礎ステータス成長タブを追加" },
+  { date: "2026-08-22", text: "出欠管理の自分カードから、ランク・熟練度の変更申請ができるように" },
+  { date: "2026-08-20", text: "個人成績「概要」タブのレイアウトを改善" },
+  { date: "2026-08-18", text: "マッチング画面をリニューアル(結果を全幅表示、レート格差の警告しきい値を表示)" },
+];
 
 /* ---------------------------------------------------------
    Rating engine — Bayesian skill rating (TrueSkill/OpenSkill
@@ -1551,6 +1559,7 @@ export default function CustomStats() {
   }
   const [fontKey, setFontKey] = useState(() => (typeof localStorage !== "undefined" && localStorage.getItem("crl-font")) || "gothic");
   const [themePickerOpen, setThemePickerOpen] = useState(false);
+  const [changelogOpen, setChangelogOpen] = useState(false);
   useEffect(() => {
     applyTheme(colorKey, fontKey);
     try { localStorage.setItem("crl-color", colorKey); localStorage.setItem("crl-font", fontKey); } catch {}
@@ -2864,7 +2873,27 @@ export default function CustomStats() {
           CUSTOM RIFT LEDGER
         </h1>
         <span style={{ fontSize: 15, color: theme.textSub }}>{t("header.001")}</span>
-        <span style={{ marginLeft: "auto", fontSize: 13, color: theme.textSub, border: `1px solid ${theme.borderInput}`, borderRadius: 6, padding: "4px 12px" }}>
+        <span style={{ marginLeft: "auto", position: "relative" }}>
+          <button className="cs-btn-ghost" title={t("changelog.001")} style={{ padding: "6px 10px", display: "flex", alignItems: "center", gap: 6 }}
+            onClick={() => setChangelogOpen(!changelogOpen)}>
+            <Sparkles size={16} />
+            <span style={{ fontSize: 13 }}>{t("changelog.001")}</span>
+          </button>
+          {changelogOpen && (
+            <div style={{ ...cardStyle, position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 20, width: 340, padding: 14 }}>
+              <div style={{ fontSize: 13, color: theme.textSub, marginBottom: 10, fontWeight: 700 }}>{t("changelog.002")}</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {CHANGELOG.map((c, i) => (
+                  <div key={i} style={{ display: "flex", gap: 10 }}>
+                    <span className="cs-nowrap" style={{ fontSize: 12, color: theme.textFaint, flexShrink: 0 }}>{c.date}</span>
+                    <span className="cs-prose" style={{ fontSize: 13, color: theme.text }}>{c.text}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </span>
+        <span style={{ fontSize: 13, color: theme.textSub, border: `1px solid ${theme.borderInput}`, borderRadius: 6, padding: "4px 12px" }}>
           {t("header.002")} {ddVer ? t("header.024", { ver: ddVer }) : t("header.003")}
         </span>
         <span style={{ position: "relative" }}>
