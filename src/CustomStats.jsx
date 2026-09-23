@@ -1488,6 +1488,8 @@ export default function CustomStats() {
   const [subPickerOpen, setSubPickerOpen] = useState(false); // 選手交代の交代先選択パネル開閉
   const [copiedRiotId, setCopiedRiotId] = useState(null); // Riot IDコピー時の一時フィードバック表示
   const [champExpanded, setChampExpanded] = useState(false); // 個人成績: チャンピオン別成績の全件表示
+  const [champHist, setChampHist] = useState(null); // 個人成績: チャンピオン別試合履歴ポップアップの対象チャンピオン
+  const [champHistMatch, setChampHistMatch] = useState(null); // 上記ポップアップ内で展開中の試合ID
   const [dialog, setDialog] = useState(null); // テーマ準拠ダイアログ {type, content, resolve, password, defaultValue}
   const [dialogInput, setDialogInput] = useState("");
   useEffect(() => { _dialogSet = (d) => { setDialogInput(d.defaultValue || ""); setDialog(d); }; return () => { _dialogSet = null; }; }, []);
@@ -2576,6 +2578,63 @@ export default function CustomStats() {
 
   const nameOf = (id) => players.find((p) => p.id === id)?.name || "?";
 
+  // 試合の両チーム構成(選手・チャンプ・KDA・レート変動)。履歴タブの展開行とチャンピオン別試合履歴で共有。
+  // highlightId の選手は名前を強調表示する
+  const renderMatchTeams = (m, highlightId) => (
+    <div className="cs-match-teams">
+      {["A", "B"].map((side, ti) => (
+        <React.Fragment key={side}>
+          {ti === 1 && <div className="cs-match-sep" style={{ background: theme.border }} />}
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: side === "A" ? theme.accentBright : theme.teamB, marginBottom: 6 }}>
+              {sideLabel(side)}{m.winner === side && " 🏆"}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "30px minmax(80px,150px) minmax(0,1fr) 92px 68px", gap: 0, fontSize: 12, color: theme.textFaint, borderBottom: `1px solid ${theme.border}`, paddingBottom: 4, marginBottom: 2 }}>
+              <span></span>
+              <span style={{ borderLeft: `1px solid ${theme.borderTable}`, paddingLeft: 8 }}>{t("shell.028")}</span>
+              <span>{t("shell.061")}</span>
+              <span style={{ textAlign: "center", borderLeft: `1px solid ${theme.borderTable}`, paddingLeft: 8 }}>KDA</span>
+              <span style={{ textAlign: "right", borderLeft: `1px solid ${theme.borderTable}`, paddingLeft: 8, whiteSpace: "nowrap" }}>{t("shell.062")}</span>
+            </div>
+            {m.entries.filter((e) => e.team === side).map((e) => {
+              const kda = (m.kda || {})[e.playerId] || {};
+              const p = players.find((x) => x.id === e.playerId);
+              const hist = p?.kdaHistory.find((h) => h.matchId === m.id && h.role === e.role);
+              const hl = highlightId && e.playerId === highlightId;
+              return (
+                <div key={e.playerId} style={{ display: "grid", gridTemplateColumns: "30px minmax(80px,150px) minmax(0,1fr) 92px 68px", gap: 0, alignItems: "center", fontSize: 14, padding: "5px 0", borderBottom: `1px solid ${theme.borderTable}` }}>
+                  <span style={{ color: theme.textFaint, fontSize: 13 }}>{e.role}</span>
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", borderLeft: `1px solid ${theme.borderTable}`, paddingLeft: 8, paddingRight: 6, ...(hl ? { fontWeight: 700, color: theme.accent } : {}) }} title={nameOf(e.playerId)}>{nameOf(e.playerId)}</span>
+                  <span style={{ display: "flex", alignItems: "center", gap: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0, color: theme.textSub }}>
+                    {e.champion ? <ChampIcon name={e.champion} size={16} /> : null}{champLabel(e.champion) || "-"}
+                  </span>
+                  <span style={{
+                    display: "grid", gridTemplateColumns: "1fr auto 1fr auto 1fr",
+                    color: theme.textSub, borderLeft: `1px solid ${theme.borderTable}`, paddingLeft: 8,
+                    fontVariantNumeric: "tabular-nums",
+                  }}>
+                    {kda.k != null ? (
+                      <>
+                        <span style={{ textAlign: "right" }}>{kda.k}</span>
+                        <span style={{ textAlign: "center", padding: "0 2px", color: theme.textFaint }}>/</span>
+                        <span style={{ textAlign: "right" }}>{kda.d}</span>
+                        <span style={{ textAlign: "center", padding: "0 2px", color: theme.textFaint }}>/</span>
+                        <span style={{ textAlign: "right" }}>{kda.a}</span>
+                      </>
+                    ) : <span style={{ gridColumn: "1 / -1", textAlign: "center", color: theme.textFaint }}>-</span>}
+                  </span>
+                  <span style={{ textAlign: "right", fontWeight: 700, borderLeft: `1px solid ${theme.borderTable}`, paddingLeft: 8, color: hist == null ? theme.textFaint : hist.delta > 0 ? theme.accentBright : theme.teamB }}>
+                    {hist ? `${hist.delta > 0 ? "+" : ""}${hist.delta.toFixed(1)}` : "-"}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </React.Fragment>
+      ))}
+    </div>
+  );
+
   // 履歴タブ(個別/全体)で共有する試合1行分の描画。readOnly時は編集/削除アイコンを非表示
   const renderMatchRow = (m, { readOnly }) => (
     <React.Fragment key={m.id}>
@@ -2597,57 +2656,7 @@ export default function CustomStats() {
       {expandedMatch === m.id && (
         <tr>
           <td colSpan={6} style={{ background: theme.surfaceAlt, padding: "12px 14px" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1px 1fr", gap: 20 }}>
-              {["A", "B"].map((side, ti) => (
-                <React.Fragment key={side}>
-                  {ti === 1 && <div style={{ background: theme.border }} />}
-                  <div>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: side === "A" ? theme.accentBright : theme.teamB, marginBottom: 6 }}>
-                      {sideLabel(side)}{m.winner === side && " 🏆"}
-                    </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "30px minmax(80px,150px) minmax(0,1fr) 92px 68px", gap: 0, fontSize: 12, color: theme.textFaint, borderBottom: `1px solid ${theme.border}`, paddingBottom: 4, marginBottom: 2 }}>
-                      <span></span>
-                      <span style={{ borderLeft: `1px solid ${theme.borderTable}`, paddingLeft: 8 }}>{t("shell.028")}</span>
-                      <span>{t("shell.061")}</span>
-                      <span style={{ textAlign: "center", borderLeft: `1px solid ${theme.borderTable}`, paddingLeft: 8 }}>KDA</span>
-                      <span style={{ textAlign: "right", borderLeft: `1px solid ${theme.borderTable}`, paddingLeft: 8, whiteSpace: "nowrap" }}>{t("shell.062")}</span>
-                    </div>
-                    {m.entries.filter((e) => e.team === side).map((e) => {
-                      const kda = (m.kda || {})[e.playerId] || {};
-                      const p = players.find((x) => x.id === e.playerId);
-                      const hist = p?.kdaHistory.find((h) => h.matchId === m.id && h.role === e.role);
-                      return (
-                        <div key={e.playerId} style={{ display: "grid", gridTemplateColumns: "30px minmax(80px,150px) minmax(0,1fr) 92px 68px", gap: 0, alignItems: "center", fontSize: 14, padding: "5px 0", borderBottom: `1px solid ${theme.borderTable}` }}>
-                          <span style={{ color: theme.textFaint, fontSize: 13 }}>{e.role}</span>
-                          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", borderLeft: `1px solid ${theme.borderTable}`, paddingLeft: 8, paddingRight: 6 }} title={nameOf(e.playerId)}>{nameOf(e.playerId)}</span>
-                          <span style={{ display: "flex", alignItems: "center", gap: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0, color: theme.textSub }}>
-                            {e.champion ? <ChampIcon name={e.champion} size={16} /> : null}{champLabel(e.champion) || "-"}
-                          </span>
-                          <span style={{
-                            display: "grid", gridTemplateColumns: "1fr auto 1fr auto 1fr",
-                            color: theme.textSub, borderLeft: `1px solid ${theme.borderTable}`, paddingLeft: 8,
-                            fontVariantNumeric: "tabular-nums",
-                          }}>
-                            {kda.k != null ? (
-                              <>
-                                <span style={{ textAlign: "right" }}>{kda.k}</span>
-                                <span style={{ textAlign: "center", padding: "0 2px", color: theme.textFaint }}>/</span>
-                                <span style={{ textAlign: "right" }}>{kda.d}</span>
-                                <span style={{ textAlign: "center", padding: "0 2px", color: theme.textFaint }}>/</span>
-                                <span style={{ textAlign: "right" }}>{kda.a}</span>
-                              </>
-                            ) : <span style={{ gridColumn: "1 / -1", textAlign: "center", color: theme.textFaint }}>-</span>}
-                          </span>
-                          <span style={{ textAlign: "right", fontWeight: 700, borderLeft: `1px solid ${theme.borderTable}`, paddingLeft: 8, color: hist == null ? theme.textFaint : hist.delta > 0 ? theme.accentBright : theme.teamB }}>
-                            {hist ? `${hist.delta > 0 ? "+" : ""}${hist.delta.toFixed(1)}` : "-"}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </React.Fragment>
-              ))}
-            </div>
+            {renderMatchTeams(m)}
             {!readOnly && editMatchId === m.id && editMatchForm && (
               <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${theme.border}` }}>
                 <MatchEditForm form={editMatchForm} players={players}
@@ -2812,8 +2821,11 @@ export default function CustomStats() {
         .cs-reprow6 { display:grid; grid-template-columns:70px 1fr 1fr 46px 46px 46px; gap:6px; align-items:center; }
         .cs-reg-split { display:grid; grid-template-columns:150px minmax(0,1fr); gap:16px; }
         .cs-reg-roles { display:grid; grid-template-columns:repeat(5, minmax(0,1fr)); gap:6px; }
+        .cs-match-teams { display:grid; grid-template-columns:1fr 1px 1fr; gap:20px; }
         @media (max-width: 760px) {
           .cs-cols2, .cs-cols2-wide, .cs-side-narrow { grid-template-columns:1fr; }
+          .cs-match-teams { grid-template-columns:1fr; gap:14px; }
+          .cs-match-sep { display:none; }
           .cs-reprow { grid-template-columns:64px 1fr 1fr 36px 36px 36px 16px; gap:3px; }
           .cs-reprow6 { grid-template-columns:54px 1fr 1fr 34px 34px 34px; gap:3px; }
           table.cs-table th, table.cs-table td { padding:7px 5px; font-size:14px; }
@@ -4144,7 +4156,9 @@ export default function CustomStats() {
                       </tbody>
                     </table>
 
-                    <div style={{ fontSize: 16, color: theme.textSub, marginBottom: 6 }}>{t("stats.022")}</div>
+                    <div style={{ fontSize: 16, color: theme.textSub, marginBottom: 6 }}>
+                      {t("stats.022")}<span style={{ fontSize: 13, color: theme.textFaint, marginLeft: 6 }}>{t("stats.044")}</span>
+                    </div>
                     {(() => {
                       const byChamp = {};
                       hist.forEach((x) => {
@@ -4167,7 +4181,7 @@ export default function CustomStats() {
                           <thead><tr><th>{t("shell.031")}</th><th>{t("stats.020")}</th><th>{t("stats.021")}</th><th>{t("board.006")}</th><th>{t("board.007")}</th></tr></thead>
                           <tbody>
                             {shown.map(([name, b]) => (
-                              <tr key={name}>
+                              <tr key={name} style={{ cursor: "pointer" }} onClick={() => { setChampHist(name); setChampHistMatch(null); }}>
                                 <td style={{ fontWeight: 700 }}><ChampIcon name={name} />{champLabel(name)}</td>
                                 <td>{b.games}</td>
                                 <td style={{ color: theme.textSub }}>{b.wins}{t("board.010")}{b.games - b.wins}{t("board.011")}</td>
@@ -4242,6 +4256,84 @@ export default function CustomStats() {
                     )}
                   </>
                 )}
+
+                {/* チャンピオン別試合履歴ポップアップ(ロール・チャンピオンタブのチャンピオン別成績から開く) */}
+                {champHist && (() => {
+                  const rows = [...hist].reverse().filter((h) => h.champion === champHist);
+                  const wins = rows.filter((h) => h.won).length;
+                  const kdaRows = rows.filter((h) => h.k != null || h.d != null || h.a != null);
+                  const avg = (f) => (kdaRows.reduce((s, x) => s + (x[f] || 0), 0) / kdaRows.length).toFixed(1);
+                  const close = () => { setChampHist(null); setChampHistMatch(null); };
+                  return (
+                    <div onClick={close}
+                      style={{ position: "fixed", inset: 0, zIndex: 100, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+                      <div onClick={(e) => e.stopPropagation()}
+                        style={{ ...cardStyle, background: theme.surface, width: "min(920px, 96vw)", maxHeight: "86vh", overflowY: "auto", padding: 22, boxShadow: "0 8px 40px rgba(0,0,0,.4)", boxSizing: "border-box" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 19, fontWeight: 700, color: theme.accent, marginBottom: 4 }}>
+                          <ChampIcon name={champHist} size={30} />{t("stats.042", { champ: champLabel(champHist), name: sp.name })}
+                        </div>
+                        {rows.length === 0 ? (
+                          <EmptyState text={t("stats.015")} />
+                        ) : (
+                          <>
+                            <div style={{ fontSize: 14, color: theme.textSub, marginBottom: 4 }}>
+                              {t("stats.020")} {rows.length} / {t("stats.021")} {wins}{t("board.010")}{rows.length - wins}{t("board.011")} / {t("board.006")} {Math.round((wins / rows.length) * 100)}%
+                              {kdaRows.length > 0 && ` / ${t("board.007")} ${avg("k")}/${avg("d")}/${avg("a")}`}
+                            </div>
+                            <div style={{ fontSize: 13, color: theme.textFaint, marginBottom: 10 }}>{t("stats.045")}</div>
+                            <div style={{ overflowX: "auto" }}>
+                              <table className="cs-table">
+                                <thead><tr><th></th><th>{t("shell.027")}</th><th>{t("stats.037")}</th><th>{t("shell.030")}</th><th>KDA</th><th>{t("stats.043")}</th><th>{t("shell.032")}</th><th>{t("stats.025")}</th></tr></thead>
+                                <tbody>
+                                  {rows.map((h, i) => {
+                                    const m = h.matchId && matches.find((x) => x.id === h.matchId);
+                                    const opp = m && h.side ? m.entries.find((e) => e.team !== h.side && e.role === h.role) : null;
+                                    const open = m && champHistMatch === m.id;
+                                    return (
+                                      <React.Fragment key={h.matchId || i}>
+                                        <tr style={{ cursor: m ? "pointer" : "default" }} onClick={() => m && setChampHistMatch(open ? null : m.id)}>
+                                          <td style={{ color: theme.accent, fontWeight: 700 }}>{m ? (open ? "▼" : "▶") : ""}</td>
+                                          <td style={{ color: theme.textSub, whiteSpace: "nowrap" }}>{new Date(h.ts).toLocaleDateString(dateLocale())}</td>
+                                          <td style={{ color: h.side === "A" ? theme.accentBright : theme.teamB, fontWeight: 700 }}>{h.side ? sideLabel(h.side) : "-"}</td>
+                                          <td>{h.role}</td>
+                                          <td style={{ fontSize: 17, fontWeight: 700, whiteSpace: "nowrap" }}>{h.k != null ? `${h.k}/${h.d}/${h.a}` : "-"}</td>
+                                          <td>
+                                            {opp ? (
+                                              <>
+                                                <div style={{ fontWeight: 700 }}>{nameOf(opp.playerId)}</div>
+                                                {opp.champion && <div style={{ fontSize: 13, color: theme.textSub, whiteSpace: "nowrap" }}><ChampIcon name={opp.champion} size={16} />{champLabel(opp.champion)}</div>}
+                                              </>
+                                            ) : "-"}
+                                          </td>
+                                          <td style={{ color: h.won ? theme.accentBright : theme.teamB, fontWeight: 700 }}>{h.won ? t("shell.034") : t("shell.035")}</td>
+                                          <td style={{ fontWeight: 700, color: h.delta > 0 ? theme.accentBright : theme.teamB }}>
+                                            {h.delta != null ? `${h.delta > 0 ? "+" : ""}${h.delta.toFixed(1)}` : "-"}
+                                          </td>
+                                        </tr>
+                                        {open && (
+                                          <tr>
+                                            <td colSpan={8} style={{ background: theme.surfaceAlt, padding: "12px 14px" }}>
+                                              {renderMatchTeams(m, sp.id)}
+                                            </td>
+                                          </tr>
+                                        )}
+                                      </React.Fragment>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          </>
+                        )}
+                        <div style={{ marginTop: 16, textAlign: "right" }}>
+                          <button className="cs-btn-ghost" style={{ padding: "8px 20px", fontSize: 14 }} onClick={close}>
+                            {t("balance.071")}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
               </>
             );
           })()}
