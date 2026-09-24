@@ -1490,6 +1490,7 @@ export default function CustomStats() {
   const [champExpanded, setChampExpanded] = useState(false); // 個人成績: チャンピオン別成績の全件表示
   const [champHist, setChampHist] = useState(null); // 個人成績: チャンピオン別試合履歴ポップアップの対象チャンピオン
   const [champHistMatch, setChampHistMatch] = useState(null); // 上記ポップアップ内で展開中の試合ID
+  const [statsLogMatch, setStatsLogMatch] = useState(null); // 個人成績: 試合ログで展開中の試合ID
   const [dialog, setDialog] = useState(null); // テーマ準拠ダイアログ {type, content, resolve, password, defaultValue}
   const [dialogInput, setDialogInput] = useState("");
   useEffect(() => { _dialogSet = (d) => { setDialogInput(d.defaultValue || ""); setDialog(d); }; return () => { _dialogSet = null; }; }, []);
@@ -3990,7 +3991,7 @@ export default function CustomStats() {
                           const total = p.wins + p.losses;
                           const wr = total ? Math.round((p.wins / total) * 100) : null;
                           return (
-                            <div key={p.id} onClick={() => { setCurId(p.id); setStatsPickerOpen(false); setStatsSearch(""); setChampExpanded(false); setStatsLogFilter("ALL"); }}
+                            <div key={p.id} onClick={() => { setCurId(p.id); setStatsPickerOpen(false); setStatsSearch(""); setChampExpanded(false); setStatsLogFilter("ALL"); setStatsLogMatch(null); }}
                               style={{
                                 cursor: "pointer", padding: "8px 10px", borderRadius: 6,
                                 border: `1px solid ${p.id === sp.id ? theme.accentBright : theme.borderInput}`,
@@ -4235,29 +4236,53 @@ export default function CustomStats() {
                     {logRows.length === 0 ? (
                       <EmptyState text={t("stats.015")} />
                     ) : (
+                      <>
+                      <div style={{ fontSize: 13, color: theme.textFaint, marginBottom: 8 }}>{t("stats.045")}{t("stats.046")}</div>
                       <table className="cs-table">
-                        <thead><tr><th>{t("shell.027")}</th><th>{t("stats.037")}</th><th>{t("shell.030")}</th><th>{t("shell.031")}</th><th>KDA</th><th>{t("shell.032")}</th><th>{t("stats.025")}</th></tr></thead>
+                        <thead><tr><th></th><th>{t("shell.027")}</th><th>{t("stats.037")}</th><th>{t("shell.030")}</th><th>{t("shell.031")}</th><th>KDA</th><th>{t("shell.032")}</th><th>{t("stats.025")}</th></tr></thead>
                         <tbody>
-                          {logRows.map((h, i) => (
-                            <tr key={i}>
+                          {logRows.map((h, i) => {
+                            const m = h.matchId && matches.find((x) => x.id === h.matchId);
+                            const open = m && statsLogMatch === m.id;
+                            return (
+                            <React.Fragment key={h.matchId || i}>
+                            <tr style={{ cursor: m ? "pointer" : "default" }} onClick={() => m && setStatsLogMatch(open ? null : m.id)}>
+                              <td style={{ color: theme.accent, fontWeight: 700 }}>{m ? (open ? "▼" : "▶") : ""}</td>
                               <td style={{ color: theme.textSub }}>{new Date(h.ts).toLocaleDateString(dateLocale())}</td>
                               <td style={{ color: h.side === "A" ? theme.accentBright : theme.teamB, fontWeight: 700 }}>{h.side ? sideLabel(h.side) : "-"}</td>
                               <td>{h.role}</td>
-                              <td>{h.champion ? <><ChampIcon name={h.champion} />{champLabel(h.champion)}</> : "-"}</td>
+                              <td>
+                                {h.champion ? (
+                                  <span style={{ cursor: "pointer", color: theme.accentBright, fontWeight: 700 }} title={t("stats.047")}
+                                    onClick={(ev) => { ev.stopPropagation(); setChampHist(h.champion); setChampHistMatch(null); }}>
+                                    <ChampIcon name={h.champion} />{champLabel(h.champion)}
+                                  </span>
+                                ) : "-"}
+                              </td>
                               <td style={{ fontSize: 17, fontWeight: 700 }}>{h.k != null ? `${h.k}/${h.d}/${h.a}` : "-"}</td>
                               <td style={{ color: h.won ? theme.accentBright : theme.teamB, fontWeight: 700 }}>{h.won ? t("shell.034") : t("shell.035")}</td>
                               <td style={{ fontWeight: 700, color: h.delta > 0 ? theme.accentBright : theme.teamB }}>
                                 {h.delta != null ? `${h.delta > 0 ? "+" : ""}${h.delta.toFixed(1)}` : "-"}
                               </td>
                             </tr>
-                          ))}
+                            {open && (
+                              <tr>
+                                <td colSpan={8} style={{ background: theme.surfaceAlt, padding: "12px 14px" }}>
+                                  {renderMatchTeams(m, sp.id)}
+                                </td>
+                              </tr>
+                            )}
+                            </React.Fragment>
+                            );
+                          })}
                         </tbody>
                       </table>
+                      </>
                     )}
                   </>
                 )}
 
-                {/* チャンピオン別試合履歴ポップアップ(ロール・チャンピオンタブのチャンピオン別成績から開く) */}
+                {/* チャンピオン別試合履歴ポップアップ(チャンピオン別成績の行・試合ログのチャンピオン名から開く) */}
                 {champHist && (() => {
                   const rows = [...hist].reverse().filter((h) => h.champion === champHist);
                   const wins = rows.filter((h) => h.won).length;
