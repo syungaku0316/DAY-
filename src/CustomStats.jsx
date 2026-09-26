@@ -259,6 +259,10 @@ function effectiveBaseMu(p) {
   const hm = p && p.honorRank ? rankMu(p.honorRank) : null;
   return hm != null ? hm : (p && p.baseMu != null ? p.baseMu : MU0);
 }
+// OTP(1人1体・ロール紐付け)。登録ロールに配置された時だけ有効になり、自チームのバン保護枠へ自動反映される
+function otpChampFor(p, role) {
+  return p && p.otp && p.otp.champion && p.otp.role === role ? p.otp.champion : null;
+}
 
 function initRoles(profMap, baseMu, unranked) {
   const base = unranked ? SIGMA_UNRANKED : SIGMA_RATED;
@@ -1753,6 +1757,7 @@ export default function CustomStats() {
   const closeDialog = (value) => { const d = dialog; setDialog(null); if (d && d.resolve) d.resolve(value); };
   const balanceCardRef = useRef(null); // 画像コピー対象DOM(チーム分け結果+バン保護枠)
   const [banInput, setBanInput] = useState({ A: "", B: "" }); // バン保護枠の入力中テキスト(チームごと)
+  const [otpInput, setOtpInput] = useState({ role: "", champ: "" }); // 自分カードのOTP入力中の値(role空=登録済みロール等を初期表示)
   const [rankReqOpenFor, setRankReqOpenFor] = useState(null); // ランク変更申請フォームを開いている選手ID
   const [rankReqValue, setRankReqValue] = useState("アンランク");
   const [rankReqProfs, setRankReqProfs] = useState({});
@@ -2112,7 +2117,8 @@ export default function CustomStats() {
     const profs = {};
     ROLES.forEach((r) => { profs[r] = p.roles[r].prof; });
     setEditId(p.id);
-    setEditForm({ name: p.name, rank: p.rank || "アンランク", summonerName: p.summonerName || "", profs, status: p.status === "rest" ? "rest" : "active", adjust: !!p.adjust, honorRank: p.honorRank || "" });
+    setEditForm({ name: p.name, rank: p.rank || "アンランク", summonerName: p.summonerName || "", profs, status: p.status === "rest" ? "rest" : "active", adjust: !!p.adjust, honorRank: p.honorRank || "",
+      otpRole: p.otp?.role || "", otpChamp: p.otp ? champLabel(p.otp.champion) : "" });
     setEditError("");
   };
 
@@ -2183,12 +2189,20 @@ export default function CustomStats() {
       const hm = rankMu(honorRank);
       if (hm == null || hm <= baseMu) { setEditError(t("players.049")); return; }
     }
+    // OTPはロールとチャンピオンが両方揃った時だけ登録(どちらか空なら解除)
+    let otp = null;
+    if (editForm.otpRole && editForm.otpChamp.trim()) {
+      const champion = champCanonical(editForm.otpChamp);
+      if (!knownChampSet().has(champion)) { setEditError(t("otp.008", { name: champion })); return; }
+      otp = { role: editForm.otpRole, champion };
+    }
     let next = players.map((p) => {
       if (p.id !== editId) return p;
       const roles = { ...p.roles };
       ROLES.forEach((r) => { roles[r] = { ...roles[r], prof: editForm.profs[r] }; });
       const np = { ...p, name, rank: editForm.rank, summonerName: editForm.summonerName.trim(), baseMu, roles, status: editForm.status, adjust: !!editForm.adjust };
       if (honorRank) np.honorRank = honorRank; else delete np.honorRank;
+      if (otp) np.otp = otp; else delete np.otp;
       return np;
     });
     // 初期値変更が過去試合に波及するため全再計算
@@ -2298,11 +2312,57 @@ export default function CustomStats() {
     await saveShared("players", next);
   };
 
+  const knownChampSet = () => new Set([...(ddChamps ? ddChamps.map((x) => x.name) : CHAMPIONS), ...customChamps]);
+
+  // OTP登録: 希望/NGレーンと同じく本人がPASS不要で設定できる。champInput=null で解除
+  const setPlayerOtp = async (id, role, champInput) => {
+    let otp = null;
+    if (champInput != null) {
+      const champion = champCanonical(champInput);
+      if (!champion) return false;
+      if (!knownChampSet().has(champion)) { themedAlert(t("otp.008", { name: champion }), [champion]); return false; }
+      otp = { role, champion };
+    }
+    const next = players.map((p) => {
+      if (p.id !== id) return p;
+      const np = { ...p };
+      if (otp) np.otp = otp; else delete np.otp;
+      return np;
+    });
+    setPlayers(next);
+    await saveShared("players", next);
+    return true;
+  };
+
   // バン保護枠(チーム単位)。個々の選手ではなくブルー/レッドサイドそれぞれが宣言する。
   // balanceResult.banProtect = { A: [champion,...], B: [champion,...] } として管理し、
   // 他のチーム分け情報と同じくsession.balance経由で全端末に同期する。
-  const updateBanProtect = async (team, list) => {
-    const next = { ...balanceResult, banProtect: { ...(balanceResult.banProtect || { A: [], B: [] }), [team]: list } };
+  // 加えて、登録ロールに配置された選手のOTPを自動で保護扱いにする。OTP分は保存せず選手データから
+  // 毎回ライブ計算するので、入替・交代・OTP変更にも追従する。✕で外したOTPは banProtectOff に記録する。
+  const otpProtects = (team) => {
+    if (!balanceResult) return [];
+    return (team === "A" ? balanceResult.teamA : balanceResult.teamB).flatMap((s) => {
+      const p = players.find((x) => x.id === s.id);
+      const champ = otpChampFor(p, s.role);
+      return champ ? [{ champ, otpOf: p.name }] : [];
+    });
+  };
+  const banProtectList = (team) => {
+    if (!balanceResult) return [];
+    const manual = (balanceResult.banProtect || {})[team] || [];
+    const off = (balanceResult.banProtectOff || {})[team] || [];
+    const out = manual.map((champ) => ({ champ, otpOf: null }));
+    otpProtects(team).forEach((o) => {
+      if (!off.includes(o.champ) && !out.some((x) => x.champ === o.champ)) out.push(o);
+    });
+    return out;
+  };
+  const updateBanProtect = async (team, list, offList) => {
+    const next = {
+      ...balanceResult,
+      banProtect: { ...(balanceResult.banProtect || { A: [], B: [] }), [team]: list },
+      banProtectOff: { ...(balanceResult.banProtectOff || { A: [], B: [] }), [team]: offList },
+    };
     setBalanceResult(next);
     const nextSession = { ...session, balance: next };
     setSession(nextSession);
@@ -2311,13 +2371,16 @@ export default function CustomStats() {
   const addBanProtect = (team, champion) => {
     const champ = champCanonical(champion.trim());
     if (!champ) return;
-    const cur = (balanceResult.banProtect || { A: [], B: [] })[team] || [];
-    if (cur.includes(champ)) return;
-    updateBanProtect(team, [...cur, champ]);
+    const cur = (balanceResult.banProtect || {})[team] || [];
+    const off = (balanceResult.banProtectOff || {})[team] || [];
+    if (cur.includes(champ) && !off.includes(champ)) return;
+    updateBanProtect(team, cur.includes(champ) ? cur : [...cur, champ], off.filter((c) => c !== champ));
   };
   const removeBanProtect = (team, champion) => {
-    const cur = (balanceResult.banProtect || { A: [], B: [] })[team] || [];
-    updateBanProtect(team, cur.filter((c) => c !== champion));
+    const cur = (balanceResult.banProtect || {})[team] || [];
+    const off = (balanceResult.banProtectOff || {})[team] || [];
+    const fromOtp = otpProtects(team).some((o) => o.champ === champion);
+    updateBanProtect(team, cur.filter((c) => c !== champion), fromOtp && !off.includes(champion) ? [...off, champion] : off);
   };
 
   // html2canvas動的ロード(Tesseract.jsと同じ遅延ロードパターン)
@@ -4888,6 +4951,7 @@ export default function CustomStats() {
                               // 古い判定のまま表示され続けるのを防ぐため。
                               const liveWanted = !!(p?.prefRoles || []).includes(bp.role);
                               const liveNg = !!(p?.ngRoles || []).includes(bp.role);
+                              const liveOtp = otpChampFor(p, bp.role);
                               const gapWarn = matchupWarnings.find((w) => w.role === bp.role) || null;
                               return (
                                 <div key={idx} onClick={() => handleSlotTap(side, idx)} style={{
@@ -4901,6 +4965,11 @@ export default function CustomStats() {
                                     <span style={{ color: theme.textFaint, fontSize: 14 }}> ({bp.mu.toFixed(1)})</span>
                                     {liveWanted && <span title={t("balance.034")} style={{ color: theme.accent, marginLeft: 4 }}>★</span>}
                                     {liveNg && <span title={t("balance.035")} style={{ color: theme.teamB, marginLeft: 4, fontWeight: 700 }}>⚠ NG</span>}
+                                    {liveOtp && (
+                                      <span title={t("otp.009")} style={{ display: "inline-flex", alignItems: "center", gap: 3, verticalAlign: "middle", marginLeft: 6, fontSize: 12, fontWeight: 700, color: theme.accent, border: `1px solid ${theme.accent}`, borderRadius: 10, padding: "0 6px" }}>
+                                        OTP <ChampIcon name={liveOtp} size={14} />{champLabel(liveOtp)}
+                                      </span>
+                                    )}
                                     {gapWarn && <span title={t("balance.076")} style={{ color: theme.teamB, fontWeight: 700, fontSize: 13, marginLeft: 6 }}>⚠ {t("balance.078", { diff: gapWarn.diff.toFixed(1) })}</span>}
                                     {p?.summonerName && (
                                       // カスタム招待でそのまま貼れるよう、Riot IDをタップでクリップボードにコピーできるようにする
@@ -4962,18 +5031,21 @@ export default function CustomStats() {
                       <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{t("balance.040")}</div>
                       <div style={{ fontSize: 13, color: theme.textFaint, marginBottom: 10 }}>
                         {t("balance.041")}
+                        <div>{t("otp.011")}</div>
                       </div>
                       <div className="cs-cols2">
                         {["A", "B"].map((side) => {
                           const color = side === "A" ? theme.accentBright : theme.teamB;
-                          const list = (balanceResult.banProtect || { A: [], B: [] })[side] || [];
+                          const list = banProtectList(side);
                           return (
                             <div key={side}>
                               <div style={{ color, fontWeight: 700, marginBottom: 6, fontSize: 14 }}>{sideLabel(side)}</div>
                               <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8, minHeight: 26 }}>
                                 {list.length === 0 && <span style={{ fontSize: 13, color: theme.textFaint }}>{t("balance.042")}</span>}
-                                {list.map((champ) => (
-                                  <span key={champ} style={{ display: "inline-flex", alignItems: "center", gap: 4, background: theme.surfaceAlt, border: `1px solid ${theme.borderInput}`, borderRadius: 5, padding: "3px 8px", fontSize: 13 }}>
+                                {list.map(({ champ, otpOf }) => (
+                                  <span key={champ} title={otpOf ? t("otp.010", { name: otpOf }) : undefined}
+                                    style={{ display: "inline-flex", alignItems: "center", gap: 4, background: theme.surfaceAlt, border: `1px solid ${otpOf ? theme.accent : theme.borderInput}`, borderRadius: 5, padding: "3px 8px", fontSize: 13 }}>
+                                    {otpOf && <span style={{ fontSize: 11, fontWeight: 700, color: theme.accent }}>OTP</span>}
                                     <ChampIcon name={champ} size={16} />{champLabel(champ)}
                                     <X size={13} style={{ cursor: "pointer", color: theme.textFaint }} onClick={() => removeBanProtect(side, champ)} />
                                   </span>
@@ -5013,10 +5085,10 @@ export default function CustomStats() {
                     <button className="cs-btn-ghost" style={{ marginTop: 12, marginRight: 8 }}
                       onClick={async () => {
                         const line = (p) => `${p.role.padEnd(3)} ${p.name}`;
-                        const bp = balanceResult.banProtect || { A: [], B: [] };
+                        const banText = (side) => banProtectList(side).map((o) => (o.otpOf ? `${o.champ}(OTP)` : o.champ)).join("、");
                         const banLines = [];
-                        if (bp.A?.length) banLines.push(`ブルー: ${bp.A.join("、")}`);
-                        if (bp.B?.length) banLines.push(`レッド: ${bp.B.join("、")}`);
+                        if (banText("A")) banLines.push(`ブルー: ${banText("A")}`);
+                        if (banText("B")) banLines.push(`レッド: ${banText("B")}`);
                         const txt = [
                           "【チーム分け】",
                           `■ ブルーサイド（計${balanceResult.teamA.reduce((s, x) => s + x.mu, 0).toFixed(0)}）`,
@@ -5187,6 +5259,43 @@ export default function CustomStats() {
                   })}
                 </div>
                 <div style={{ fontSize: 11.5, color: theme.textFaint, marginBottom: 6 }}>{t("attend.026")}</div>
+
+                {(() => {
+                  const otpRoleSel = otpInput.role || myPlayer.otp?.role || (myPlayer.prefRoles || [])[0] || ROLES[0];
+                  const submitOtp = async () => {
+                    if (await setPlayerOtp(myPlayer.id, otpRoleSel, otpInput.champ)) setOtpInput({ role: "", champ: "" });
+                  };
+                  return (
+                    <div style={{ marginBottom: 14 }}>
+                      <datalist id="champListOtp">
+                        {[...(ddChamps ? ddChamps.map((x) => x.name) : CHAMPIONS), ...customChamps].map((ch) => <option key={ch} value={champLabel(ch)} />)}
+                      </datalist>
+                      <div style={{ fontSize: 13, color: theme.textSub, marginBottom: 6, fontWeight: 700 }}>{t("otp.001")}</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 6, fontSize: 14 }}>
+                        {myPlayer.otp ? (
+                          <>
+                            <b style={{ color: theme.accent }}>{myPlayer.otp.role}</b>
+                            <ChampIcon name={myPlayer.otp.champion} size={18} />
+                            <b>{champLabel(myPlayer.otp.champion)}</b>
+                            <button className="cs-btn-ghost" style={{ padding: "1px 8px", fontSize: 12 }} onClick={() => setPlayerOtp(myPlayer.id, null, null)}>{t("otp.005")}</button>
+                          </>
+                        ) : <span style={{ color: theme.textFaint }}>{t("otp.003")}</span>}
+                      </div>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        <select className="cs-input" style={{ padding: "4px 6px", fontSize: 13 }} value={otpRoleSel}
+                          onChange={(e) => setOtpInput({ ...otpInput, role: e.target.value })}>
+                          {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+                        </select>
+                        <input className="cs-input" list="champListOtp" style={{ flex: "0 1 220px", minWidth: 120, padding: "4px 8px", fontSize: 13 }}
+                          placeholder={t("otp.006")} value={otpInput.champ}
+                          onChange={(e) => setOtpInput({ ...otpInput, champ: e.target.value })}
+                          onKeyDown={(e) => { if (e.key === "Enter") submitOtp(); }} />
+                        <button className="cs-btn-ghost" style={{ padding: "4px 12px", fontSize: 13 }} disabled={!otpInput.champ.trim()} onClick={submitOtp}>{t("otp.004")}</button>
+                      </div>
+                      <div style={{ fontSize: 11.5, color: theme.textFaint, marginTop: 4 }}>{t("otp.002")}</div>
+                    </div>
+                  );
+                })()}
 
                 {myRankReq ? (() => {
                   const profDiffs = ROLES.filter((r) => myRankReq.toProfs[r] !== myRankReq.fromProfs[r]);
@@ -5597,6 +5706,11 @@ export default function CustomStats() {
                                   {t("players.065")}
                                 </span>
                               )}
+                              {p.otp?.champion && (
+                                <span title={`OTP: ${p.otp.role} ${champLabel(p.otp.champion)}`} style={{ display: "inline-flex", alignItems: "center", gap: 2, fontSize: 11, fontWeight: 700, color: theme.accent }}>
+                                  OTP<ChampIcon name={p.otp.champion} size={14} />
+                                </span>
+                              )}
                               {opggUrl(p.summonerName) && (
                                 <a href={opggUrl(p.summonerName)} target="_blank" rel="noopener noreferrer" style={{ color: theme.accentBright, display: "inline-flex" }}>
                                   <ExternalLink size={13} />
@@ -5746,6 +5860,20 @@ export default function CustomStats() {
                                         </select>
                                       </div>
                                     ))}
+                                  </div>
+                                  <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
+                                    <datalist id="champListOtpEdit">
+                                      {[...(ddChamps ? ddChamps.map((x) => x.name) : CHAMPIONS), ...customChamps].map((ch) => <option key={ch} value={champLabel(ch)} />)}
+                                    </datalist>
+                                    <span style={{ fontSize: 13, color: theme.textSub, fontWeight: 700 }}>OTP</span>
+                                    <select className="cs-input" style={{ padding: "4px 6px", fontSize: 13 }} value={editForm.otpRole}
+                                      onChange={(e) => setEditForm({ ...editForm, otpRole: e.target.value })}>
+                                      <option value="">{t("otp.007")}</option>
+                                      {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+                                    </select>
+                                    <input className="cs-input" list="champListOtpEdit" style={{ width: 160, padding: "4px 8px", fontSize: 13 }}
+                                      disabled={!editForm.otpRole} placeholder={t("otp.006")} value={editForm.otpChamp}
+                                      onChange={(e) => setEditForm({ ...editForm, otpChamp: e.target.value })} />
                                   </div>
                                   <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                                     <label style={{ fontSize: 14, color: theme.textSub, display: "flex", alignItems: "center", gap: 4 }}>

@@ -74,9 +74,11 @@ Python等で一括置換した後は、必ず 1 → 5 の順で確認するこ�
 
 ## データモデル(`customstats/` 配下)
 
-- **players**: `{id, name, summonerName, rank(日本語), baseMu, honorRank, status, adjust, prefRoles, ngRoles, roles:{TOP:{mu,sigma,prof,streak}...}, wins, losses, kdaHistory:[...]}`
+- **players**: `{id, name, summonerName, rank(日本語), baseMu, honorRank, status, adjust, prefRoles, ngRoles, roles:{TOP:{mu,sigma,prof,streak}...}, wins, losses, kdaHistory:[...], otp:{role, champion}}`
+  - `otp`: 1人1体・ロール紐付け。本人(PASS不要)/管理者が設定。登録ロールに配置された時だけ自チームのバン保護枠へ自動反映(保存はせずライブ計算)
 - **matches**: ID単位個別保存。`image` は承認/却下時に自動削除
 - **session**: `{roster, prefs, resetAt, balance}` — クリア時に未知フィールドは落ちる
+  - `balance.banProtect` = 手動宣言 `{A:[],B:[]}` / `balance.banProtectOff` = ✕で外したOTP分 `{A:[],B:[]}`
 - **settings**: `{matchupWarnThreshold}` — 運用設定。session と分離
 - **rankRequests** / **champions**
 - **requests**: 要望掲示板。`{id, text, author, authorId(端末ID), ts, status: open|considering|planned|done|declined, reply, repliedAt, votes:{端末ID:true}}`。投稿・賛同はPASS不要、回答・削除は管理者PASS。done/declined は `repliedAt` から30日で閲覧端末が自動削除
