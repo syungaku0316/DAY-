@@ -79,6 +79,7 @@ Python等で一括置換した後は、必ず 1 → 5 の順で確認するこ�
 - **session**: `{roster, prefs, resetAt, balance}` — クリア時に未知フィールドは落ちる
 - **settings**: `{matchupWarnThreshold}` — 運用設定。session と分離
 - **rankRequests** / **champions**
+- **requests**: 要望掲示板。`{id, text, author, authorId(端末ID), ts, status: open|considering|planned|done|declined, reply, repliedAt, votes:{端末ID:true}}`。投稿・賛同はPASS不要、回答・削除は管理者PASS。done/declined は `repliedAt` から30日で閲覧端末が自動削除
 
 ## レーティング
 

@@ -2,10 +2,11 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { theme, WIN_BADGE_IMG, LOSE_BADGE_IMG, THEME_LIST, FONT_LIST, applyTheme } from "./theme.js";
 import { fileToImage, analyzeKda, toThumbnailBase64 } from "./scoreboardOcr.js";
 import { initializeApp } from "firebase/app";
-import { getDatabase, ref, onValue, set as fbSet, remove as fbRemove, runTransaction } from "firebase/database";
+import { getDatabase, ref, onValue, set as fbSet, update as fbUpdate, remove as fbRemove, runTransaction } from "firebase/database";
 import {
   Trophy, Swords, CheckCircle2, History, Users, UserPlus,
-  Scale, Trash2, Loader2, X, UserRound, Pencil, Medal, ExternalLink, ListOrdered, Palette, Coins, RefreshCw, TrendingUp, Sparkles
+  Scale, Trash2, Loader2, X, UserRound, Pencil, Medal, ExternalLink, ListOrdered, Palette, Coins, RefreshCw, TrendingUp, Sparkles,
+  MessageSquare, ThumbsUp, Send
 } from "lucide-react";
 import { computeEfficiency, PERCENT_DISPLAY_KEYS } from "./itemEfficiency.js";
 import { CHAMPSTATS, CHAMPSTATS_PATCH } from "./champStats.js";
@@ -18,6 +19,7 @@ import { champLabel, champCanonical } from "./champNames.js";
 
 /* 更新履歴。リリースのたびに先頭へ追記(手動管理)。Discordコピー文面と同様、UI言語に関わらず日本語固定 */
 const CHANGELOG = [
+  { date: "2026-09-26", text: "要望掲示板を追加(要望の投稿・賛同と、運営からの回答)" },
   { date: "2026-09-08", text: "チャンピオン基礎ステータス成長タブを追加" },
   { date: "2026-08-22", text: "出欠管理の自分カードから、ランク・熟練度の変更申請ができるように" },
   { date: "2026-08-20", text: "個人成績「概要」タブのレイアウトを改善" },
@@ -824,6 +826,34 @@ async function removeRankRequestDb(id) {
   try { await fbRemove(ref(db, "customstats/rankRequests/" + id)); }
   catch (e) { console.error("storage error", e); }
 }
+// 要望掲示板: ID単位で保存。成否を返して投稿失敗を利用者に伝える(ルール未設定等で黙って消えないように)
+async function saveRequestPost(post) {
+  const db = getDb();
+  if (!db) return false;
+  try { await fbSet(ref(db, "customstats/requests/" + post.id), clean(post)); return true; }
+  catch (e) { console.error("storage error", e); return false; }
+}
+// 部分更新: 回答中に他端末で付いた賛同(votes)を上書きしないため set ではなく update
+async function updateRequestPost(id, fields) {
+  const db = getDb();
+  if (!db) return false;
+  try { await fbUpdate(ref(db, "customstats/requests/" + id), clean(fields)); return true; }
+  catch (e) { console.error("storage error", e); return false; }
+}
+async function removeRequestPost(id) {
+  const db = getDb();
+  if (!db) return;
+  try { await fbRemove(ref(db, "customstats/requests/" + id)); }
+  catch (e) { console.error("storage error", e); }
+}
+// 賛同は votes/{端末ID} 単位で書く: 同時押下でもカウントが競合しない
+async function setRequestVote(id, voterId, on) {
+  const db = getDb();
+  if (!db) return;
+  const r = ref(db, `customstats/requests/${id}/votes/${voterId}`);
+  try { await (on ? fbSet(r, true) : fbRemove(r)); }
+  catch (e) { console.error("storage error", e); }
+}
 // 承認をトランザクション化: 同時承認によるレート二重反映を防止
 async function claimApproval(id) {
   const db = getDb();
@@ -1409,6 +1439,231 @@ function ChampGrowthTab() {
   );
 }
 
+/* --------------------------- 要望掲示板 --------------------------- */
+// 投稿・賛同は誰でもPASS不要。回答・削除は管理者PASS。投稿者本人は未回答のうちは取り消せる。
+// 対応済み/見送りの投稿は最終回答から30日で削除する(RTDBにTTLが無いため閲覧端末側で掃除)。
+// 未回答・進行中の投稿は期限で消さない(「無視された」と受け取られないように)。
+const REQ_MAX_LEN = 500;
+const REQ_NAME_MAX = 20;
+const REQ_POST_COOLDOWN_MS = 60 * 1000; // 連投抑止(端末単位の抑止力であって厳密な制限ではない)
+const REQ_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+const REQ_STATUS_META = {
+  open: { labelKey: "reqBoard.010", color: theme.textFaint },
+  considering: { labelKey: "reqBoard.011", color: theme.profFair },
+  planned: { labelKey: "reqBoard.012", color: theme.accentBright },
+  done: { labelKey: "reqBoard.013", color: theme.profGood },
+  declined: { labelKey: "reqBoard.014", color: theme.profWeak },
+};
+const REQ_REPLY_STATUSES = ["considering", "planned", "done", "declined"];
+const REQ_FILTERS = [
+  { key: "all", labelKey: "reqBoard.015", match: () => true },
+  { key: "open", labelKey: "reqBoard.010", match: (st) => st === "open" },
+  { key: "active", labelKey: "reqBoard.016", match: (st) => st === "considering" || st === "planned" },
+  { key: "closed", labelKey: "reqBoard.017", match: (st) => st === "done" || st === "declined" },
+];
+const reqStatusOf = (r) => (REQ_STATUS_META[r.status] ? r.status : "open");
+const reqExpireAt = (r) =>
+  (reqStatusOf(r) === "done" || reqStatusOf(r) === "declined") && r.repliedAt ? r.repliedAt + REQ_RETENTION_MS : null;
+// 本文の無いノードは、削除済み投稿への賛同・回答の書き込みで生じた残骸なので掃除対象
+const isReqGarbage = (r, now) => {
+  if (!r.text) return true;
+  const exp = reqExpireAt(r);
+  return exp != null && exp <= now;
+};
+const reqVoteCount = (r) => Object.keys(r.votes || {}).length;
+
+// 端末識別子(賛同の重複抑止・自分の投稿判定用)。自己申告の「自分」と同じく本人確認ではない
+let _deviceId = null;
+function getDeviceId() {
+  if (_deviceId) return _deviceId;
+  try { _deviceId = localStorage.getItem("crl-device-id"); } catch {}
+  if (!_deviceId) {
+    _deviceId = crypto.randomUUID();
+    try { localStorage.setItem("crl-device-id", _deviceId); } catch {}
+  }
+  return _deviceId;
+}
+
+function RequestBoardTab({ requests }) {
+  const deviceId = getDeviceId();
+  const [text, setText] = useState("");
+  const [author, setAuthor] = useState("");
+  const [posting, setPosting] = useState(false);
+  const [filter, setFilter] = useState("all");
+  const [sort, setSort] = useState("new"); // new | votes
+  const [replyFor, setReplyFor] = useState(null); // 回答フォームを開いている投稿ID
+  const [replyForm, setReplyForm] = useState({ status: "considering", reply: "" });
+  const lastPostRef = useRef(0);
+  const now = Date.now();
+
+  const live = requests.filter((r) => !isReqGarbage(r, now));
+  const countOf = (f) => live.filter((r) => f.match(reqStatusOf(r))).length;
+  const curFilter = REQ_FILTERS.find((f) => f.key === filter) || REQ_FILTERS[0];
+  const shown = live
+    .filter((r) => curFilter.match(reqStatusOf(r)))
+    .sort((a, b) => (sort === "votes" ? reqVoteCount(b) - reqVoteCount(a) : 0) || (b.ts || 0) - (a.ts || 0));
+
+  const submit = async () => {
+    const body = text.trim();
+    if (!body) { await themedAlert(t("reqBoard.008")); return; }
+    let last = lastPostRef.current;
+    try { last = Math.max(last, Number(localStorage.getItem("crl-req-last")) || 0); } catch {}
+    const wait = last + REQ_POST_COOLDOWN_MS - Date.now();
+    if (wait > 0) { await themedAlert(t("reqBoard.009", { n: Math.ceil(wait / 1000) })); return; }
+    const post = {
+      id: crypto.randomUUID(), text: body.slice(0, REQ_MAX_LEN),
+      author: author.trim().slice(0, REQ_NAME_MAX), authorId: deviceId,
+      ts: Date.now(), status: "open",
+    };
+    setPosting(true);
+    const ok = await saveRequestPost(post);
+    setPosting(false);
+    if (!ok) { await themedAlert(t("reqBoard.036")); return; }
+    lastPostRef.current = post.ts;
+    try { localStorage.setItem("crl-req-last", String(post.ts)); } catch {}
+    setText("");
+  };
+
+  const openReply = (r) => {
+    const st = reqStatusOf(r);
+    setReplyFor(r.id);
+    setReplyForm({ status: st === "open" ? "considering" : st, reply: r.reply || "" });
+  };
+  const saveReply = async (r) => {
+    if (!(await requireAdminPass(t("reqBoard.027")))) return;
+    const ok = await updateRequestPost(r.id, {
+      status: replyForm.status, reply: replyForm.reply.trim().slice(0, REQ_MAX_LEN), repliedAt: Date.now(),
+    });
+    if (!ok) { await themedAlert(t("reqBoard.036")); return; }
+    setReplyFor(null);
+  };
+  const adminDelete = async (r) => {
+    if (!(await themedConfirm(t("reqBoard.028")))) return;
+    if (!(await requireAdminPass(t("reqBoard.029")))) return;
+    await removeRequestPost(r.id);
+  };
+  const selfDelete = async (r) => {
+    if (!(await themedConfirm(t("reqBoard.031")))) return;
+    await removeRequestPost(r.id);
+  };
+
+  const chipStyle = (on, color = theme.accent) => ({
+    padding: "4px 12px", fontSize: 13, whiteSpace: "nowrap",
+    borderColor: on ? color : theme.borderInput, color: on ? color : theme.textSub, fontWeight: on ? 700 : 400,
+  });
+  const smallBtn = { padding: "3px 12px", fontSize: 13, display: "inline-flex", alignItems: "center", gap: 4 };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={cardStyle}>
+        <div style={{ fontSize: 13, color: theme.textFaint, marginBottom: 8, lineHeight: 1.6 }}>{t("reqBoard.003")}</div>
+        <textarea className="cs-input" value={text} maxLength={REQ_MAX_LEN}
+          placeholder={t("reqBoard.004", { n: REQ_MAX_LEN })}
+          onChange={(ev) => setText(ev.target.value)}
+          style={{ width: "100%", minHeight: 84, boxSizing: "border-box", fontSize: 15, resize: "vertical" }} />
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
+          <input className="cs-input" value={author} maxLength={REQ_NAME_MAX} placeholder={t("reqBoard.005")}
+            onChange={(ev) => setAuthor(ev.target.value)}
+            style={{ flex: "1 1 180px", minWidth: 0, fontSize: 15, padding: "6px 10px" }} />
+          <span style={{ fontSize: 12, color: theme.textFaint }}>{text.length}/{REQ_MAX_LEN}</span>
+          <button className="cs-btn" disabled={posting || !text.trim()} onClick={submit}
+            style={{ padding: "6px 16px", fontSize: 15, display: "inline-flex", alignItems: "center", gap: 6 }}>
+            {posting ? <Loader2 size={14} className="spin" /> : <Send size={14} />} {t("reqBoard.006")}
+          </button>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+        {REQ_FILTERS.map((f) => (
+          <button key={f.key} className="cs-btn-ghost" style={chipStyle(filter === f.key)} onClick={() => setFilter(f.key)}>
+            {t(f.labelKey)} {countOf(f)}
+          </button>
+        ))}
+        <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+          {[["new", "reqBoard.018"], ["votes", "reqBoard.019"]].map(([key, labelKey]) => (
+            <button key={key} className="cs-btn-ghost" style={chipStyle(sort === key)} onClick={() => setSort(key)}>
+              {t(labelKey)}
+            </button>
+          ))}
+        </span>
+      </div>
+
+      {live.length === 0 ? (
+        <EmptyState text={t("reqBoard.032")} />
+      ) : shown.length === 0 ? (
+        <EmptyState text={t("reqBoard.033")} />
+      ) : shown.map((r) => {
+        const st = reqStatusOf(r);
+        const meta = REQ_STATUS_META[st];
+        const voted = !!(r.votes && r.votes[deviceId]);
+        const mine = r.authorId === deviceId;
+        const exp = reqExpireAt(r);
+        return (
+          <div key={r.id} style={cardStyle}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, padding: "2px 10px", borderRadius: 999, border: `1px solid ${meta.color}`, color: meta.color, whiteSpace: "nowrap" }}>
+                {t(meta.labelKey)}
+              </span>
+              <span style={{ fontWeight: 700 }}>{r.author || t("reqBoard.007")}</span>
+              {mine && <span style={{ fontSize: 12, color: theme.accent }}>{t("players.065")}</span>}
+              <span style={{ fontSize: 13, color: theme.textFaint }}>{new Date(r.ts).toLocaleString(dateLocale())}</span>
+              <button className="cs-btn-ghost" title={t("reqBoard.020")} onClick={() => setRequestVote(r.id, deviceId, !voted)}
+                style={{ ...smallBtn, ...chipStyle(voted), marginLeft: "auto" }}>
+                <ThumbsUp size={14} /> {reqVoteCount(r)}
+              </button>
+            </div>
+            <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 15, lineHeight: 1.6 }}>{r.text}</div>
+
+            {st !== "open" && (
+              <div style={{ marginTop: 10, padding: "8px 12px", borderLeft: `3px solid ${meta.color}`, background: theme.surfaceAlt, borderRadius: 6 }}>
+                <div style={{ fontSize: 13, color: theme.textSub, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                  <b>{t("reqBoard.021")}</b>
+                  {r.repliedAt && <span style={{ color: theme.textFaint }}>{new Date(r.repliedAt).toLocaleString(dateLocale())}</span>}
+                  {exp != null && <span style={{ color: theme.textFaint }}>{t("reqBoard.035", { n: Math.max(1, Math.ceil((exp - now) / 86400000)) })}</span>}
+                </div>
+                {r.reply && <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 15, marginTop: 4, lineHeight: 1.6 }}>{r.reply}</div>}
+              </div>
+            )}
+
+            {replyFor === r.id ? (
+              <div style={{ marginTop: 10, padding: 10, background: theme.surfaceAlt, borderRadius: 8 }}>
+                <div style={{ fontSize: 13, color: theme.textSub, marginBottom: 6 }}>{t("reqBoard.026")}</div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+                  {REQ_REPLY_STATUSES.map((s) => (
+                    <button key={s} className="cs-btn-ghost" style={chipStyle(replyForm.status === s, REQ_STATUS_META[s].color)}
+                      onClick={() => setReplyForm({ ...replyForm, status: s })}>
+                      {t(REQ_STATUS_META[s].labelKey)}
+                    </button>
+                  ))}
+                </div>
+                <textarea className="cs-input" value={replyForm.reply} maxLength={REQ_MAX_LEN} placeholder={t("reqBoard.024")}
+                  onChange={(ev) => setReplyForm({ ...replyForm, reply: ev.target.value })}
+                  style={{ width: "100%", minHeight: 64, boxSizing: "border-box", fontSize: 15, resize: "vertical" }} />
+                <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                  <button className="cs-btn" style={{ padding: "5px 14px", fontSize: 14 }} onClick={() => saveReply(r)}>{t("reqBoard.025")}</button>
+                  <button className="cs-btn-ghost" style={{ padding: "5px 14px", fontSize: 14 }} onClick={() => setReplyFor(null)}>{t("players.044")}</button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", flexWrap: "wrap", marginTop: 10 }}>
+                {mine && st === "open" && (
+                  <button className="cs-btn-ghost" style={smallBtn} onClick={() => selfDelete(r)}>{t("reqBoard.030")}</button>
+                )}
+                <button className="cs-btn-ghost" style={smallBtn} onClick={() => openReply(r)}>
+                  <Pencil size={13} /> {t(st === "open" ? "reqBoard.022" : "reqBoard.023")}
+                </button>
+                <button className="cs-btn-ghost" style={smallBtn} title={t("reqBoard.034")} onClick={() => adminDelete(r)}>
+                  <Trash2 size={13} /> {t("reqBoard.034")}
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function Badge({ count }) {
   if (!count) return null;
   return (
@@ -1452,6 +1707,7 @@ export default function CustomStats() {
   const [players, setPlayers] = useState([]);
   const [matches, setMatches] = useState([]);
   const [rankRequests, setRankRequests] = useState([]); // ランク変更申請(承認待ち)
+  const [requests, setRequests] = useState([]); // 要望掲示板の投稿
   const [loading, setLoading] = useState(true);
 
   // player registration
@@ -1602,8 +1858,20 @@ export default function CustomStats() {
       // RTDBは空オブジェクトを剪定するため、未設定時は既定値にフォールバックする
       setSettings({ matchupWarnThreshold: clampMatchupWarn(v.matchupWarnThreshold ?? MATCHUP_WARN_DEFAULT) });
     }, onErr);
-    return () => { un1(); un2(); un2b(); un3(); un4(); un5(); };
+    // 要望掲示板は付加機能: ルール未設定等で読めなくても本体のDBエラー表示は出さない
+    const un6 = onValue(ref(db, "customstats/requests"), (snap) => {
+      const v = snap.val() || {};
+      setRequests(Object.entries(v).map(([key, r]) => ({ ...(r || {}), id: key })));
+    }, (e) => console.error(e));
+    return () => { un1(); un2(); un2b(); un3(); un4(); un5(); un6(); };
   }, []);
+
+  // 要望掲示板の掃除: 期限切れ(回答から30日)と残骸ノードを削除。削除は冪等なので複数端末が同時に走っても問題ない
+  useEffect(() => {
+    const now = Date.now();
+    requests.filter((r) => isReqGarbage(r, now)).forEach((r) => removeRequestPost(r.id));
+  }, [requests]);
+  const openRequestCount = requests.filter((r) => !isReqGarbage(r, Date.now()) && reqStatusOf(r) === "open").length;
 
   // Data Dragon: 最新パッチのチャンピオン一覧(日本語)と画像キーを取得
   useEffect(() => {
@@ -2976,6 +3244,9 @@ export default function CustomStats() {
             { id: "itemEfficiency", icon: Coins, label: t("items.001") },
             { id: "champGrowth", icon: TrendingUp, label: t("growth.001") },
           ] },
+          { key: "requests", label: t("reqBoard.001"), icon: MessageSquare, tabs: [
+            { id: "requestBoard", icon: MessageSquare, label: t("reqBoard.002"), badge: openRequestCount },
+          ] },
         ];
         GROUPS.forEach((g) => { g.badge = g.tabs.reduce((sum, x) => sum + (x.badge || 0), 0); });
         const curGroup = GROUPS.find((g) => g.tabs.some((x) => x.id === tab)) || GROUPS[0];
@@ -2993,7 +3264,7 @@ export default function CustomStats() {
                     background: on ? "linear-gradient(135deg, var(--cs-btnFrom), var(--cs-btnTo))" : theme.surfaceAlt,
                     color: on ? "#FFFFFF" : theme.textSub,
                     fontWeight: on ? 700 : 500, fontSize: 15, fontFamily: "inherit",
-                    cursor: "pointer", whiteSpace: "nowrap",
+                    cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0, // 狭い画面では潰さず横スクロール
                   }}>
                   <g.icon size={16} /> {g.label} <Badge count={g.badge} />
                 </button>
@@ -3752,6 +4023,9 @@ export default function CustomStats() {
       {tab === "itemEfficiency" && <ItemEfficiencyTab />}
 
       {tab === "champGrowth" && <ChampGrowthTab />}
+
+      {/* ---------- REQUEST BOARD(要望掲示板) ---------- */}
+      {tab === "requestBoard" && <RequestBoardTab requests={requests} />}
 
       {/* ---------- PERSONAL STATS ---------- */}
       {/* ---------- SCOUT: MULTI SEARCH(ロール別対面比較) ---------- */}
