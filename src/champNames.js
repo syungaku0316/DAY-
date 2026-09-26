@@ -22,10 +22,10 @@ export const CHAMP_I18N = {
   "ヴァイ": ["Vi", "바이"],
   "ヴァルス": ["Varus", "바루스"],
   "ヴィエゴ": ["Viego", "비에고"],
-  "ヴィクター": ["Viktor", "빅토르"],
+  "ビクター": ["Viktor", "빅토르"],
   "ヴェイン": ["Vayne", "베인"],
   "ヴェックス": ["Vex", "벡스"],
-  "ヴェル=コズ": ["Vel'Koz", "벨코즈"],
+  "ヴェル＝コズ": ["Vel'Koz", "벨코즈"],
   "ウーコン": ["Wukong", "오공"],
   "ウディア": ["Udyr", "우디르"],
   "エイトロックス": ["Aatrox", "아트록스"],
@@ -37,9 +37,9 @@ export const CHAMP_I18N = {
   "オレリオン・ソル": ["Aurelion Sol", "아우렐리온 솔"],
   "オーン": ["Ornn", "오른"],
   "オーロラ": ["Aurora", "오로라"],
-  "カ=ジックス": ["Kha'Zix", "카직스"],
+  "カ＝ジックス": ["Kha'Zix", "카직스"],
   "カーサス": ["Karthus", "카서스"],
-  "カイ=サ": ["Kai'Sa", "카이사"],
+  "カイ＝サ": ["Kai'Sa", "카이사"],
   "カシオペア": ["Cassiopeia", "카시오페아"],
   "カタリナ": ["Katarina", "카타리나"],
   "カミール": ["Camille", "카밀"],
@@ -56,16 +56,17 @@ export const CHAMP_I18N = {
   "グラガス": ["Gragas", "그라가스"],
   "グレイブス": ["Graves", "그레이브즈"],
   "クレッド": ["Kled", "클레드"],
-  "ク=サンテ": ["K'Sante", "크산테"],
+  "カ・サンテ": ["K'Sante", "크산테"],
   "ケイトリン": ["Caitlyn", "케이틀린"],
   "ケイル": ["Kayle", "케일"],
   "ケイン": ["Kayn", "케인"],
   "ケネン": ["Kennen", "케넨"],
   "コーキ": ["Corki", "코르키"],
-  "コグ=マウ": ["Kog'Maw", "코그모"],
+  "コグ＝マウ": ["Kog'Maw", "코그모"],
   "サイオン": ["Sion", "사이온"],
   "サイラス": ["Sylas", "사일러스"],
   "ザック": ["Zac", "자크"],
+  "ザーヘン": ["Zaahen", "자헨"],
   "サミーラ": ["Samira", "사미라"],
   "ザヤ": ["Xayah", "자야"],
   "ザイラ": ["Zyra", "자이라"],
@@ -79,6 +80,7 @@ export const CHAMP_I18N = {
   "シヴァーナ": ["Shyvana", "쉬바나"],
   "シヴィア": ["Sivir", "시비르"],
   "シンジド": ["Singed", "신지드"],
+  "シンドラ": ["Syndra", "신드라"],
   "シン・ジャオ": ["Xin Zhao", "신 짜오"],
   "ジン": ["Jhin", "진"],
   "ジンクス": ["Jinx", "징크스"],
@@ -86,6 +88,7 @@ export const CHAMP_I18N = {
   "スウェイン": ["Swain", "스웨인"],
   "スカーナー": ["Skarner", "스카너"],
   "スモルダー": ["Smolder", "스몰더"],
+  "スレッシュ": ["Thresh", "쓰레쉬"],
   "セジュアニ": ["Sejuani", "세주아니"],
   "セト": ["Sett", "세트"],
   "セナ": ["Senna", "세나"],
@@ -102,6 +105,7 @@ export const CHAMP_I18N = {
   "タロン": ["Talon", "탈론"],
   "ダイアナ": ["Diana", "다이애나"],
   "ダリウス": ["Darius", "다리우스"],
+  "チョ＝ガス": ["Cho'Gath", "초가스"],
   "ツイステッド・フェイト": ["Twisted Fate", "트위스티드 페이트"],
   "ティーモ": ["Teemo", "티모"],
   "トゥイッチ": ["Twitch", "트위치"],
@@ -117,7 +121,7 @@ export const CHAMP_I18N = {
   "ニーコ": ["Neeko", "니코"],
   "ニーラ": ["Nilah", "닐라"],
   "ニダリー": ["Nidalee", "니달리"],
-  "ヌヌ&ウィルンプ": ["Nunu & Willump", "누누와 윌럼프"],
+  "ヌヌ＆ウィルンプ": ["Nunu & Willump", "누누와 윌럼프"],
   "ノーチラス": ["Nautilus", "노틸러스"],
   "ノクターン": ["Nocturne", "녹턴"],
   "バード": ["Bard", "바드"],
@@ -128,13 +132,14 @@ export const CHAMP_I18N = {
   "フィオラ": ["Fiora", "피오라"],
   "フィズ": ["Fizz", "피즈"],
   "フィドルスティックス": ["Fiddlesticks", "피들스틱"],
-  "フエイ": ["Hwei", "흐웨이"],
+  "フェイ": ["Hwei", "흐웨이"],
   "ブライアー": ["Briar", "브라이어"],
   "ブラウム": ["Braum", "브라움"],
   "ブラッドミア": ["Vladimir", "블라디미르"],
+  "ブランド": ["Brand", "브랜드"],
   "ブリッツクランク": ["Blitzcrank", "블리츠크랭크"],
   "ベイガー": ["Veigar", "베이가"],
-  "ベル=ヴェス": ["Bel'Veth", "벨베스"],
+  "ベル＝ヴェス": ["Bel'Veth", "벨베스"],
   "ポッピー": ["Poppy", "뽀삐"],
   "ボリベア": ["Volibear", "볼리베어"],
   "マオカイ": ["Maokai", "마오카이"],
@@ -151,10 +156,11 @@ export const CHAMP_I18N = {
   "ユナラ": ["Yunara", "유나라"],
   "ヨネ": ["Yone", "요네"],
   "ヨリック": ["Yorick", "요릭"],
-  "ラームス": ["Rammus", "람머스"],
+  "ラムス": ["Rammus", "람머스"],
   "ライズ": ["Ryze", "라이즈"],
   "ラカン": ["Rakan", "라칸"],
   "ラックス": ["Lux", "럭스"],
+  "ランブル": ["Rumble", "럼블"],
   "リー・シン": ["Lee Sin", "리 신"],
   "リヴェン": ["Riven", "리븐"],
   "リサンドラ": ["Lissandra", "리산드라"],
@@ -162,14 +168,30 @@ export const CHAMP_I18N = {
   "ルシアン": ["Lucian", "루시안"],
   "ルブラン": ["LeBlanc", "르블랑"],
   "ルル": ["Lulu", "룰루"],
-  "レク=サイ": ["Rek'Sai", "렉사이"],
+  "レク＝サイ": ["Rek'Sai", "렉사이"],
   "レナータ・グラスク": ["Renata Glasc", "레나타 글라스크"],
   "レネクトン": ["Renekton", "레넥톤"],
   "レル": ["Rell", "렐"],
   "レオナ": ["Leona", "레오나"],
   "レンガー": ["Rengar", "렝가"],
+  "ロック": ["Locke", "로크"],
   "ワーウィック": ["Warwick", "워윅"],
 };
+
+// 旧表記 → 正規名(Data Dragon ja_JP)。過去に旧表記で保存された値の表示と、再保存時の正規化に使う
+export const CHAMP_ALIAS = Object.fromEntries([
+  ["ヴィクター", "ビクター"],
+  ["ヴェル=コズ", "ヴェル＝コズ"],
+  ["カ=ジックス", "カ＝ジックス"],
+  ["カイ=サ", "カイ＝サ"],
+  ["ク=サンテ", "カ・サンテ"],
+  ["コグ=マウ", "コグ＝マウ"],
+  ["ヌヌ&ウィルンプ", "ヌヌ＆ウィルンプ"],
+  ["フエイ", "フェイ"],
+  ["ベル=ヴェス", "ベル＝ヴェス"],
+  ["ラームス", "ラムス"],
+  ["レク=サイ", "レク＝サイ"],
+]);
 
 // 逆引きマップ(en小文字/ko → 日本語正規名)。初回アクセス時に構築
 let _reverse = null;
@@ -187,8 +209,8 @@ function reverse() {
 export function champLabel(name) {
   if (!name) return name;
   const lang = getLang();
-  if (lang === "ja") return name;
-  const e = CHAMP_I18N[name];
+  if (lang === "ja") return CHAMP_ALIAS[name] || name;
+  const e = CHAMP_I18N[CHAMP_ALIAS[name] || name];
   if (!e) return name;
   return lang === "ko" ? e[1] : e[0];
 }
@@ -197,6 +219,7 @@ export function champLabel(name) {
 export function champCanonical(input) {
   const v = (input || "").trim();
   if (!v) return v;
+  if (CHAMP_ALIAS[v]) return CHAMP_ALIAS[v]; // 旧表記
   if (CHAMP_I18N[v]) return v; // 既に日本語正規名
   return reverse()[v.toLowerCase()] ?? reverse()[v] ?? v;
 }
