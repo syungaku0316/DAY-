@@ -60,8 +60,8 @@ Python等で一括置換した後は、必ず 1 → 5 の順で確認するこ�
 
 | ファイル | 行数 | 内容 |
 |---|---|---|
-| `src/CustomStats.jsx` | ~4367 | メイン(全UI・ロジック) |
-| `src/i18n.js` | ~1330 | 3言語辞書 **424キー**完全一致 |
+| `src/CustomStats.jsx` | ~6060 | メイン(全UI・ロジック) |
+| `src/i18n.js` | ~1780 | 3言語辞書 **575キー**完全一致 |
 | `src/champNames.js` | - | チャンピオン名対訳 + champLabel/champCanonical |
 | `src/itemEfficiency.js` | 275 | アイテム金銭効率の純粋計算 |
 | `src/itemEfficiency.test.mjs` | 247 | 上記のNode単体テスト29件 |
@@ -75,11 +75,13 @@ Python等で一括置換した後は、必ず 1 → 5 の順で確認するこ�
 ## データモデル(`customstats/` 配下)
 
 - **players**: `{id, name, summonerName, rank(日本語), baseMu, honorRank, status, adjust, prefRoles, ngRoles, roles:{TOP:{mu,sigma,prof,streak}...}, wins, losses, kdaHistory:[...], otp:{role, champion}}`
+  - `ngRoles`: **最大3つ**(ランク「初心者」は無制限)。超過データは読み込み時にリセット(`migratePlayer`)
   - `otp`: 1人1体・ロール紐付け。本人(PASS不要)/管理者が設定。登録ロールに配置された時だけ自チームのバン保護枠へ自動反映(保存はせずライブ計算)
 - **matches**: ID単位個別保存。`image` は承認/却下時に自動削除
 - **session**: `{roster, prefs, resetAt, balance}` — クリア時に未知フィールドは落ちる
   - `balance.banProtect` = 手動宣言 `{A:[],B:[]}` / `balance.banProtectOff` = ✕で外したOTP分 `{A:[],B:[]}`
-- **settings**: `{matchupWarnThreshold}` — 運用設定。session と分離
+- **settings**: `{matchupWarnThreshold, matchupWarnLanes}` — 運用設定。session と分離
+  - `matchupWarnLanes`: 格差レーン数がこれ以上で「組み直し推奨」警告(既定3)
 - **rankRequests** / **champions**
 - **requests**: 要望掲示板。`{id, text, author, authorId(端末ID), ts, status: open|considering|planned|done|declined, reply, repliedAt, votes:{端末ID:true}}`。投稿・賛同はPASS不要、回答・削除は管理者PASS。done/declined は `repliedAt` から30日で閲覧端末が自動削除
 

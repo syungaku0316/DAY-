@@ -142,6 +142,22 @@ const clampMatchupWarn = (v) => {
   return Math.min(MATCHUP_WARN_MAX, Math.max(MATCHUP_WARN_MIN, Math.round(n * 10) / 10));
 };
 
+// 格差マッチアップのレーン数がこの値以上なら「組み直し推奨」まで強めて警告する(レーン数)。
+// 管理者が設定画面から変更でき、全端末で共有される。
+const MATCHUP_LANES_DEFAULT = 3;
+const MATCHUP_LANES_MIN = 1;
+const MATCHUP_LANES_MAX = 5;
+const clampMatchupLanes = (v) => {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return MATCHUP_LANES_DEFAULT;
+  return Math.min(MATCHUP_LANES_MAX, Math.max(MATCHUP_LANES_MIN, Math.round(n)));
+};
+
+// NGレーンの上限。1ロール以外NGの申告が重なると同ロールが固定され格差マッチが避けられないため、
+// 最低2レーンは担当可能にしてもらう。ランク「初心者」のみ対象外。
+const NG_ROLE_MAX = 3;
+const ngLimited = (p) => p.rank !== "初心者";
+
 // 対面(同ロール)のレート差がしきい値以上のマッチアップを列挙する。
 // μは編成時スナップショット(slot.mu)ではなく現在の選手データを優先する。
 // 編成後に承認等でレートが動いた場合、対面比較タブの表示(statFor)とズレるのを防ぐため
@@ -286,7 +302,9 @@ function migratePlayer(p) {
   const status = rawStatus === "adjust" ? "active" : rawStatus; // active/rest の2値
   const adjust = status === "rest" ? false : (rawStatus === "adjust" || !!p.adjust);
   const prefRoles = p.prefRoles || [];
-  const ngRoles = p.ngRoles || [];
+  // 上限導入前にNG超過だった選手はリセットし、選び直してもらう(どれを残すか機械的に決められないため)
+  const ngRaw = p.ngRoles || [];
+  const ngRoles = ngLimited(p) && ngRaw.length > NG_ROLE_MAX ? [] : ngRaw;
   // 出欠ボード用: 自己申告の参加可能時間・ひとことメモ・最終応答時刻(未設定=未回答扱い)
   const availFrom = p.availFrom || "";
   const availTo = p.availTo || "";
@@ -1742,8 +1760,9 @@ export default function CustomStats() {
 
   const [balanceResult, setBalanceResult] = useState(undefined); // undefined=未実行, null=割当不能
   // 運用設定(全端末共有・管理者PASSで変更)。customstats/settings を購読する。
-  const [settings, setSettings] = useState({ matchupWarnThreshold: MATCHUP_WARN_DEFAULT });
+  const [settings, setSettings] = useState({ matchupWarnThreshold: MATCHUP_WARN_DEFAULT, matchupWarnLanes: MATCHUP_LANES_DEFAULT });
   const matchupThreshold = settings.matchupWarnThreshold;
+  const matchupLaneLimit = settings.matchupWarnLanes;
   const [swapSel, setSwapSel] = useState(null); // { team:'A'|'B', idx:number } タップ入替の1人目選択
   const [subPickerOpen, setSubPickerOpen] = useState(false); // 選手交代の交代先選択パネル開閉
   const [copiedRiotId, setCopiedRiotId] = useState(null); // Riot IDコピー時の一時フィードバック表示
@@ -1861,7 +1880,10 @@ export default function CustomStats() {
     const un5 = onValue(ref(db, "customstats/settings"), (snap) => {
       const v = snap.val() || {};
       // RTDBは空オブジェクトを剪定するため、未設定時は既定値にフォールバックする
-      setSettings({ matchupWarnThreshold: clampMatchupWarn(v.matchupWarnThreshold ?? MATCHUP_WARN_DEFAULT) });
+      setSettings({
+        matchupWarnThreshold: clampMatchupWarn(v.matchupWarnThreshold ?? MATCHUP_WARN_DEFAULT),
+        matchupWarnLanes: clampMatchupLanes(v.matchupWarnLanes ?? MATCHUP_LANES_DEFAULT),
+      });
     }, onErr);
     // 要望掲示板は付加機能: ルール未設定等で読めなくても本体のDBエラー表示は出さない
     const un6 = onValue(ref(db, "customstats/requests"), (snap) => {
@@ -2294,10 +2316,16 @@ export default function CustomStats() {
   // ロール枠クリックのサイクル: 通常 → 希望(★) → NG(✕、絶対にやりたくないレーン) → 通常
   // 希望とNGは排他(片方を設定するともう片方は自動解除)
   const cyclePrefRole = async (id, role) => {
+    let ngCapped = false;
     const next = players.map((p) => {
       if (p.id !== id) return p;
       const pref = p.prefRoles || [], ng = p.ngRoles || [];
       if (pref.includes(role)) {
+        // NG上限到達時はNGを飛ばして通常へ戻す(希望のまま止めるとサイクルから抜けられないため)
+        if (ngLimited(p) && ng.length >= NG_ROLE_MAX) {
+          ngCapped = true;
+          return { ...p, prefRoles: pref.filter((r) => r !== role), respondedAt: Date.now() };
+        }
         // 希望 → NG
         return { ...p, prefRoles: pref.filter((r) => r !== role), ngRoles: [...ng, role], respondedAt: Date.now() };
       }
@@ -2310,6 +2338,7 @@ export default function CustomStats() {
     });
     setPlayers(next);
     await saveShared("players", next);
+    if (ngCapped) await themedAlert(t("players.073", { n: NG_ROLE_MAX }));
   };
 
   const knownChampSet = () => new Set([...(ddChamps ? ddChamps.map((x) => x.name) : CHAMPIONS), ...customChamps]);
@@ -2617,7 +2646,11 @@ export default function CustomStats() {
       hiMu: g.hiMu.toFixed(1), loMu: g.loMu.toFixed(1), diff: g.diff.toFixed(1),
     }));
     const names = gaps.flatMap((g) => [g.role, g.aName, g.bName]);
-    await themedAlert([t("balance.075"), "", ...lines, "", t("balance.076")].join("\n"), names, { nowrap: true });
+    // 格差レーン数が警告ラインに達したら「合意があれば問題ない」ではなく組み直しを推奨する
+    const footer = gaps.length >= matchupLaneLimit
+      ? t("balance.097", { n: gaps.length, k: matchupLaneLimit })
+      : t("balance.076");
+    await themedAlert([t("balance.075"), "", ...lines, "", footer].join("\n"), names, { nowrap: true });
   };
 
   // 対面レート格差の警告しきい値を変更する(管理者PASS要・全端末共有)。
@@ -2633,6 +2666,23 @@ export default function CustomStats() {
       return;
     }
     const next = { ...settings, matchupWarnThreshold: clampMatchupWarn(n) };
+    setSettings(next);
+    await saveShared("settings", next);
+  };
+
+  // 組み直し推奨とする格差レーン数を変更する(管理者PASS要・全端末共有)。
+  const editMatchupLaneLimit = async () => {
+    if (!(await requireAdminPass(t("balance.094")))) return;
+    const v = await themedPrompt(t("balance.095", { min: MATCHUP_LANES_MIN, max: MATCHUP_LANES_MAX }), {
+      defaultValue: String(matchupLaneLimit),
+    });
+    if (v === null) return; // キャンセル
+    const n = Number(String(v).trim());
+    if (!Number.isInteger(n) || n < MATCHUP_LANES_MIN || n > MATCHUP_LANES_MAX) {
+      await themedAlert(t("balance.096", { min: MATCHUP_LANES_MIN, max: MATCHUP_LANES_MAX }));
+      return;
+    }
+    const next = { ...settings, matchupWarnLanes: clampMatchupLanes(n) };
     setSettings(next);
     await saveShared("settings", next);
   };
@@ -4829,16 +4879,24 @@ export default function CustomStats() {
 
             {/* 対面レート格差の警告しきい値(全端末共有・管理者PASSで変更): 事前固定タブ限定の設定ではなく
                 下の警告バナーの発火ラインなので、どちらのサブタブでも見えるようにここに置く */}
-            <div style={{ ...cardStyle, marginBottom: 16, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-              <span style={{ fontSize: 13, color: theme.textSub }}>{t("balance.079", { v: matchupThreshold })}</span>
-              <button className="cs-btn-ghost" style={{ padding: "3px 10px", fontSize: 13 }} onClick={editMatchupThreshold}>
-                {t("balance.083")}
-              </button>
+            <div style={{ ...cardStyle, marginBottom: 16, display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 13, color: theme.textSub }}>{t("balance.079", { v: matchupThreshold })}</span>
+                <button className="cs-btn-ghost" style={{ padding: "3px 10px", fontSize: 13 }} onClick={editMatchupThreshold}>
+                  {t("balance.083")}
+                </button>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 13, color: theme.textSub }}>{t("balance.093", { v: matchupLaneLimit })}</span>
+                <button className="cs-btn-ghost" style={{ padding: "3px 10px", fontSize: 13 }} onClick={editMatchupLaneLimit}>
+                  {t("balance.083")}
+                </button>
+              </div>
             </div>
 
             {/* 対面レート格差の警告バナー */}
             {matchupWarnings.length > 0 && (
-              <div className="cs-prose" style={{ border: `1px solid ${theme.teamB}`, background: theme.surfaceAlt, borderRadius: 6, padding: 10, marginBottom: 16, fontSize: 13 }}>
+              <div className="cs-prose" style={{ border: `${matchupWarnings.length >= matchupLaneLimit ? 2 : 1}px solid ${theme.teamB}`, background: theme.surfaceAlt, borderRadius: 6, padding: 10, marginBottom: 16, fontSize: 13 }}>
                 <div style={{ color: theme.teamB, fontWeight: 700, marginBottom: 4 }}>
                   {t("balance.077", { n: matchupWarnings.length, th: matchupThreshold })}
                 </div>
@@ -4847,7 +4905,11 @@ export default function CustomStats() {
                     {t("balance.074", { role: g.role, hi: g.hiName, lo: g.loName, hiMu: g.hiMu.toFixed(1), loMu: g.loMu.toFixed(1), diff: g.diff.toFixed(1) })}
                   </div>
                 ))}
-                <div style={{ color: theme.textSub, marginTop: 4 }}>{t("balance.076")}</div>
+                {matchupWarnings.length >= matchupLaneLimit ? (
+                  <div style={{ color: theme.teamB, fontWeight: 700, marginTop: 4 }}>{t("balance.097", { n: matchupWarnings.length, k: matchupLaneLimit })}</div>
+                ) : (
+                  <div style={{ color: theme.textSub, marginTop: 4 }}>{t("balance.076")}</div>
+                )}
               </div>
             )}
 
@@ -5259,6 +5321,9 @@ export default function CustomStats() {
                   })}
                 </div>
                 <div style={{ fontSize: 11.5, color: theme.textFaint, marginBottom: 6 }}>{t("attend.026")}</div>
+                {ngLimited(myPlayer) && (
+                  <div style={{ fontSize: 11.5, color: theme.textFaint, marginBottom: 6 }}>{t("players.074", { n: NG_ROLE_MAX })}</div>
+                )}
 
                 {(() => {
                   const otpRoleSel = otpInput.role || myPlayer.otp?.role || (myPlayer.prefRoles || [])[0] || ROLES[0];
