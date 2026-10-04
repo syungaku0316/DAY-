@@ -92,4 +92,5 @@ TrueSkill簡易(勝敗のみ、KDA不使用)。MU0=60 / SIGMA_RATED=20 / SIGMA_U
 `recomputeAll` は全試合を再生するため、**同卓した他選手のレートもわずかに動く**(正常挙動)。
 
 編成スコア: `teamDiff + 0.5 × laneDiff − 0.05 × total`。
+格差対策(`bestBalancedSplit`): 対面差 ≥ `matchupWarnThreshold` を格差レーンとし、優先順位は NG回避 → 格差レーン数が `matchupWarnLanes` に達する編成の回避 → 加重和(`+10×格差レーン数 + しきい値超過分 − 30×希望充足数`)。
 NGレーンは **ハード制約**(`validPerms` で除外)。選手選出のタイブレークは低レート優先。

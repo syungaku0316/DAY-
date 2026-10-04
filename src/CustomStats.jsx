@@ -622,7 +622,13 @@ function permutations(arr, k) {
 // 1. 両チーム合計レート差の最小化(最優先)
 // 2. 同ロール対面のレート差合計の最小化
 // 3. 得意ロール配置度(合計μ)の最大化
-// を score = teamDiff + 0.5*laneDiff - 0.05*total で統合し全探索
+// を balanceScore = teamDiff + 0.5*laneDiff - 0.05*total で統合し全探索。
+// 格差対策: 対面μ差が警告しきい値以上のレーンを「格差レーン」とし、
+//   ① 格差レーン数が組み直し推奨ライン(laneLimit)に達する編成は希望ロールより優先して回避
+//   ② それ未満は 格差1レーン=GAP_LANE_COST+しきい値超過分 と 希望1件=PREF_HIT_VALUE を天秤にかける
+// (希望を絶対優先にすると格差が放置されやすく、1ロール申告が重なると格差マッチが常態化したため)
+const GAP_LANE_COST = 10;
+const PREF_HIT_VALUE = 30;
 const ROLE_ORDER = { TOP: 0, JG: 1, MID: 2, ADC: 3, SUP: 4 };
 
 function validPerms(team) {
@@ -690,7 +696,7 @@ function pickSeatsFairly(pool, need, todayCounts, baseline = []) {
   return selected;
 }
 
-function bestBalancedSplit(players) {
+function bestBalancedSplit(players, gapTh = MATCHUP_WARN_DEFAULT, laneLimit = MATCHUP_LANES_DEFAULT) {
   const n = players.length;
   if (n < 2 || n > 10) return null;
   const half = Math.floor(n / 2);
@@ -734,16 +740,22 @@ function bestBalancedSplit(players) {
     for (const a of evA) {
       for (const b of evB) {
         const teamDiff = Math.abs(a.sum - b.sum);
-        let laneDiff = 0;
+        let laneDiff = 0, gapLanes = 0, gapExcess = 0;
         for (let r = 0; r < 5; r++) {
           const x = a.lane[r], y = b.lane[r];
-          if (x === x && y === y) laneDiff += Math.abs(x - y); // NaNチェック
+          if (x !== x || y !== y) continue; // NaNチェック(片側欠員レーン)
+          const g = Math.abs(x - y);
+          laneDiff += g;
+          if (g >= gapTh) { gapLanes++; gapExcess += g - gapTh; }
         }
         const balanceScore = teamDiff + 0.5 * laneDiff - 0.05 * (a.sum + b.sum);
-        // 段階的優先順位: ①NGレーン回避(最小化・最優先) → ②ロール希望充足数(最大化) → ③レートバランス(最小化)
-        const score = (a.ngHits + b.ngHits) * 10000000 - (a.hits + b.hits) * 100000 + balanceScore;
+        const gapOver = Math.max(0, gapLanes - (laneLimit - 1)); // 組み直し推奨ラインに達した分
+        const hits = a.hits + b.hits;
+        // 段階的優先順位: ①NGレーン回避 → ②組み直し推奨ラインの格差回避 → ③希望充足と格差・バランスの加重和
+        const score = (a.ngHits + b.ngHits) * 1e9 + gapOver * 1e7
+          + balanceScore + GAP_LANE_COST * gapLanes + gapExcess - PREF_HIT_VALUE * hits;
         if (!best || score < best.score) {
-          best = { score, diff: teamDiff, laneDiff, prefHits: a.hits + b.hits, ngHits: a.ngHits + b.ngHits, _A: { team: teamA, perm: a.perm }, _B: { team: teamB, perm: b.perm } };
+          best = { score, diff: teamDiff, laneDiff, gapLanes, gapOver, prefHits: hits, ngHits: a.ngHits + b.ngHits, _A: { team: teamA, perm: a.perm }, _B: { team: teamB, perm: b.perm } };
         }
       }
     }
@@ -2822,7 +2834,8 @@ export default function CustomStats() {
 
     const restPool = pool.filter((p) => !lockedPlayers.some((l) => l.id === p.id));
     let seated = [...lockedPlayers, ...pickSeatsFairly(restPool, 10 - lockedPlayers.length, todayCounts, lockedPlayers)];
-    let result = bestBalancedSplit(toChosen(seated));
+    const split = (ps) => bestBalancedSplit(toChosen(ps), matchupThreshold, matchupLaneLimit);
+    let result = split(seated);
 
     // 選出した10人の組み合わせではNG制約等により割当不能な場合、
     // その10人に固執せず、参加回数の多い人から順に1人ずつ他の候補と入替えて再試行する。
@@ -2836,7 +2849,7 @@ export default function CustomStats() {
       outer: for (const out of outOrder) {
         for (const cand of notSeated) {
           const trial = seated.map((s) => (s.id === out.id ? cand : s));
-          const r = bestBalancedSplit(toChosen(trial));
+          const r = split(trial);
           if (r) { seated = trial; result = r; break outer; }
         }
       }
@@ -2863,9 +2876,10 @@ export default function CustomStats() {
         for (const out of outCandidates) {
           for (const inn of adjustBench) {
             const cand = seated.filter((s) => s.id !== out.id).concat(inn);
-            const r2 = bestBalancedSplit(toChosen(cand));
+            const r2 = split(cand);
             if (!r2) continue;
             if (r2.ngHits > result.ngHits) continue; // NG違反を悪化させる入替は候補から除外
+            if (r2.gapOver > result.gapOver) continue; // 組み直し推奨ラインの格差を生む入替も除外
             // 比較優先順位: ①NG違反数(少ない方) → ②レート差(小さい方)
             if (!bestSwap || r2.ngHits < bestSwap.r.ngHits || (r2.ngHits === bestSwap.r.ngHits && r2.diff < bestSwap.r.diff)) {
               bestSwap = { out, inn, r: r2, cand };
