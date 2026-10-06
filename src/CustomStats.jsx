@@ -6,7 +6,7 @@ import { getDatabase, ref, onValue, set as fbSet, update as fbUpdate, remove as 
 import {
   Trophy, Swords, CheckCircle2, History, Users, UserPlus,
   Scale, Trash2, Loader2, X, UserRound, Pencil, Medal, ExternalLink, ListOrdered, Palette, Coins, RefreshCw, TrendingUp, Sparkles,
-  MessageSquare, ThumbsUp, Send
+  MessageSquare, ThumbsUp, Send, Ban
 } from "lucide-react";
 import { computeEfficiency, PERCENT_DISPLAY_KEYS } from "./itemEfficiency.js";
 import { CHAMPSTATS, CHAMPSTATS_PATCH } from "./champStats.js";
@@ -15,7 +15,7 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from "recharts";
 import { t, setLang, getLang, rankLabel, rankShortLang, initialLang, dateLocale } from "./i18n.js";
-import { champLabel, champCanonical } from "./champNames.js";
+import { champLabel, champCanonical, CHAMP_I18N } from "./champNames.js";
 
 /* 更新履歴。リリースのたびに先頭へ追記(手動管理)。Discordコピー文面と同様、UI言語に関わらず日本語固定 */
 const CHANGELOG = [
@@ -1698,6 +1698,267 @@ function RequestBoardTab({ requests }) {
   );
 }
 
+// ---- フィアレスドラフト ----------------------------------------------------
+// ハードフィアレス: 確定済みの試合でピックされたチャンピオンは、以降の試合で両チームとも使用不可。
+// BANは試合ごとにリセット。試合記録・レートとは無関係の一時データ(customstats/fearless)で、リセットで全消去する。
+// 保存形: { games: [[手×20], ...], draft: [手...] }。1手 = チャンピオン正規名(日本語) / BANなしは DRAFT_SKIP
+const DRAFT_SKIP = "-";
+// トーナメントドラフト順(A=ブルー / B=レッド)
+const DRAFT_ORDER = [
+  ["A", "ban"], ["B", "ban"], ["A", "ban"], ["B", "ban"], ["A", "ban"], ["B", "ban"],
+  ["A", "pick"], ["B", "pick"], ["B", "pick"], ["A", "pick"], ["A", "pick"], ["B", "pick"],
+  ["B", "ban"], ["A", "ban"], ["B", "ban"], ["A", "ban"],
+  ["B", "pick"], ["A", "pick"], ["A", "pick"], ["B", "pick"],
+];
+// 指定サイド・種別の枠を手番順で返す: [{idx(手番), champ}]
+const draftSlots = (actions, side, kind) =>
+  DRAFT_ORDER.map(([s, k], i) => (s === side && k === kind ? { idx: i, champ: actions[i] } : null)).filter(Boolean);
+const normFearless = (v) => ({ games: asArray(v && v.games).map(asArray), draft: asArray(v && v.draft) });
+// 複数端末が同じ盤面を操作するため、画面で見ていた盤面(手数・試合数)から変わっていたら中止する
+async function updateFearless(expect, mutate) {
+  const db = getDb();
+  if (!db) return "error";
+  try {
+    const res = await runTransaction(ref(db, "customstats/fearless"), (cur) => {
+      const st = normFearless(cur);
+      if (st.draft.length !== expect.draft || st.games.length !== expect.games) return undefined;
+      return clean(mutate(st));
+    });
+    return res.committed ? "ok" : "stale";
+  } catch (e) { console.error("storage error", e); return "error"; }
+}
+// ひらがな入力でもカタカナ名に当たるようにする
+const toKatakana = (s) => s.replace(/[ぁ-ゖ]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) + 0x60));
+
+function FearlessDraftTab({ champList, ddVer, champImgMap }) {
+  const [state, setState] = useState({ games: [], draft: [] });
+  const [query, setQuery] = useState("");
+  const [hideUsed, setHideUsed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    const db = getDb();
+    if (!db) return undefined;
+    return onValue(ref(db, "customstats/fearless"), (snap) => setState(normFearless(snap.val())), (e) => console.error(e));
+  }, []);
+
+  const { games, draft } = state;
+  const gameNo = games.length + 1;
+  const step = draft.length;
+  const done = step >= DRAFT_ORDER.length;
+  const [curSide, curKind] = done ? [null, null] : DRAFT_ORDER[step];
+  // 使用不可: チャンピオン → 使用された試合番号
+  const lockedBy = useMemo(() => {
+    const m = new Map();
+    games.forEach((g, gi) => DRAFT_ORDER.forEach(([, k], i) => {
+      if (k === "pick" && g[i] && g[i] !== DRAFT_SKIP && !m.has(g[i])) m.set(g[i], gi + 1);
+    }));
+    return m;
+  }, [games]);
+  const inDraft = new Set(draft.filter((c) => c !== DRAFT_SKIP));
+  const sideColor = (side) => (side === "A" ? theme.accentBright : theme.teamB);
+  const imgSrc = (name) => (name && ddVer && champImgMap[name]
+    ? `https://ddragon.leagueoflegends.com/cdn/${ddVer}/img/champion/${champImgMap[name]}` : null);
+
+  const run = async (mutate) => {
+    if (busy) return;
+    setBusy(true);
+    const res = await updateFearless({ draft: draft.length, games: games.length }, mutate);
+    setBusy(false);
+    if (res === "stale") await themedAlert(t("fearless.020"));
+    else if (res === "error") await themedAlert(t("fearless.021"));
+  };
+  const usable = (name) => !lockedBy.has(name) && !inDraft.has(name);
+  const choose = (name) => {
+    if (done || !usable(name)) return;
+    setQuery("");
+    run((st) => ({ ...st, draft: [...st.draft, name] }));
+  };
+  const skipBan = () => { if (curKind === "ban") run((st) => ({ ...st, draft: [...st.draft, DRAFT_SKIP] })); };
+  const undo = async () => {
+    if (draft.length) { run((st) => ({ ...st, draft: st.draft.slice(0, -1) })); return; }
+    if (!games.length) return;
+    if (!(await themedConfirm(t("fearless.019", { n: games.length })))) return;
+    run((st) => ({ games: st.games.slice(0, -1), draft: st.games[st.games.length - 1] }));
+  };
+  const redoDraft = async () => {
+    if (!(await themedConfirm(t("fearless.018")))) return;
+    run((st) => ({ ...st, draft: [] }));
+  };
+  const confirmGame = () => run((st) => ({ games: [...st.games, st.draft], draft: [] }));
+  const resetAll = async () => {
+    if (!(await themedConfirm(t("fearless.016")))) return;
+    if (!(await requireAdminPass(t("fearless.017")))) return;
+    const db = getDb();
+    try { await fbRemove(ref(db, "customstats/fearless")); }
+    catch (e) { console.error("storage error", e); await themedAlert(t("fearless.021")); }
+  };
+  // Discord用文面は日本語固定
+  const copyText = async () => {
+    const names = (side, kind) => draftSlots(draft, side, kind).map((s) => (s.champ && s.champ !== DRAFT_SKIP ? s.champ : "なし")).join(" / ");
+    const used = [...lockedBy.keys()];
+    const txt = [
+      `【フィアレス 第${gameNo}試合】`,
+      `■ ブルー: ${names("A", "pick")}`,
+      `■ レッド: ${names("B", "pick")}`,
+      `BAN ブルー: ${names("A", "ban")}`,
+      `BAN レッド: ${names("B", "ban")}`,
+      ...(used.length ? ["", `── 前試合までの使用不可（${used.length}体）──`, used.join("、")] : []),
+    ].join("\n");
+    try { await navigator.clipboard.writeText(txt); themedAlert(t("balance.047")); }
+    catch { await themedPrompt(t("balance.048"), { defaultValue: txt }); }
+  };
+
+  const q = toKatakana(query.trim().toLowerCase());
+  const lang = getLang();
+  const shown = useMemo(() => champList
+    .filter((name) => !q || [name, champLabel(name), ...(CHAMP_I18N[name] || [])].some((s) => s && toKatakana(s.toLowerCase()).includes(q)))
+    .sort((a, b) => champLabel(a).localeCompare(champLabel(b), lang)),
+  [champList, q, lang]);
+  const visible = hideUsed ? shown.filter(usable) : shown;
+  const onSearchKey = (ev) => {
+    if (ev.key !== "Enter") return;
+    const cands = shown.filter(usable);
+    if (cands.length === 1) choose(cands[0]);
+  };
+
+  const icon = (name, size, gray) => {
+    const src = imgSrc(name);
+    return src
+      ? <img src={src} alt="" width={size} height={size} style={{ borderRadius: 6, display: "block", filter: gray ? "grayscale(1)" : "none" }} />
+      : <div style={{ width: size, height: size, borderRadius: 6, background: theme.borderTable }} />;
+  };
+  const banSlot = (s, side) => {
+    const active = !done && s.idx === step;
+    const skipped = s.champ === DRAFT_SKIP;
+    return (
+      <div key={s.idx} title={s.champ && !skipped ? champLabel(s.champ) : ""}
+        style={{ width: 34, height: 34, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center",
+          border: `2px solid ${active ? sideColor(side) : theme.borderTable}`, background: theme.surfaceAlt, color: theme.textFaint, fontSize: 13 }}>
+        {s.champ ? (skipped ? "—" : icon(s.champ, 28, true)) : null}
+      </div>
+    );
+  };
+  const pickSlot = (s, side) => {
+    const active = !done && s.idx === step;
+    return (
+      <div key={s.idx} style={{ display: "flex", alignItems: "center", gap: 8, padding: 4, borderRadius: 8,
+        border: `2px solid ${active ? sideColor(side) : "transparent"}`, background: active ? theme.surfaceAlt : "transparent" }}>
+        {s.champ ? icon(s.champ, 40) : <div style={{ width: 40, height: 40, borderRadius: 6, border: `1px dashed ${theme.borderInput}` }} />}
+        <span style={{ fontSize: 15, fontWeight: s.champ ? 700 : 400, color: s.champ ? theme.text : theme.textFaint }}>
+          {s.champ ? champLabel(s.champ) : "PICK"}
+        </span>
+      </div>
+    );
+  };
+  const smallBtn = { padding: "5px 14px", fontSize: 14, display: "inline-flex", alignItems: "center", gap: 6 };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={cardStyle}>
+        <div style={{ fontSize: 13, color: theme.textFaint, marginBottom: 10, lineHeight: 1.6 }}>{t("fearless.002")}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
+          <span style={{ fontSize: 18, fontWeight: 700 }}>{t("fearless.003", { n: gameNo })}</span>
+          {done ? (
+            <span style={{ fontSize: 15, fontWeight: 700, color: theme.accent }}>{t("fearless.005")}</span>
+          ) : (
+            <span style={{ fontSize: 15, fontWeight: 700, color: "#FFFFFF", background: sideColor(curSide), padding: "3px 12px", borderRadius: 999 }}>
+              {sideLabel(curSide)} {curKind === "ban" ? "BAN" : "PICK"} · {t("fearless.004", { step: step + 1, total: DRAFT_ORDER.length })}
+            </span>
+          )}
+          {busy && <Loader2 size={16} className="spin" />}
+        </div>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+          {["A", "B"].map((side) => (
+            <div key={side} style={{ flex: "1 1 240px", minWidth: 0, borderTop: `3px solid ${sideColor(side)}`, paddingTop: 8 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: sideColor(side), marginBottom: 6 }}>{sideLabel(side)}</div>
+              <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 8 }}>
+                {draftSlots(draft, side, "ban").map((s) => banSlot(s, side))}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                {draftSlots(draft, side, "pick").map((s) => pickSlot(s, side))}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+          {done ? (
+            <>
+              <button className="cs-btn" style={smallBtn} disabled={busy} onClick={confirmGame}>{t("fearless.009")}</button>
+              <button className="cs-btn-ghost" style={smallBtn} onClick={copyText}>{t("balance.049")}</button>
+            </>
+          ) : curKind === "ban" && (
+            <button className="cs-btn-ghost" style={smallBtn} disabled={busy} onClick={skipBan}>{t("fearless.007")}</button>
+          )}
+          <button className="cs-btn-ghost" style={smallBtn} disabled={busy || (!draft.length && !games.length)} onClick={undo}>{t("fearless.006")}</button>
+          <button className="cs-btn-ghost" style={smallBtn} disabled={busy || !draft.length} onClick={redoDraft}>{t("fearless.008")}</button>
+        </div>
+      </div>
+
+      {!done && (
+        <div style={cardStyle}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
+            <input className="cs-input" value={query} placeholder={t("fearless.012")}
+              onChange={(ev) => setQuery(ev.target.value)} onKeyDown={onSearchKey}
+              style={{ flex: "1 1 200px", minWidth: 0, fontSize: 15, padding: "6px 10px" }} />
+            <label style={{ fontSize: 14, color: theme.textSub, display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+              <input type="checkbox" checked={hideUsed} onChange={(ev) => setHideUsed(ev.target.checked)} /> {t("fearless.013")}
+            </label>
+          </div>
+          {visible.length === 0 ? <EmptyState text={t("fearless.022")} /> : (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(72px, 1fr))", gap: 6 }}>
+              {visible.map((name) => {
+                const usedIn = lockedBy.get(name);
+                const dis = !usable(name);
+                return (
+                  <button key={name} disabled={dis || busy} onClick={() => choose(name)} title={champLabel(name)}
+                    style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, padding: "6px 2px", minWidth: 0,
+                      border: `1px solid ${theme.borderTable}`, borderRadius: 8, background: theme.surfaceAlt, color: theme.text,
+                      fontFamily: "inherit", opacity: dis ? 0.35 : 1, cursor: dis ? "not-allowed" : "pointer" }}>
+                    {icon(name, 48, dis)}
+                    <span style={{ fontSize: 11, lineHeight: 1.3, maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {champLabel(name)}
+                    </span>
+                    {usedIn && <span style={{ fontSize: 10, color: theme.teamB, fontWeight: 700 }}>{t("fearless.014", { n: usedIn })}</span>}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div style={cardStyle}>
+        <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 10 }}>{t("fearless.010", { n: lockedBy.size })}</div>
+        {!games.length ? <div style={{ fontSize: 14, color: theme.textFaint }}>{t("fearless.011")}</div> : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {games.map((g, gi) => (
+              <div key={gi}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: theme.textSub, marginBottom: 4 }}>{t("fearless.003", { n: gi + 1 })}</div>
+                {["A", "B"].map((side) => (
+                  <div key={side} style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 4 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: sideColor(side), minWidth: 56 }}>{sideLabel(side)}</span>
+                    {draftSlots(g, side, "pick").filter((s) => s.champ && s.champ !== DRAFT_SKIP).map((s) => (
+                      <span key={s.idx} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 13, padding: "2px 8px 2px 2px",
+                        borderRadius: 999, border: `1px solid ${sideColor(side)}`, background: theme.surfaceAlt }}>
+                        {icon(s.champ, 20)} {champLabel(s.champ)}
+                      </span>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        )}
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
+          <button className="cs-btn-ghost" style={smallBtn} disabled={busy || (!games.length && !draft.length)} onClick={resetAll}>
+            <Trash2 size={13} /> {t("fearless.015")}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Badge({ count }) {
   if (!count) return null;
   return (
@@ -3352,6 +3613,7 @@ export default function CustomStats() {
           ] },
           { key: "matching", label: t("header.012"), icon: Scale, tabs: [
             { id: "balance", icon: Scale, label: t("header.013") },
+            { id: "fearless", icon: Ban, label: t("fearless.001") },
           ] },
           { key: "scouting", label: t("header.014"), icon: UserRound, tabs: [
             { id: "scoutStats", icon: UserRound, label: t("header.015") },
@@ -4153,6 +4415,9 @@ export default function CustomStats() {
 
       {/* ---------- REQUEST BOARD(要望掲示板) ---------- */}
       {tab === "requestBoard" && <RequestBoardTab requests={requests} />}
+      {tab === "fearless" && (
+        <FearlessDraftTab champList={ddChamps ? ddChamps.map((x) => x.name) : CHAMPIONS} ddVer={ddVer} champImgMap={champImgMap} />
+      )}
 
       {/* ---------- PERSONAL STATS ---------- */}
       {/* ---------- SCOUT: MULTI SEARCH(ロール別対面比較) ---------- */}
