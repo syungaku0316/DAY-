@@ -6,7 +6,7 @@ import { getDatabase, ref, onValue, set as fbSet, update as fbUpdate, remove as 
 import {
   Trophy, Swords, CheckCircle2, History, Users, UserPlus,
   Scale, Trash2, Loader2, X, UserRound, Pencil, Medal, ExternalLink, ListOrdered, Palette, Coins, RefreshCw, TrendingUp, Sparkles,
-  MessageSquare, ThumbsUp, Send, Ban
+  MessageSquare, ThumbsUp, Send, Ban, Play, Pause
 } from "lucide-react";
 import { computeEfficiency, PERCENT_DISPLAY_KEYS } from "./itemEfficiency.js";
 import { CHAMPSTATS, CHAMPSTATS_PATCH } from "./champStats.js";
@@ -1701,8 +1701,10 @@ function RequestBoardTab({ requests }) {
 // ---- フィアレスドラフト ----------------------------------------------------
 // ハードフィアレス: 確定済みの試合でピックされたチャンピオンは、以降の試合で両チームとも使用不可。
 // BANは試合ごとにリセット。試合記録・レートとは無関係の一時データ(customstats/fearless)で、リセットで全消去する。
-// 保存形: { games: [[手×20], ...], draft: [手...] }。1手 = チャンピオン正規名(日本語) / BANなしは DRAFT_SKIP
+// 保存形: { games: [[手×20], ...], draft: [手...], timer: {turnAt} | null }。1手 = チャンピオン正規名(日本語) / BANなしは DRAFT_SKIP
+// timer.turnAt = 現手番の開始時刻(サーバー時刻換算)。全端末が同じ締切を表示し、時間切れは BAN→BANなし / PICK→ランダム
 const DRAFT_SKIP = "-";
+const DRAFT_TURN_MS = 30 * 1000;
 // トーナメントドラフト順(A=ブルー / B=レッド)
 const DRAFT_ORDER = [
   ["A", "ban"], ["B", "ban"], ["A", "ban"], ["B", "ban"], ["A", "ban"], ["B", "ban"],
@@ -1713,7 +1715,15 @@ const DRAFT_ORDER = [
 // 指定サイド・種別の枠を手番順で返す: [{idx(手番), champ}]
 const draftSlots = (actions, side, kind) =>
   DRAFT_ORDER.map(([s, k], i) => (s === side && k === kind ? { idx: i, champ: actions[i] } : null)).filter(Boolean);
-const normFearless = (v) => ({ games: asArray(v && v.games).map(asArray), draft: asArray(v && v.draft) });
+const normFearless = (v) => ({
+  games: asArray(v && v.games).map(asArray), draft: asArray(v && v.draft),
+  timer: v && v.timer && v.timer.turnAt ? { turnAt: Number(v.timer.turnAt) } : null,
+});
+// 端末時計のずれを吸収するためサーバー時刻オフセットで補正する
+let _fearlessOffset = 0;
+const fearlessNow = () => Date.now() + _fearlessOffset;
+// 手を進める: タイマー稼働中なら次の手番の時計をリスタート、ドラフト完了で停止
+const withDraft = (st, draft) => ({ ...st, draft, timer: st.timer && draft.length < DRAFT_ORDER.length ? { turnAt: fearlessNow() } : null });
 // 複数端末が同じ盤面を操作するため、画面で見ていた盤面(手数・試合数)から変わっていたら中止する
 async function updateFearless(expect, mutate) {
   const db = getDb();
@@ -1731,17 +1741,20 @@ async function updateFearless(expect, mutate) {
 const toKatakana = (s) => s.replace(/[ぁ-ゖ]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) + 0x60));
 
 function FearlessDraftTab({ champList, ddVer, champImgMap }) {
-  const [state, setState] = useState({ games: [], draft: [] });
+  const [state, setState] = useState({ games: [], draft: [], timer: null });
+  const [nowTs, setNowTs] = useState(() => fearlessNow());
   const [query, setQuery] = useState("");
   const [hideUsed, setHideUsed] = useState(false);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     const db = getDb();
     if (!db) return undefined;
-    return onValue(ref(db, "customstats/fearless"), (snap) => setState(normFearless(snap.val())), (e) => console.error(e));
+    const un1 = onValue(ref(db, "customstats/fearless"), (snap) => setState(normFearless(snap.val())), (e) => console.error(e));
+    const un2 = onValue(ref(db, ".info/serverTimeOffset"), (snap) => { _fearlessOffset = Number(snap.val()) || 0; }, (e) => console.error(e));
+    return () => { un1(); un2(); };
   }, []);
 
-  const { games, draft } = state;
+  const { games, draft, timer } = state;
   const gameNo = games.length + 1;
   const step = draft.length;
   const done = step >= DRAFT_ORDER.length;
@@ -1759,32 +1772,56 @@ function FearlessDraftTab({ champList, ddVer, champImgMap }) {
   const imgSrc = (name) => (name && ddVer && champImgMap[name]
     ? `https://ddragon.leagueoflegends.com/cdn/${ddVer}/img/champion/${champImgMap[name]}` : null);
 
-  const run = async (mutate) => {
+  // silent: 時間切れの自動処理。複数端末が同時に発火し、先着1台以外は stale になるので通知しない
+  const run = async (mutate, silent = false) => {
     if (busy) return;
     setBusy(true);
     const res = await updateFearless({ draft: draft.length, games: games.length }, mutate);
     setBusy(false);
-    if (res === "stale") await themedAlert(t("fearless.020"));
+    if (res === "stale") { if (!silent) await themedAlert(t("fearless.020")); }
     else if (res === "error") await themedAlert(t("fearless.021"));
   };
   const usable = (name) => !lockedBy.has(name) && !inDraft.has(name);
   const choose = (name) => {
     if (done || !usable(name)) return;
     setQuery("");
-    run((st) => ({ ...st, draft: [...st.draft, name] }));
+    run((st) => withDraft(st, [...st.draft, name]));
   };
-  const skipBan = () => { if (curKind === "ban") run((st) => ({ ...st, draft: [...st.draft, DRAFT_SKIP] })); };
+  const skipBan = () => { if (curKind === "ban") run((st) => withDraft(st, [...st.draft, DRAFT_SKIP])); };
   const undo = async () => {
-    if (draft.length) { run((st) => ({ ...st, draft: st.draft.slice(0, -1) })); return; }
+    if (draft.length) { run((st) => withDraft(st, st.draft.slice(0, -1))); return; }
     if (!games.length) return;
     if (!(await themedConfirm(t("fearless.019", { n: games.length })))) return;
-    run((st) => ({ games: st.games.slice(0, -1), draft: st.games[st.games.length - 1] }));
+    run((st) => ({ games: st.games.slice(0, -1), draft: st.games[st.games.length - 1], timer: null }));
   };
   const redoDraft = async () => {
     if (!(await themedConfirm(t("fearless.018")))) return;
-    run((st) => ({ ...st, draft: [] }));
+    run((st) => ({ ...st, draft: [], timer: null }));
   };
-  const confirmGame = () => run((st) => ({ games: [...st.games, st.draft], draft: [] }));
+  const confirmGame = () => run((st) => ({ games: [...st.games, st.draft], draft: [], timer: null }));
+  const startTimer = () => run((st) => ({ ...st, timer: { turnAt: fearlessNow() } }));
+  const stopTimer = () => run((st) => ({ ...st, timer: null }));
+
+  // タイマー: 稼働中のみ時計を進め、締切を過ぎたら自動で1手進める(同じ手番では1回だけ)
+  const running = !!timer && !done;
+  useEffect(() => {
+    if (!running) return undefined;
+    const id = setInterval(() => setNowTs(fearlessNow()), 250);
+    return () => clearInterval(id);
+  }, [running]);
+  const remainMs = running ? timer.turnAt + DRAFT_TURN_MS - nowTs : null;
+  const autoKeyRef = useRef("");
+  useEffect(() => {
+    if (!running || remainMs > 0 || busy) return;
+    const key = `${games.length}-${step}-${timer.turnAt}`;
+    if (autoKeyRef.current === key) return;
+    autoKeyRef.current = key;
+    if (curKind === "ban") { run((st) => withDraft(st, [...st.draft, DRAFT_SKIP]), true); return; }
+    const cands = champList.filter(usable);
+    if (!cands.length) return;
+    const pick = cands[Math.floor(Math.random() * cands.length)];
+    run((st) => withDraft(st, [...st.draft, pick]), true);
+  });
   const resetAll = async () => {
     if (!(await themedConfirm(t("fearless.016")))) return;
     if (!(await requireAdminPass(t("fearless.017")))) return;
@@ -1865,6 +1902,11 @@ function FearlessDraftTab({ champList, ddVer, champImgMap }) {
               {sideLabel(curSide)} {curKind === "ban" ? "BAN" : "PICK"} · {t("fearless.004", { step: step + 1, total: DRAFT_ORDER.length })}
             </span>
           )}
+          {running && (
+            <span style={{ fontSize: 22, fontWeight: 800, fontVariantNumeric: "tabular-nums", color: remainMs <= 10000 ? theme.teamB : theme.text }}>
+              {t("fearless.025", { n: Math.min(DRAFT_TURN_MS / 1000, Math.max(0, Math.ceil(remainMs / 1000))) })}
+            </span>
+          )}
           {busy && <Loader2 size={16} className="spin" />}
         </div>
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
@@ -1886,8 +1928,17 @@ function FearlessDraftTab({ champList, ddVer, champImgMap }) {
               <button className="cs-btn" style={smallBtn} disabled={busy} onClick={confirmGame}>{t("fearless.009")}</button>
               <button className="cs-btn-ghost" style={smallBtn} onClick={copyText}>{t("balance.049")}</button>
             </>
-          ) : curKind === "ban" && (
-            <button className="cs-btn-ghost" style={smallBtn} disabled={busy} onClick={skipBan}>{t("fearless.007")}</button>
+          ) : (
+            <>
+              {running ? (
+                <button className="cs-btn-ghost" style={smallBtn} disabled={busy} onClick={stopTimer}><Pause size={14} /> {t("fearless.024")}</button>
+              ) : (
+                <button className="cs-btn" style={smallBtn} disabled={busy} onClick={startTimer}><Play size={14} /> {t("fearless.023", { n: DRAFT_TURN_MS / 1000 })}</button>
+              )}
+              {curKind === "ban" && (
+                <button className="cs-btn-ghost" style={smallBtn} disabled={busy} onClick={skipBan}>{t("fearless.007")}</button>
+              )}
+            </>
           )}
           <button className="cs-btn-ghost" style={smallBtn} disabled={busy || (!draft.length && !games.length)} onClick={undo}>{t("fearless.006")}</button>
           <button className="cs-btn-ghost" style={smallBtn} disabled={busy || !draft.length} onClick={redoDraft}>{t("fearless.008")}</button>

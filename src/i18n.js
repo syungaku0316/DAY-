@@ -578,7 +578,7 @@ export const DICT = {
     "reqBoard.035": "あと{n}日で削除",
     "reqBoard.036": "保存に失敗しました。時間をおいて再度お試しください",
     "fearless.001": "フィアレス",
-    "fearless.002": "ハードフィアレス: 確定した試合でピックされたチャンピオンは、以降の試合で両チームとも使用できません。BANは試合ごとにリセットされます。ここでBAN/PICKを決めてから、クライアントで一斉にピックしてください。試合記録・レートには反映されません。",
+    "fearless.002": "ハードフィアレス: 確定した試合でピックされたチャンピオンは、以降の試合で両チームとも使用できません。BANは試合ごとにリセットされます。スタートを押すと1手30秒の制限がかかり、時間切れはBANなし/ランダムPICKで自動的に進みます。ここでBAN/PICKを決めてから、クライアントで一斉にピックしてください。試合記録・レートには反映されません。",
     "fearless.003": "第{n}試合",
     "fearless.004": "手番 {step}/{total}",
     "fearless.005": "ドラフト完了。クライアントで一斉にピックしてください",
@@ -598,7 +598,10 @@ export const DICT = {
     "fearless.019": "第{n}試合の確定を取り消し、ドラフトに戻しますか?",
     "fearless.020": "他の端末で操作が進んでいたため反映しませんでした。画面を確認してもう一度操作してください",
     "fearless.021": "保存に失敗しました。時間をおいて再度お試しください",
-    "fearless.022": "該当するチャンピオンがいません"
+    "fearless.022": "該当するチャンピオンがいません",
+    "fearless.023": "スタート(1手{n}秒)",
+    "fearless.024": "タイマー停止",
+    "fearless.025": "残り{n}秒"
   },
   "en": {
     "changelog.001": "What's New",
@@ -1178,7 +1181,7 @@ export const DICT = {
     "reqBoard.035": "Deleted in {n} days",
     "reqBoard.036": "Failed to save. Please try again later.",
     "fearless.001": "Fearless",
-    "fearless.002": "Hard fearless: champions picked in a confirmed game cannot be used by either team in later games. Bans reset every game. Decide bans/picks here, then everyone picks at once in the client. Not recorded in match history or ratings.",
+    "fearless.002": "Hard fearless: champions picked in a confirmed game cannot be used by either team in later games. Bans reset every game. Press Start to limit each turn to 30 seconds; on timeout a ban is skipped and a pick is chosen at random. Decide bans/picks here, then everyone picks at once in the client. Not recorded in match history or ratings.",
     "fearless.003": "Game {n}",
     "fearless.004": "Turn {step}/{total}",
     "fearless.005": "Draft complete. Everyone pick at once in the client.",
@@ -1198,7 +1201,10 @@ export const DICT = {
     "fearless.019": "Undo confirmation of game {n} and return to its draft?",
     "fearless.020": "Another device advanced the draft, so this was not applied. Check the screen and try again.",
     "fearless.021": "Failed to save. Please try again later.",
-    "fearless.022": "No matching champions"
+    "fearless.022": "No matching champions",
+    "fearless.023": "Start ({n}s per turn)",
+    "fearless.024": "Stop timer",
+    "fearless.025": "{n}s left"
   },
   "ko": {
     "changelog.001": "업데이트 내역",
@@ -1778,7 +1784,7 @@ export const DICT = {
     "reqBoard.035": "{n}일 후 삭제",
     "reqBoard.036": "저장에 실패했습니다. 잠시 후 다시 시도해 주세요.",
     "fearless.001": "피어리스",
-    "fearless.002": "하드 피어리스: 확정된 경기에서 픽된 챔피언은 이후 경기에서 양 팀 모두 사용할 수 없습니다. 밴은 경기마다 초기화됩니다. 여기서 밴/픽을 정한 뒤 클라이언트에서 동시에 픽하세요. 경기 기록·레이팅에는 반영되지 않습니다.",
+    "fearless.002": "하드 피어리스: 확정된 경기에서 픽된 챔피언은 이후 경기에서 양 팀 모두 사용할 수 없습니다. 밴은 경기마다 초기화됩니다. 시작을 누르면 1턴 30초 제한이 걸리며, 시간이 초과되면 밴은 밴 없음, 픽은 무작위로 자동 진행됩니다. 여기서 밴/픽을 정한 뒤 클라이언트에서 동시에 픽하세요. 경기 기록·레이팅에는 반영되지 않습니다.",
     "fearless.003": "{n}경기",
     "fearless.004": "차례 {step}/{total}",
     "fearless.005": "드래프트 완료. 클라이언트에서 동시에 픽하세요",
@@ -1798,7 +1804,10 @@ export const DICT = {
     "fearless.019": "{n}경기 확정을 취소하고 드래프트로 되돌리시겠습니까?",
     "fearless.020": "다른 기기에서 드래프트가 진행되어 반영되지 않았습니다. 화면을 확인하고 다시 시도하세요.",
     "fearless.021": "저장에 실패했습니다. 잠시 후 다시 시도해 주세요.",
-    "fearless.022": "해당하는 챔피언이 없습니다"
+    "fearless.022": "해당하는 챔피언이 없습니다",
+    "fearless.023": "시작 (1턴 {n}초)",
+    "fearless.024": "타이머 정지",
+    "fearless.025": "남은 시간 {n}초"
   }
 };
 
