@@ -85,7 +85,7 @@ Python等で一括置換した後は、必ず 1 → 5 の順で確認するこ�
 - **rankRequests** / **champions**
 - **fearless**: フィアレスドラフト(ハード方式)の一時データ。`{games:[[手×20],...], draft:[手...], timer:{turnAt}|null, captains:{A:{code,device},B:{code,device}}|null}`、1手=チャンピオン正規名 / BANなしは `"-"`。手順はトーナメントドラフト順(`DRAFT_ORDER`)。確定済み試合のピックが両チーム使用不可。**試合記録・レートとは無関係**、`session` とも別ノードで「シリーズをリセット」(管理者PASS)でのみ消える。操作はPASS不要・トランザクションで手数/試合数が画面とずれていたら中止
   - `timer.turnAt`: 現手番の開始時刻(`.info/serverTimeOffset` 補正)。1手30秒(`DRAFT_TURN_MS`)、時間切れは BAN→BANなし / PICK→使用可能からランダム。全端末が自動実行を試み先着1台だけ確定(他は stale を黙殺)。ドラフト完了・試合確定・やり直しで停止
-  - `captains`: キャプテン制限。管理者PASSでサイド別4桁コードを発行、コード入力した端末(`getDeviceId`)だけがそのサイドの手番を操作可。戻す/タイマー/確定はどちらかのキャプテンか管理者。null=誰でも操作可。時間切れの自動進行は権限不問。シリーズリセットで消える
+  - `captains`: キャプテン制限。管理者PASSでサイド別4桁コードを発行、コード入力した端末(`getDeviceId`)だけがそのサイドの手番を操作可。戻す/タイマー/確定はどちらかのキャプテンか管理者。null=誰でも操作可。時間切れの自動進行は権限不問。シリーズリセットで消える。**登録済みサイドの乗っ取り不可**(端末変更は管理者の「登録解除」後に再登録)
 - **requests**: 要望掲示板。`{id, text, author, authorId(端末ID), ts, status: open|considering|planned|done|declined, reply, repliedAt, votes:{端末ID:true}}`。投稿・賛同はPASS不要、回答・削除は管理者PASS。done/declined は `repliedAt` から30日で閲覧端末が自動削除
 
 ## レーティング

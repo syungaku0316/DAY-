@@ -620,7 +620,9 @@ export const DICT = {
     "fearless.041": "コードをコピー",
     "fearless.042": "クリックでコピー(キャプテン本人へ個別に送ってください)",
     "fearless.043": "{side}の手番です。相手キャプテンの操作を待っています",
-    "fearless.044": "{side}のキャプテンは別の端末で登録済みです。この端末に切り替えますか?"
+    "fearless.044": "{side}のキャプテンは別の端末で登録済みです。端末を変える場合は管理者に登録解除を依頼してください",
+    "fearless.045": "登録解除",
+    "fearless.046": "{side}のキャプテン登録を解除しますか?解除後は、コードを知っている端末から再登録できます"
   },
   "en": {
     "changelog.001": "What's New",
@@ -1242,7 +1244,9 @@ export const DICT = {
     "fearless.041": "Copy code",
     "fearless.042": "Click to copy (send it to each captain privately)",
     "fearless.043": "{side} is on the clock. Waiting for the other captain.",
-    "fearless.044": "The {side} captain is already registered on another device. Switch to this device?"
+    "fearless.044": "The {side} captain is already registered on another device. To change devices, ask the admin to release the registration.",
+    "fearless.045": "Release",
+    "fearless.046": "Release the {side} captain registration? Any device with the code can then register again."
   },
   "ko": {
     "changelog.001": "업데이트 내역",
@@ -1864,7 +1868,9 @@ export const DICT = {
     "fearless.041": "코드 복사",
     "fearless.042": "클릭하여 복사 (캡틴 본인에게 개별로 보내 주세요)",
     "fearless.043": "{side}의 차례입니다. 상대 캡틴의 조작을 기다리는 중입니다",
-    "fearless.044": "{side} 캡틴은 다른 기기에서 이미 등록되어 있습니다. 이 기기로 전환하시겠습니까?"
+    "fearless.044": "{side} 캡틴은 다른 기기에서 이미 등록되어 있습니다. 기기를 바꾸려면 관리자에게 등록 해제를 요청하세요",
+    "fearless.045": "등록 해제",
+    "fearless.046": "{side} 캡틴 등록을 해제하시겠습니까? 해제 후에는 코드를 아는 기기에서 다시 등록할 수 있습니다"
   }
 };
 

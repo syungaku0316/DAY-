@@ -1737,7 +1737,9 @@ async function updateFearless(expect, mutate) {
     const res = await runTransaction(ref(db, "customstats/fearless"), (cur) => {
       const st = normFearless(cur);
       if (st.draft.length !== expect.draft || st.games.length !== expect.games) return undefined;
-      return clean({ ...st, ...mutate(st) }); // 変更しないフィールド(captains等)は引き継ぐ
+      const patch = mutate(st);
+      if (patch == null) return undefined; // mutate側の中止(サーバー上の最新状態で条件不成立)
+      return clean({ ...st, ...patch }); // 変更しないフィールド(captains等)は引き継ぐ
     });
     return res.committed ? "ok" : "stale";
   } catch (e) { console.error("storage error", e); return "error"; }
@@ -1838,16 +1840,21 @@ function FearlessDraftTab({ champList, ddVer, champImgMap }) {
     if (input == null) return;
     const side = ["A", "B"].find((sd) => captains && captains[sd].code === input.trim());
     if (!side) { await themedAlert(t("fearless.034")); return; }
-    const other = captains[side].device;
-    if (other && other !== deviceId && !(await themedConfirm(t("fearless.044", { side: sideLabel(side) }), [sideLabel(side)]))) return;
+    // 乗っ取り禁止: 登録済みサイドは管理者が登録解除するまで他端末から登録できない
+    const taken = (c) => c[side].device && c[side].device !== deviceId;
+    if (taken(captains)) { await themedAlert(t("fearless.044", { side: sideLabel(side) }), [sideLabel(side)]); return; }
     const res = await run((st) => {
-      if (!st.captains) return {};
+      if (!st.captains || taken(st.captains)) return null;
       const next = { A: { ...st.captains.A }, B: { ...st.captains.B } };
       ["A", "B"].forEach((sd) => { if (next[sd].device === deviceId) next[sd].device = ""; });
       next[side].device = deviceId;
       return { captains: next };
     });
     if (res === "ok") await themedAlert(t("fearless.035", { side: sideLabel(side) }), [sideLabel(side)]);
+  };
+  const releaseCaptain = async (side) => {
+    if (!(await themedConfirm(t("fearless.046", { side: sideLabel(side) }), [sideLabel(side)]))) return;
+    run((st) => (st.captains ? { captains: { ...st.captains, [side]: { ...st.captains[side], device: "" } } } : null));
   };
   // コードはキャプテン本人へ個別に送る想定。文面は日本語固定
   const copyCode = async (side) => {
@@ -1960,6 +1967,11 @@ function FearlessDraftTab({ champList, ddVer, champImgMap }) {
                 <button className="cs-btn-ghost" style={{ padding: "1px 8px", fontSize: 13 }}
                   title={t("fearless.042")} onClick={() => copyCode(side)}>
                   {t("fearless.041")}
+                </button>
+              )}
+              {isAdmin && captains[side].device && (
+                <button className="cs-btn-ghost" style={{ padding: "1px 8px", fontSize: 13 }} disabled={busy} onClick={() => releaseCaptain(side)}>
+                  {t("fearless.045")}
                 </button>
               )}
             </span>
