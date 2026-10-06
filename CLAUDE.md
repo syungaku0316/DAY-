@@ -60,8 +60,8 @@ Python等で一括置換した後は、必ず 1 → 5 の順で確認するこ�
 
 | ファイル | 行数 | 内容 |
 |---|---|---|
-| `src/CustomStats.jsx` | ~6060 | メイン(全UI・ロジック) |
-| `src/i18n.js` | ~1780 | 3言語辞書 **575キー**完全一致 |
+| `src/CustomStats.jsx` | ~6300 | メイン(全UI・ロジック) |
+| `src/i18n.js` | ~1850 | 3言語辞書 **597キー**完全一致 |
 | `src/champNames.js` | - | チャンピオン名対訳 + champLabel/champCanonical |
 | `src/itemEfficiency.js` | 275 | アイテム金銭効率の純粋計算 |
 | `src/itemEfficiency.test.mjs` | 247 | 上記のNode単体テスト29件 |
@@ -83,6 +83,9 @@ Python等で一括置換した後は、必ず 1 → 5 の順で確認するこ�
 - **settings**: `{matchupWarnThreshold, matchupWarnLanes}` — 運用設定。session と分離
   - `matchupWarnLanes`: 格差レーン数がこれ以上で「組み直し推奨」警告(既定3)
 - **rankRequests** / **champions**
+- **fearless**: フィアレスドラフト(ハード方式)の一時データ。`{games:[[手×20],...], draft:[手...], timer:{turnAt}|null, captains:{A:{code,device},B:{code,device}}|null}`、1手=チャンピオン正規名 / BANなしは `"-"`。手順はトーナメントドラフト順(`DRAFT_ORDER`)。確定済み試合のピックが両チーム使用不可。**試合記録・レートとは無関係**、`session` とも別ノードで「シリーズをリセット」(管理者PASS)でのみ消える。操作はPASS不要・トランザクションで手数/試合数が画面とずれていたら中止
+  - `timer.turnAt`: 現手番の開始時刻(`.info/serverTimeOffset` 補正)。1手30秒(`DRAFT_TURN_MS`)、時間切れは BAN→BANなし / PICK→使用可能からランダム。全端末が自動実行を試み先着1台だけ確定(他は stale を黙殺)。ドラフト完了・試合確定・やり直しで停止
+  - `captains`: キャプテン制限。管理者PASSでサイド別4桁コードを発行、コード入力した端末(`getDeviceId`)だけがそのサイドの手番を操作可。戻す/タイマー/確定はどちらかのキャプテンか管理者。null=誰でも操作可。時間切れの自動進行は権限不問。シリーズリセットで消える
 - **requests**: 要望掲示板。`{id, text, author, authorId(端末ID), ts, status: open|considering|planned|done|declined, reply, repliedAt, votes:{端末ID:true}}`。投稿・賛同はPASS不要、回答・削除は管理者PASS。done/declined は `repliedAt` から30日で閲覧端末が自動削除
 
 ## レーティング

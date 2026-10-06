@@ -6,7 +6,7 @@ import { getDatabase, ref, onValue, set as fbSet, update as fbUpdate, remove as 
 import {
   Trophy, Swords, CheckCircle2, History, Users, UserPlus,
   Scale, Trash2, Loader2, X, UserRound, Pencil, Medal, ExternalLink, ListOrdered, Palette, Coins, RefreshCw, TrendingUp, Sparkles,
-  MessageSquare, ThumbsUp, Send
+  MessageSquare, ThumbsUp, Send, Ban, Play, Pause
 } from "lucide-react";
 import { computeEfficiency, PERCENT_DISPLAY_KEYS } from "./itemEfficiency.js";
 import { CHAMPSTATS, CHAMPSTATS_PATCH } from "./champStats.js";
@@ -15,7 +15,7 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from "recharts";
 import { t, setLang, getLang, rankLabel, rankShortLang, initialLang, dateLocale } from "./i18n.js";
-import { champLabel, champCanonical } from "./champNames.js";
+import { champLabel, champCanonical, CHAMP_I18N } from "./champNames.js";
 
 /* 更新履歴。リリースのたびに先頭へ追記(手動管理)。Discordコピー文面と同様、UI言語に関わらず日本語固定 */
 const CHANGELOG = [
@@ -1698,6 +1698,402 @@ function RequestBoardTab({ requests }) {
   );
 }
 
+// ---- フィアレスドラフト ----------------------------------------------------
+// ハードフィアレス: 確定済みの試合でピックされたチャンピオンは、以降の試合で両チームとも使用不可。
+// BANは試合ごとにリセット。試合記録・レートとは無関係の一時データ(customstats/fearless)で、リセットで全消去する。
+// 保存形: { games: [[手×20], ...], draft: [手...], timer: {turnAt} | null, captains: {A:{code,device},B:{code,device}} | null }。1手 = チャンピオン正規名(日本語) / BANなしは DRAFT_SKIP
+// timer.turnAt = 現手番の開始時刻(サーバー時刻換算)。全端末が同じ締切を表示し、時間切れは BAN→BANなし / PICK→ランダム
+const DRAFT_SKIP = "-";
+const DRAFT_TURN_MS = 30 * 1000;
+// キャプテン制限: 管理者がサイド別の4桁コードを発行し、コードを入力した端末(端末ID)だけがそのサイドの手番を操作できる。
+// 未設定(null)なら誰でも操作可。PASS同様クライアント側の抑止力であり秘匿性はない
+const normCaptains = (c) => (c && c.A && c.B && c.A.code && c.B.code
+  ? { A: { code: String(c.A.code), device: c.A.device || "" }, B: { code: String(c.B.code), device: c.B.device || "" } } : null);
+// トーナメントドラフト順(A=ブルー / B=レッド)
+const DRAFT_ORDER = [
+  ["A", "ban"], ["B", "ban"], ["A", "ban"], ["B", "ban"], ["A", "ban"], ["B", "ban"],
+  ["A", "pick"], ["B", "pick"], ["B", "pick"], ["A", "pick"], ["A", "pick"], ["B", "pick"],
+  ["B", "ban"], ["A", "ban"], ["B", "ban"], ["A", "ban"],
+  ["B", "pick"], ["A", "pick"], ["A", "pick"], ["B", "pick"],
+];
+// 指定サイド・種別の枠を手番順で返す: [{idx(手番), champ}]
+const draftSlots = (actions, side, kind) =>
+  DRAFT_ORDER.map(([s, k], i) => (s === side && k === kind ? { idx: i, champ: actions[i] } : null)).filter(Boolean);
+const normFearless = (v) => ({
+  games: asArray(v && v.games).map(asArray), draft: asArray(v && v.draft),
+  timer: v && v.timer && v.timer.turnAt ? { turnAt: Number(v.timer.turnAt) } : null,
+  captains: normCaptains(v && v.captains),
+});
+// 端末時計のずれを吸収するためサーバー時刻オフセットで補正する
+let _fearlessOffset = 0;
+const fearlessNow = () => Date.now() + _fearlessOffset;
+// 手を進める: タイマー稼働中なら次の手番の時計をリスタート、ドラフト完了で停止
+const withDraft = (st, draft) => ({ ...st, draft, timer: st.timer && draft.length < DRAFT_ORDER.length ? { turnAt: fearlessNow() } : null });
+// 複数端末が同じ盤面を操作するため、画面で見ていた盤面(手数・試合数)から変わっていたら中止する
+async function updateFearless(expect, mutate) {
+  const db = getDb();
+  if (!db) return "error";
+  try {
+    const res = await runTransaction(ref(db, "customstats/fearless"), (cur) => {
+      const st = normFearless(cur);
+      if (st.draft.length !== expect.draft || st.games.length !== expect.games) return undefined;
+      return clean({ ...st, ...mutate(st) }); // 変更しないフィールド(captains等)は引き継ぐ
+    });
+    return res.committed ? "ok" : "stale";
+  } catch (e) { console.error("storage error", e); return "error"; }
+}
+// ひらがな入力でもカタカナ名に当たるようにする
+const toKatakana = (s) => s.replace(/[ぁ-ゖ]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) + 0x60));
+
+function FearlessDraftTab({ champList, ddVer, champImgMap }) {
+  const [state, setState] = useState({ games: [], draft: [], timer: null, captains: null });
+  const deviceId = getDeviceId();
+  const [isAdmin, setIsAdmin] = useState(() => adminPassCache === ADMIN_PASS);
+  const [nowTs, setNowTs] = useState(() => fearlessNow());
+  const [query, setQuery] = useState("");
+  const [hideUsed, setHideUsed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    const db = getDb();
+    if (!db) return undefined;
+    const un1 = onValue(ref(db, "customstats/fearless"), (snap) => setState(normFearless(snap.val())), (e) => console.error(e));
+    const un2 = onValue(ref(db, ".info/serverTimeOffset"), (snap) => { _fearlessOffset = Number(snap.val()) || 0; }, (e) => console.error(e));
+    return () => { un1(); un2(); };
+  }, []);
+
+  const { games, draft, timer, captains } = state;
+  const gameNo = games.length + 1;
+  const step = draft.length;
+  const done = step >= DRAFT_ORDER.length;
+  const [curSide, curKind] = done ? [null, null] : DRAFT_ORDER[step];
+  // 使用不可: チャンピオン → 使用された試合番号
+  const lockedBy = useMemo(() => {
+    const m = new Map();
+    games.forEach((g, gi) => DRAFT_ORDER.forEach(([, k], i) => {
+      if (k === "pick" && g[i] && g[i] !== DRAFT_SKIP && !m.has(g[i])) m.set(g[i], gi + 1);
+    }));
+    return m;
+  }, [games]);
+  const inDraft = new Set(draft.filter((c) => c !== DRAFT_SKIP));
+  const sideColor = (side) => (side === "A" ? theme.accentBright : theme.teamB);
+  const imgSrc = (name) => (name && ddVer && champImgMap[name]
+    ? `https://ddragon.leagueoflegends.com/cdn/${ddVer}/img/champion/${champImgMap[name]}` : null);
+
+  // silent: 時間切れの自動処理。複数端末が同時に発火し、先着1台以外は stale になるので通知しない
+  const run = async (mutate, silent = false) => {
+    if (busy) return "busy";
+    setBusy(true);
+    const res = await updateFearless({ draft: draft.length, games: games.length }, mutate);
+    setBusy(false);
+    if (res === "stale") { if (!silent) await themedAlert(t("fearless.020")); }
+    else if (res === "error") await themedAlert(t("fearless.021"));
+    return res;
+  };
+  // 操作権限: 制限中は自サイドの手番はキャプテン端末、進行操作(戻す・タイマー等)はどちらかのキャプテン。管理者は全て可
+  const restricted = !!captains;
+  const mySide = captains ? ["A", "B"].find((side) => captains[side].device === deviceId) || null : null;
+  const canAct = (side) => !restricted || isAdmin || mySide === side;
+  const canControl = !restricted || isAdmin || !!mySide;
+  const myTurn = !done && canAct(curSide);
+  const usable = (name) => !lockedBy.has(name) && !inDraft.has(name);
+  const choose = (name) => {
+    if (!myTurn || !usable(name)) return;
+    setQuery("");
+    run((st) => withDraft(st, [...st.draft, name]));
+  };
+  const skipBan = () => { if (curKind === "ban" && myTurn) run((st) => withDraft(st, [...st.draft, DRAFT_SKIP])); };
+  const undo = async () => {
+    if (draft.length) { run((st) => withDraft(st, st.draft.slice(0, -1))); return; }
+    if (!games.length) return;
+    if (!(await themedConfirm(t("fearless.019", { n: games.length })))) return;
+    run((st) => ({ games: st.games.slice(0, -1), draft: st.games[st.games.length - 1], timer: null }));
+  };
+  const redoDraft = async () => {
+    if (!(await themedConfirm(t("fearless.018")))) return;
+    run((st) => ({ ...st, draft: [], timer: null }));
+  };
+  const confirmGame = () => run((st) => ({ games: [...st.games, st.draft], draft: [], timer: null }));
+  const startTimer = () => run((st) => ({ ...st, timer: { turnAt: fearlessNow() } }));
+  const stopTimer = () => run((st) => ({ ...st, timer: null }));
+
+  const becomeAdmin = async () => { if (await requireAdminPass(t("fearless.040"))) setIsAdmin(true); };
+  const genCode = (avoid) => {
+    let code;
+    do { code = String(crypto.getRandomValues(new Uint32Array(1))[0] % 10000).padStart(4, "0"); } while (code === avoid);
+    return code;
+  };
+  const setupCaptains = async () => {
+    if (!(await requireAdminPass(t("fearless.029")))) return;
+    setIsAdmin(true);
+    const codeA = genCode("");
+    run((st) => ({ ...st, captains: { A: { code: codeA, device: "" }, B: { code: genCode(codeA), device: "" } } }));
+  };
+  const clearCaptains = async () => {
+    if (!(await themedConfirm(t("fearless.031")))) return;
+    if (!(await requireAdminPass(t("fearless.029")))) return;
+    run((st) => ({ ...st, captains: null }));
+  };
+  const joinCaptain = async () => {
+    const input = await themedPrompt(t("fearless.033"));
+    if (input == null) return;
+    const side = ["A", "B"].find((sd) => captains && captains[sd].code === input.trim());
+    if (!side) { await themedAlert(t("fearless.034")); return; }
+    const other = captains[side].device;
+    if (other && other !== deviceId && !(await themedConfirm(t("fearless.044", { side: sideLabel(side) }), [sideLabel(side)]))) return;
+    const res = await run((st) => {
+      if (!st.captains) return {};
+      const next = { A: { ...st.captains.A }, B: { ...st.captains.B } };
+      ["A", "B"].forEach((sd) => { if (next[sd].device === deviceId) next[sd].device = ""; });
+      next[side].device = deviceId;
+      return { captains: next };
+    });
+    if (res === "ok") await themedAlert(t("fearless.035", { side: sideLabel(side) }), [sideLabel(side)]);
+  };
+  // コードはキャプテン本人へ個別に送る想定。文面は日本語固定
+  const copyCode = async (side) => {
+    const txt = `【フィアレス】${side === "A" ? "ブルー" : "レッド"}サイドのキャプテンコード: ${captains[side].code}`;
+    try { await navigator.clipboard.writeText(txt); themedAlert(t("balance.047")); }
+    catch { await themedPrompt(t("balance.048"), { defaultValue: txt }); }
+  };
+
+  // タイマー: 稼働中のみ時計を進め、締切を過ぎたら自動で1手進める(同じ手番では1回だけ)
+  const running = !!timer && !done;
+  useEffect(() => {
+    if (!running) return undefined;
+    const id = setInterval(() => setNowTs(fearlessNow()), 250);
+    return () => clearInterval(id);
+  }, [running]);
+  const remainMs = running ? timer.turnAt + DRAFT_TURN_MS - nowTs : null;
+  const autoKeyRef = useRef("");
+  useEffect(() => {
+    if (!running || remainMs > 0 || busy) return;
+    const key = `${games.length}-${step}-${timer.turnAt}`;
+    if (autoKeyRef.current === key) return;
+    autoKeyRef.current = key;
+    if (curKind === "ban") { run((st) => withDraft(st, [...st.draft, DRAFT_SKIP]), true); return; }
+    const cands = champList.filter(usable);
+    if (!cands.length) return;
+    const pick = cands[Math.floor(Math.random() * cands.length)];
+    run((st) => withDraft(st, [...st.draft, pick]), true);
+  });
+  const resetAll = async () => {
+    if (!(await themedConfirm(t("fearless.016")))) return;
+    if (!(await requireAdminPass(t("fearless.017")))) return;
+    const db = getDb();
+    try { await fbRemove(ref(db, "customstats/fearless")); }
+    catch (e) { console.error("storage error", e); await themedAlert(t("fearless.021")); }
+  };
+  // Discord用文面は日本語固定
+  const copyText = async () => {
+    const names = (side, kind) => draftSlots(draft, side, kind).map((s) => (s.champ && s.champ !== DRAFT_SKIP ? s.champ : "なし")).join(" / ");
+    const used = [...lockedBy.keys()];
+    const txt = [
+      `【フィアレス 第${gameNo}試合】`,
+      `■ ブルー: ${names("A", "pick")}`,
+      `■ レッド: ${names("B", "pick")}`,
+      `BAN ブルー: ${names("A", "ban")}`,
+      `BAN レッド: ${names("B", "ban")}`,
+      ...(used.length ? ["", `── 前試合までの使用不可（${used.length}体）──`, used.join("、")] : []),
+    ].join("\n");
+    try { await navigator.clipboard.writeText(txt); themedAlert(t("balance.047")); }
+    catch { await themedPrompt(t("balance.048"), { defaultValue: txt }); }
+  };
+
+  const q = toKatakana(query.trim().toLowerCase());
+  const lang = getLang();
+  const shown = useMemo(() => champList
+    .filter((name) => !q || [name, champLabel(name), ...(CHAMP_I18N[name] || [])].some((s) => s && toKatakana(s.toLowerCase()).includes(q)))
+    .sort((a, b) => champLabel(a).localeCompare(champLabel(b), lang)),
+  [champList, q, lang]);
+  const visible = hideUsed ? shown.filter(usable) : shown;
+  const onSearchKey = (ev) => {
+    if (ev.key !== "Enter") return;
+    const cands = shown.filter(usable);
+    if (cands.length === 1) choose(cands[0]);
+  };
+
+  const icon = (name, size, gray) => {
+    const src = imgSrc(name);
+    return src
+      ? <img src={src} alt="" width={size} height={size} style={{ borderRadius: 6, display: "block", filter: gray ? "grayscale(1)" : "none" }} />
+      : <div style={{ width: size, height: size, borderRadius: 6, background: theme.borderTable }} />;
+  };
+  const banSlot = (s, side) => {
+    const active = !done && s.idx === step;
+    const skipped = s.champ === DRAFT_SKIP;
+    return (
+      <div key={s.idx} title={s.champ && !skipped ? champLabel(s.champ) : ""}
+        style={{ width: 34, height: 34, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center",
+          border: `2px solid ${active ? sideColor(side) : theme.borderTable}`, background: theme.surfaceAlt, color: theme.textFaint, fontSize: 13 }}>
+        {s.champ ? (skipped ? "—" : icon(s.champ, 28, true)) : null}
+      </div>
+    );
+  };
+  const pickSlot = (s, side) => {
+    const active = !done && s.idx === step;
+    return (
+      <div key={s.idx} style={{ display: "flex", alignItems: "center", gap: 8, padding: 4, borderRadius: 8,
+        border: `2px solid ${active ? sideColor(side) : "transparent"}`, background: active ? theme.surfaceAlt : "transparent" }}>
+        {s.champ ? icon(s.champ, 40) : <div style={{ width: 40, height: 40, borderRadius: 6, border: `1px dashed ${theme.borderInput}` }} />}
+        <span style={{ fontSize: 15, fontWeight: s.champ ? 700 : 400, color: s.champ ? theme.text : theme.textFaint }}>
+          {s.champ ? champLabel(s.champ) : "PICK"}
+        </span>
+      </div>
+    );
+  };
+  const smallBtn = { padding: "5px 14px", fontSize: 14, display: "inline-flex", alignItems: "center", gap: 6 };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={cardStyle}>
+        <div style={{ fontSize: 13, color: theme.textFaint, marginBottom: 10, lineHeight: 1.6 }}>{t("fearless.002")}</div>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", padding: "8px 12px", background: theme.surfaceAlt, borderRadius: 8, marginBottom: 12, fontSize: 14 }}>
+          <b>{t("fearless.026")}</b>
+          {!restricted ? <span style={{ color: theme.textFaint }}>{t("fearless.027")}</span> : ["A", "B"].map((side) => (
+            <span key={side} style={{ display: "inline-flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+              <span style={{ color: sideColor(side), fontWeight: 700 }}>{sideLabel(side)}</span>
+              <span style={{ color: captains[side].device ? theme.text : theme.textFaint }}>
+                {t(captains[side].device ? "fearless.036" : "fearless.037")}{mySide === side ? ` ${t("fearless.038")}` : ""}
+              </span>
+              {/* 配信・画面共有で漏れないよう、管理者端末でも数字は画面に出さずコピーのみ */}
+              {isAdmin && (
+                <button className="cs-btn-ghost" style={{ padding: "1px 8px", fontSize: 13 }}
+                  title={t("fearless.042")} onClick={() => copyCode(side)}>
+                  {t("fearless.041")}
+                </button>
+              )}
+            </span>
+          ))}
+          <span style={{ marginLeft: "auto", display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {restricted && !mySide && <button className="cs-btn" style={{ padding: "3px 12px", fontSize: 13 }} disabled={busy} onClick={joinCaptain}>{t("fearless.032")}</button>}
+            {restricted && !isAdmin && <button className="cs-btn-ghost" style={{ padding: "3px 12px", fontSize: 13 }} onClick={becomeAdmin}>{t("fearless.040")}</button>}
+            {!restricted
+              ? <button className="cs-btn-ghost" style={{ padding: "3px 12px", fontSize: 13 }} disabled={busy} onClick={setupCaptains}>{t("fearless.028")}</button>
+              : isAdmin && <button className="cs-btn-ghost" style={{ padding: "3px 12px", fontSize: 13 }} disabled={busy} onClick={clearCaptains}>{t("fearless.030")}</button>}
+          </span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
+          <span style={{ fontSize: 18, fontWeight: 700 }}>{t("fearless.003", { n: gameNo })}</span>
+          {done ? (
+            <span style={{ fontSize: 15, fontWeight: 700, color: theme.accent }}>{t("fearless.005")}</span>
+          ) : (
+            <span style={{ fontSize: 15, fontWeight: 700, color: "#FFFFFF", background: sideColor(curSide), padding: "3px 12px", borderRadius: 999 }}>
+              {sideLabel(curSide)} {curKind === "ban" ? "BAN" : "PICK"} · {t("fearless.004", { step: step + 1, total: DRAFT_ORDER.length })}
+            </span>
+          )}
+          {running && (
+            <span style={{ fontSize: 22, fontWeight: 800, fontVariantNumeric: "tabular-nums", color: remainMs <= 10000 ? theme.teamB : theme.text }}>
+              {t("fearless.025", { n: Math.min(DRAFT_TURN_MS / 1000, Math.max(0, Math.ceil(remainMs / 1000))) })}
+            </span>
+          )}
+          {busy && <Loader2 size={16} className="spin" />}
+        </div>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+          {["A", "B"].map((side) => (
+            <div key={side} style={{ flex: "1 1 240px", minWidth: 0, borderTop: `3px solid ${sideColor(side)}`, paddingTop: 8 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: sideColor(side), marginBottom: 6 }}>{sideLabel(side)}</div>
+              <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 8 }}>
+                {draftSlots(draft, side, "ban").map((s) => banSlot(s, side))}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                {draftSlots(draft, side, "pick").map((s) => pickSlot(s, side))}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+          {done ? (
+            <>
+              <button className="cs-btn" style={smallBtn} disabled={busy || !canControl} onClick={confirmGame}>{t("fearless.009")}</button>
+              <button className="cs-btn-ghost" style={smallBtn} onClick={copyText}>{t("balance.049")}</button>
+            </>
+          ) : (
+            <>
+              {running ? (
+                <button className="cs-btn-ghost" style={smallBtn} disabled={busy || !canControl} onClick={stopTimer}><Pause size={14} /> {t("fearless.024")}</button>
+              ) : (
+                <button className="cs-btn" style={smallBtn} disabled={busy || !canControl} onClick={startTimer}><Play size={14} /> {t("fearless.023", { n: DRAFT_TURN_MS / 1000 })}</button>
+              )}
+              {curKind === "ban" && (
+                <button className="cs-btn-ghost" style={smallBtn} disabled={busy || !myTurn} onClick={skipBan}>{t("fearless.007")}</button>
+              )}
+            </>
+          )}
+          <button className="cs-btn-ghost" style={smallBtn} disabled={busy || !canControl || (!draft.length && !games.length)} onClick={undo}>{t("fearless.006")}</button>
+          <button className="cs-btn-ghost" style={smallBtn} disabled={busy || !canControl || !draft.length} onClick={redoDraft}>{t("fearless.008")}</button>
+        </div>
+      </div>
+
+      {!done && (
+        <div style={cardStyle}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
+            <input className="cs-input" value={query} placeholder={t("fearless.012")}
+              onChange={(ev) => setQuery(ev.target.value)} onKeyDown={onSearchKey}
+              style={{ flex: "1 1 200px", minWidth: 0, fontSize: 15, padding: "6px 10px" }} />
+            <label style={{ fontSize: 14, color: theme.textSub, display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+              <input type="checkbox" checked={hideUsed} onChange={(ev) => setHideUsed(ev.target.checked)} /> {t("fearless.013")}
+            </label>
+          </div>
+          {!myTurn && (
+            <div style={{ fontSize: 14, fontWeight: 700, color: theme.textSub, padding: "6px 10px", marginBottom: 10, borderRadius: 6, background: theme.surfaceAlt }}>
+              {mySide ? t("fearless.043", { side: sideLabel(curSide) }) : t("fearless.039")}
+            </div>
+          )}
+          {visible.length === 0 ? <EmptyState text={t("fearless.022")} /> : (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(72px, 1fr))", gap: 6 }}>
+              {visible.map((name) => {
+                const usedIn = lockedBy.get(name);
+                const dis = !usable(name);
+                return (
+                  <button key={name} disabled={dis || busy || !myTurn} onClick={() => choose(name)} title={champLabel(name)}
+                    style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, padding: "6px 2px", minWidth: 0,
+                      border: `1px solid ${theme.borderTable}`, borderRadius: 8, background: theme.surfaceAlt, color: theme.text,
+                      fontFamily: "inherit", opacity: dis ? 0.35 : 1, cursor: dis || !myTurn ? "not-allowed" : "pointer" }}>
+                    {icon(name, 48, dis)}
+                    <span style={{ fontSize: 11, lineHeight: 1.3, maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {champLabel(name)}
+                    </span>
+                    {usedIn && <span style={{ fontSize: 10, color: theme.teamB, fontWeight: 700 }}>{t("fearless.014", { n: usedIn })}</span>}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div style={cardStyle}>
+        <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 10 }}>{t("fearless.010", { n: lockedBy.size })}</div>
+        {!games.length ? <div style={{ fontSize: 14, color: theme.textFaint }}>{t("fearless.011")}</div> : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {games.map((g, gi) => (
+              <div key={gi}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: theme.textSub, marginBottom: 4 }}>{t("fearless.003", { n: gi + 1 })}</div>
+                {["A", "B"].map((side) => (
+                  <div key={side} style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 4 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: sideColor(side), minWidth: 56 }}>{sideLabel(side)}</span>
+                    {draftSlots(g, side, "pick").filter((s) => s.champ && s.champ !== DRAFT_SKIP).map((s) => (
+                      <span key={s.idx} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 13, padding: "2px 8px 2px 2px",
+                        borderRadius: 999, border: `1px solid ${sideColor(side)}`, background: theme.surfaceAlt }}>
+                        {icon(s.champ, 20)} {champLabel(s.champ)}
+                      </span>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        )}
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
+          <button className="cs-btn-ghost" style={smallBtn} disabled={busy || (!games.length && !draft.length)} onClick={resetAll}>
+            <Trash2 size={13} /> {t("fearless.015")}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Badge({ count }) {
   if (!count) return null;
   return (
@@ -3352,6 +3748,7 @@ export default function CustomStats() {
           ] },
           { key: "matching", label: t("header.012"), icon: Scale, tabs: [
             { id: "balance", icon: Scale, label: t("header.013") },
+            { id: "fearless", icon: Ban, label: t("fearless.001") },
           ] },
           { key: "scouting", label: t("header.014"), icon: UserRound, tabs: [
             { id: "scoutStats", icon: UserRound, label: t("header.015") },
@@ -4153,6 +4550,9 @@ export default function CustomStats() {
 
       {/* ---------- REQUEST BOARD(要望掲示板) ---------- */}
       {tab === "requestBoard" && <RequestBoardTab requests={requests} />}
+      {tab === "fearless" && (
+        <FearlessDraftTab champList={ddChamps ? ddChamps.map((x) => x.name) : CHAMPIONS} ddVer={ddVer} champImgMap={champImgMap} />
+      )}
 
       {/* ---------- PERSONAL STATS ---------- */}
       {/* ---------- SCOUT: MULTI SEARCH(ロール別対面比較) ---------- */}
