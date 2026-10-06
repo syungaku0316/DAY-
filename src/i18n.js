@@ -617,7 +617,7 @@ export const DICT = {
     "fearless.038": "(この端末)",
     "fearless.039": "観戦中: BAN/PICKはキャプテンと管理者だけが操作できます。キャプテンは「キャプテンとして参加」からコードを入力してください",
     "fearless.040": "管理者として操作",
-    "fearless.041": "コード {code}",
+    "fearless.041": "コードをコピー",
     "fearless.042": "クリックでコピー(キャプテン本人へ個別に送ってください)",
     "fearless.043": "{side}の手番です。相手キャプテンの操作を待っています",
     "fearless.044": "{side}のキャプテンは別の端末で登録済みです。この端末に切り替えますか?"
@@ -1239,7 +1239,7 @@ export const DICT = {
     "fearless.038": "(this device)",
     "fearless.039": "Spectating: only captains and the admin can ban/pick. Captains: tap “Join as captain” and enter your code.",
     "fearless.040": "Operate as admin",
-    "fearless.041": "Code {code}",
+    "fearless.041": "Copy code",
     "fearless.042": "Click to copy (send it to each captain privately)",
     "fearless.043": "{side} is on the clock. Waiting for the other captain.",
     "fearless.044": "The {side} captain is already registered on another device. Switch to this device?"
@@ -1861,7 +1861,7 @@ export const DICT = {
     "fearless.038": "(이 기기)",
     "fearless.039": "관전 중: 밴/픽은 캡틴과 관리자만 조작할 수 있습니다. 캡틴은 '캡틴으로 참가'에서 코드를 입력하세요",
     "fearless.040": "관리자로 조작",
-    "fearless.041": "코드 {code}",
+    "fearless.041": "코드 복사",
     "fearless.042": "클릭하여 복사 (캡틴 본인에게 개별로 보내 주세요)",
     "fearless.043": "{side}의 차례입니다. 상대 캡틴의 조작을 기다리는 중입니다",
     "fearless.044": "{side} 캡틴은 다른 기기에서 이미 등록되어 있습니다. 이 기기로 전환하시겠습니까?"

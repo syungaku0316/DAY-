@@ -1955,10 +1955,11 @@ function FearlessDraftTab({ champList, ddVer, champImgMap }) {
               <span style={{ color: captains[side].device ? theme.text : theme.textFaint }}>
                 {t(captains[side].device ? "fearless.036" : "fearless.037")}{mySide === side ? ` ${t("fearless.038")}` : ""}
               </span>
+              {/* 配信・画面共有で漏れないよう、管理者端末でも数字は画面に出さずコピーのみ */}
               {isAdmin && (
-                <button className="cs-btn-ghost" style={{ padding: "1px 8px", fontSize: 13, fontVariantNumeric: "tabular-nums" }}
+                <button className="cs-btn-ghost" style={{ padding: "1px 8px", fontSize: 13 }}
                   title={t("fearless.042")} onClick={() => copyCode(side)}>
-                  {t("fearless.041", { code: captains[side].code })}
+                  {t("fearless.041")}
                 </button>
               )}
             </span>
