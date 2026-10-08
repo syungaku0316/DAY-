@@ -16,9 +16,12 @@ import {
 } from "recharts";
 import { t, setLang, getLang, rankLabel, rankShortLang, initialLang, dateLocale } from "./i18n.js";
 import { champLabel, champCanonical } from "./champNames.js";
+import { PAGE_SOURCE } from "./pageSource.js";
 
 /* 更新履歴。リリースのたびに先頭へ追記(手動管理)。Discordコピー文面と同様、UI言語に関わらず日本語固定 */
 const CHANGELOG = [
+  { date: "2026-10-08", text: "引継ぎ機能を追加(全データのバックアップ、引継ぎ用HTML、移転設定)" },
+  { date: "2026-10-04", text: "NGレーンは3つまでに(初心者は除く)。チーム分けを格差の出にくい計算に変更" },
   { date: "2026-09-26", text: "要望掲示板を追加(要望の投稿・賛同と、運営からの回答)" },
   { date: "2026-09-08", text: "チャンピオン基礎ステータス成長タブを追加" },
   { date: "2026-08-22", text: "出欠管理の自分カードから、ランク・熟練度の変更申請ができるように" },
@@ -899,6 +902,90 @@ async function claimApproval(id) {
   } catch (e) { console.error(e); return false; }
 }
 
+/* --------------------------- 引継ぎ(完全バックアップ / 引継ぎ用HTML) --------------------------- */
+
+// バックアップJSONの形式。version 1(形式名なし)は players / matches / customChamps のみの旧形式。
+const BACKUP_FORMAT = "crl-backup";
+const BACKUP_VERSION = 2;
+
+// 全データを1つのJSONにまとめる。session は当日限りの一時データなので含めない。
+function buildBackup({ players, matches, customChamps, settings, requests, rankRequests }) {
+  return {
+    format: BACKUP_FORMAT, version: BACKUP_VERSION, exportedAt: Date.now(),
+    players, matches, customChamps, settings, requests, rankRequests,
+  };
+}
+
+// バックアップJSONを customstats 配下のノード単位の書き込み内容へ変換する。不正なら null。
+// 旧形式は players / matches / champions だけを返し、他のノードには触れない。
+function backupToNodes(d) {
+  if (!d || !Array.isArray(d.players) || !Array.isArray(d.matches)) return null;
+  const byId = (arr) => Object.fromEntries((Array.isArray(arr) ? arr : []).filter((x) => x && x.id).map((x) => [x.id, x]));
+  const nodes = {
+    players: d.players,
+    matches: byId(d.matches),
+    champions: Array.isArray(d.customChamps) ? d.customChamps : [],
+  };
+  if (d.format === BACKUP_FORMAT && d.version >= 2) {
+    // 移転先は旧サイト固有の値なので持ち込まない(移転後に取ったバックアップで新サイトが移転案内になるのを防ぐ)
+    const { movedTo, ...settings } = d.settings && typeof d.settings === "object" ? d.settings : {};
+    nodes.settings = Object.keys(settings).length ? settings : null;
+    nodes.requests = byId(d.requests);
+    nodes.rankRequests = byId(d.rankRequests);
+  }
+  return nodes;
+}
+
+// 確認画面用の件数サマリ
+function backupSummary(d) {
+  const full = d.format === BACKUP_FORMAT && d.version >= 2;
+  return {
+    full,
+    date: d.exportedAt || d.savedAt ? new Date(d.exportedAt || d.savedAt).toLocaleString(dateLocale()) : "-",
+    players: d.players.length, matches: d.matches.length,
+    requests: full && Array.isArray(d.requests) ? d.requests.length : 0,
+    rankRequests: full && Array.isArray(d.rankRequests) ? d.rankRequests.length : 0,
+  };
+}
+
+// 指定DBの customstats 配下へノードを書き込む。複数パス update なので session 等の他ノードは残る。
+async function writeBackupNodes(db, nodes) {
+  await fbUpdate(ref(db, "customstats"), clean(nodes));
+}
+
+// 起動時のHTML原本の設定ブロックを差し替え、別環境用の1ファイルHTMLを作る。
+// 開発サーバー上など、バンドル済みの1ファイルでない場合は null。
+const FB_CONFIG_RE = /window\.FIREBASE_CONFIG = \{[\s\S]*?\};/;
+const APP_CONFIG_RE = /window\.APP_CONFIG = \{[\s\S]*?\};/;
+function buildConfiguredHtml(fbConfig, appConfig) {
+  const src = PAGE_SOURCE;
+  if (!src || !FB_CONFIG_RE.test(src) || !APP_CONFIG_RE.test(src) || /src="\/src\/main\.jsx"/.test(src)) return null;
+  // "<" をエスケープして、値に "</script>" が含まれてもスクリプトが途切れないようにする
+  const lit = (v) => JSON.stringify(v, null, 2).replace(/</g, "\\u003c");
+  return src
+    .replace(FB_CONFIG_RE, () => `window.FIREBASE_CONFIG = ${lit(fbConfig)};`)
+    .replace(APP_CONFIG_RE, () => `window.APP_CONFIG = ${lit(appConfig)};`);
+}
+
+function downloadText(text, filename, type) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], { type }));
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+// Firebaseコンソールの firebaseConfig 表示(JSオブジェクト形式)またはJSONから設定値を取り出す
+const FB_CONFIG_KEYS = ["apiKey", "authDomain", "databaseURL", "projectId", "storageBucket", "messagingSenderId", "appId", "measurementId"];
+function parseFirebaseConfig(text) {
+  const out = {};
+  FB_CONFIG_KEYS.forEach((k) => {
+    const m = String(text || "").match(new RegExp(`["']?${k}["']?\\s*:\\s*["']([^"']*)["']`));
+    if (m) out[k] = m[1].trim();
+  });
+  return out;
+}
+
 /* --------------------------- UI atoms --------------------------- */
 // 対面指定ショートカット: 選手X(ブルー) vs 選手Y(レッド) @ レーン を1操作で固定する
 function LaneMatchupSetter({ players, onSet }) {
@@ -1772,7 +1859,7 @@ export default function CustomStats() {
 
   const [balanceResult, setBalanceResult] = useState(undefined); // undefined=未実行, null=割当不能
   // 運用設定(全端末共有・管理者PASSで変更)。customstats/settings を購読する。
-  const [settings, setSettings] = useState({ matchupWarnThreshold: MATCHUP_WARN_DEFAULT, matchupWarnLanes: MATCHUP_LANES_DEFAULT });
+  const [settings, setSettings] = useState({ matchupWarnThreshold: MATCHUP_WARN_DEFAULT, matchupWarnLanes: MATCHUP_LANES_DEFAULT, movedTo: "" });
   const matchupThreshold = settings.matchupWarnThreshold;
   const matchupLaneLimit = settings.matchupWarnLanes;
   const [swapSel, setSwapSel] = useState(null); // { team:'A'|'B', idx:number } タップ入替の1人目選択
@@ -1868,6 +1955,8 @@ export default function CustomStats() {
     try { document.documentElement.lang = lang; } catch {}
   }, [lang]);
   const [gateInput, setGateInput] = useState("");
+  const [movedBypass, setMovedBypass] = useState(false); // 移転済みでも管理者は開ける(バックアップ取得・移転取消のため)
+  const [movedPassInput, setMovedPassInput] = useState("");
 
   // Firebaseリアルタイム購読: 他ユーザーの更新が即時反映される
   useEffect(() => {
@@ -1895,6 +1984,7 @@ export default function CustomStats() {
       setSettings({
         matchupWarnThreshold: clampMatchupWarn(v.matchupWarnThreshold ?? MATCHUP_WARN_DEFAULT),
         matchupWarnLanes: clampMatchupLanes(v.matchupWarnLanes ?? MATCHUP_LANES_DEFAULT),
+        movedTo: typeof v.movedTo === "string" ? v.movedTo : "", // 移転先URL(設定時はこのサイトを移転案内のみにする)
       });
     }, onErr);
     // 要望掲示板は付加機能: ルール未設定等で読めなくても本体のDBエラー表示は出さない
@@ -2247,7 +2337,7 @@ export default function CustomStats() {
   };
 
   const exportData = () => {
-    const json = JSON.stringify({ players, matches, customChamps, exportedAt: Date.now() });
+    const json = JSON.stringify(buildBackup({ players, matches, customChamps, settings, requests, rankRequests }));
     setIoText(json);
     try {
       const blob = new Blob([json], { type: "application/json" });
@@ -2522,20 +2612,49 @@ export default function CustomStats() {
   };
 
   const importData = async () => {
+    let d = null, nodes = null;
+    try { d = JSON.parse(ioText); nodes = backupToNodes(d); } catch {}
+    if (!nodes) { setIoMsg(t("shell.054")); return; }
+    if (!(await requireAdminPass(t("shell.052")))) return;
+    // 上書き前に中身を見せる(取り違えたファイルでの全上書きを防ぐ)
+    const sm = backupSummary(d);
+    const lines = [
+      t("handover.001", { date: sm.date }),
+      t("handover.002", { players: sm.players, matches: sm.matches }),
+      sm.full ? t("handover.003", { requests: sm.requests, rankRequests: sm.rankRequests }) : t("handover.004"),
+    ];
+    if (!(await themedConfirm([t("handover.005"), "", ...lines].join("\n")))) return;
     try {
-      const d = JSON.parse(ioText);
-      if (!Array.isArray(d.players) || !Array.isArray(d.matches)) throw new Error();
-      if (!(await requireAdminPass(t("shell.052")))) return;
       setPlayers(d.players.map(migratePlayer));
       setMatches(d.matches);
-      const cc = Array.isArray(d.customChamps) ? d.customChamps : [];
-      setCustomChamps(cc);
-      await persist(d.players, d.matches);
-      await saveShared("champions", cc);
+      setCustomChamps(nodes.champions);
+      await writeBackupNodes(getDb(), nodes);
       setIoMsg(t("shell.053"));
-    } catch {
+    } catch (e) {
+      console.error(e);
       setIoMsg(t("shell.054"));
     }
+  };
+
+  // 引継ぎ用HTML: 接続先とPASSを空にしたコピー。開くと初期設定画面(SetupScreen)になる
+  const downloadHandoverHtml = async () => {
+    if (!(await requireAdminPass(t("handover.013")))) return;
+    const html = buildConfiguredHtml({}, { adminPass: "", viewPass: "" });
+    if (!html) { await themedAlert(t("handover.014")); return; }
+    downloadText(html, "crl-handover.html", "text/html");
+  };
+
+  // 移転先URLの設定/取消(管理者PASS要・全端末共有)。設定するとこのサイトは移転案内だけになる
+  const editMovedTo = async () => {
+    if (!(await requireAdminPass(t("handover.015")))) return;
+    const v = await themedPrompt(t("handover.016"), { defaultValue: settings.movedTo || "https://" });
+    if (v === null) return;
+    const url = v.trim() === "https://" ? "" : v.trim();
+    if (url && !/^https?:\/\/\S+$/.test(url)) { await themedAlert(t("handover.017")); return; }
+    if (url && !(await themedConfirm(t("handover.018", { url })))) return;
+    const next = { ...settings, movedTo: url };
+    setSettings(next);
+    await saveShared("settings", next);
   };
 
   const startEditMatch = (m) => {
@@ -3103,15 +3222,8 @@ export default function CustomStats() {
     );
   };
 
-  if (!getDb()) {
-    return (
-      <div style={{ fontFamily: "var(--cs-font)", maxWidth: 720, margin: "40px auto", padding: 24, background: theme.surface, border: `1px solid ${theme.border}`, borderRadius: 10, color: theme.text, lineHeight: 1.7 }}>
-        <h2 style={{ color: theme.accent }}>{t("shell.064")}</h2>
-        <p>{t("shell.065")} <b>FIREBASE_CONFIG</b> {t("shell.066")}</p>
-        <p style={{ fontSize: 14, color: theme.textSub }}>{t("shell.067")}</p>
-      </div>
-    );
-  }
+  // 接続先が未設定(引継ぎ用HTML)なら初期設定画面を出す
+  if (!getDb()) return <SetupScreen />;
 
   if (VIEW_PASS && !gateOk) {
     return (
@@ -3144,6 +3256,34 @@ export default function CustomStats() {
     return (
       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 300, color: theme.textSub }}>
         <Loader2 className="spin" size={22} style={{ marginRight: 8 }} /> {t("shell.071")}
+      </div>
+    );
+  }
+
+  // 移転済み: 旧サイトへの書き込みを防ぐため、案内だけを表示する(管理者はPASSで開ける)
+  if (settings.movedTo && !movedBypass) {
+    const openAsAdmin = () => {
+      if (movedPassInput !== ADMIN_PASS) return;
+      adminPassCache = movedPassInput;
+      setMovedBypass(true);
+    };
+    return (
+      <div style={{ fontFamily: "var(--cs-font)", maxWidth: 520, margin: "80px auto", padding: 28, background: theme.surface, border: `1px solid ${theme.border}`, borderRadius: 10, color: theme.text, textAlign: "center", lineHeight: 1.7 }}>
+        <h2 style={{ color: theme.accent, marginTop: 0 }}>{t("handover.019")}</h2>
+        <p style={{ fontSize: 15 }}>{t("handover.020")}</p>
+        <p style={{ fontSize: 16, fontWeight: 700, wordBreak: "break-all" }}>
+          <a href={settings.movedTo} style={{ color: theme.accent }}>{settings.movedTo}</a>
+        </p>
+        <div style={{ marginTop: 28, fontSize: 13, color: theme.textSub }}>
+          <input type="password" value={movedPassInput} placeholder={t("handover.022")}
+            onChange={(e) => setMovedPassInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") openAsAdmin(); }}
+            style={{ padding: "6px 10px", fontSize: 14, border: `1px solid ${theme.borderInput}`, borderRadius: 6, width: 160, marginRight: 8 }} />
+          <button onClick={openAsAdmin}
+            style={{ background: "transparent", color: theme.textSub, border: `1px solid ${theme.borderInput}`, borderRadius: 6, padding: "6px 12px", fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>
+            {t("handover.021")}
+          </button>
+        </div>
       </div>
     );
   }
@@ -5668,6 +5808,23 @@ export default function CustomStats() {
               value={ioText} onChange={(e) => setIoText(e.target.value)} />
           </div>
 
+          {/* 引継ぎ: 後任者には「エクスポート」のJSONと引継ぎ用HTMLの2つを渡す(手順は 引継ぎ手順書.md) */}
+          <div style={{ ...cardStyle, marginBottom: 16 }}>
+            <label style={labelStyle}>{t("handover.006")}</label>
+            <div style={{ fontSize: 13, color: theme.textFaint, marginBottom: 8, lineHeight: 1.6 }}>
+              <div>{t("handover.007")}</div>
+              <div>{t("handover.008")}</div>
+              <div>{t("handover.009")}</div>
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <button className="cs-btn-ghost" onClick={downloadHandoverHtml}>{t("handover.010")}</button>
+              <button className="cs-btn-ghost" onClick={editMovedTo}>{t("handover.011")}</button>
+              {settings.movedTo && (
+                <span style={{ fontSize: 13, color: theme.teamB, wordBreak: "break-all" }}>{t("handover.012", { url: settings.movedTo })}</span>
+              )}
+            </div>
+          </div>
+
           {customChamps.length > 0 && (
             <div style={{ ...cardStyle, marginBottom: 16 }}>
               <label style={labelStyle}>{t("players.046", { n: customChamps.length })}</label>
@@ -6069,6 +6226,145 @@ function MatchTeams({ m, nameOf }) {
     <div style={{ display: "flex", gap: 16, fontSize: 15 }}>
       {side("A", theme.accentBright)}
       {side("B", theme.teamB)}
+    </div>
+  );
+}
+
+// 初期設定画面: 接続先が未設定のHTML(引継ぎ用HTML)を開いたときに表示する。
+// Firebase設定とPASSを入力して設定済みHTMLを書き出し、任意でバックアップJSONを新DBへ書き込む。
+const SETUP_WRITE_TIMEOUT_MS = 20000;
+// 新しいDBに設定するルール。CRLはログイン機能を使わないため customstats 配下を読み書き可能にする
+const SETUP_RULES_JSON = JSON.stringify({ rules: { customstats: { ".read": true, ".write": true } } }, null, 2);
+function SetupScreen() {
+  const [cfgText, setCfgText] = useState("");
+  const [dbUrl, setDbUrl] = useState("");
+  const [adminPass, setAdminPass] = useState("");
+  const [viewPass, setViewPass] = useState("");
+  const [backup, setBackup] = useState(null); // { d, nodes, name }
+  const [msg, setMsg] = useState(null); // { ok, text }
+  const [busy, setBusy] = useState(false);
+  const parsed = useMemo(() => parseFirebaseConfig(cfgText), [cfgText]);
+  const cfg = dbUrl.trim() ? { ...parsed, databaseURL: dbUrl.trim() } : parsed;
+  const missing = [
+    !cfg.apiKey && "apiKey", !cfg.projectId && "projectId", !cfg.databaseURL && "databaseURL",
+  ].filter(Boolean);
+
+  const loadFile = async (file) => {
+    setMsg(null);
+    try {
+      const d = JSON.parse(await file.text());
+      const nodes = backupToNodes(d);
+      if (!nodes) throw new Error("invalid");
+      setBackup({ d, nodes, name: file.name });
+    } catch {
+      setBackup(null);
+      setMsg({ ok: false, text: t("handover.037") });
+    }
+  };
+
+  const writeData = async () => {
+    if (missing.length) { setMsg({ ok: false, text: t("handover.041", { items: missing.join(" / ") }) }); return; }
+    setBusy(true); setMsg(null);
+    try {
+      const db = getDatabase(initializeApp(cfg, `crl-setup-${Date.now()}`));
+      // URL誤りなどで応答が返らない場合に待ち続けないよう、一定時間で打ち切る
+      await Promise.race([
+        writeBackupNodes(db, backup.nodes),
+        new Promise((_, reject) => setTimeout(() => reject(new Error(t("handover.042"))), SETUP_WRITE_TIMEOUT_MS)),
+      ]);
+      const sm = backupSummary(backup.d);
+      setMsg({ ok: true, text: t("handover.035", { summary: t("handover.002", { players: sm.players, matches: sm.matches }) }) });
+    } catch (e) {
+      setMsg({ ok: false, text: t("handover.036", { err: e?.message || String(e) }) });
+    }
+    setBusy(false);
+  };
+
+  const download = () => {
+    const lack = [...missing, !adminPass.trim() && t("handover.030")].filter(Boolean);
+    if (lack.length) { setMsg({ ok: false, text: t("handover.041", { items: lack.join(" / ") }) }); return; }
+    const html = buildConfiguredHtml(cfg, { adminPass: adminPass.trim(), viewPass: viewPass.trim() });
+    if (!html) { setMsg({ ok: false, text: t("handover.014") }); return; }
+    downloadText(html, "index.html", "text/html");
+  };
+
+  const inputStyle = { width: "100%", boxSizing: "border-box", padding: "8px 10px", fontSize: 14, border: `1px solid ${theme.borderInput}`, borderRadius: 6, fontFamily: "inherit" };
+  const stepStyle = { ...cardStyle, marginBottom: 12 };
+  const headStyle = { fontWeight: 700, fontSize: 16, marginBottom: 6, color: theme.accent };
+  const noteStyle = { fontSize: 13, color: theme.textSub, marginBottom: 8, lineHeight: 1.6 };
+  // 本体の共通スタイル(.cs-btn 等)は本体描画時にしか入らないため、閲覧PASS画面と同じくインラインで指定する
+  const btnStyle = { background: "linear-gradient(135deg,var(--cs-btnFrom),var(--cs-btnTo))", color: "#FFFFFF", border: "none", borderRadius: 6, padding: "9px 18px", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" };
+  return (
+    <div style={{ fontFamily: "var(--cs-font)", maxWidth: 720, margin: "24px auto", padding: "0 16px", color: theme.text, lineHeight: 1.6 }}>
+      <h2 style={{ color: theme.accent, marginBottom: 4 }}>{t("handover.023")}</h2>
+      <p style={noteStyle}>{t("handover.024")}</p>
+
+      <div style={stepStyle}>
+        <div style={headStyle}>{t("handover.025")}</div>
+        {/* Firebase未作成の後任者向け。このHTMLだけで引継ぎが完結するよう、作り方を画面に載せる */}
+        <details style={{ fontSize: 13, marginBottom: 10 }}>
+          <summary style={{ cursor: "pointer", color: theme.accent, fontWeight: 700 }}>{t("handover.043")}</summary>
+          <div style={{ color: theme.textSub, lineHeight: 1.7, marginTop: 6 }}>
+            <div>{t("handover.044")}</div>
+            <div>{t("handover.045")}</div>
+            <div>{t("handover.046")}</div>
+            <pre style={{ background: theme.surfaceAlt, padding: 8, borderRadius: 6, margin: "4px 0", fontSize: 12, overflowX: "auto" }}>{SETUP_RULES_JSON}</pre>
+            <div>{t("handover.047")}</div>
+          </div>
+        </details>
+        <div style={noteStyle}>{t("handover.026")}</div>
+        <textarea value={cfgText} onChange={(e) => setCfgText(e.target.value)} rows={7}
+          placeholder={'const firebaseConfig = {\n  apiKey: "...",\n  ...\n};'}
+          style={{ ...inputStyle, fontFamily: "monospace", fontSize: 12.5 }} />
+        <div style={{ fontSize: 13, marginTop: 6, color: theme.textSub }}>
+          {t("handover.027", { project: cfg.projectId || "-", db: cfg.databaseURL || "-" })}
+        </div>
+        {!parsed.databaseURL && (
+          <div style={{ marginTop: 8 }}>
+            <label style={{ fontSize: 13, color: theme.textSub }}>{t("handover.028")}</label>
+            <input value={dbUrl} onChange={(e) => setDbUrl(e.target.value)} placeholder="https://xxxx-default-rtdb.asia-southeast1.firebasedatabase.app" style={inputStyle} />
+          </div>
+        )}
+      </div>
+
+      <div style={stepStyle}>
+        <div style={headStyle}>{t("handover.029")}</div>
+        <label style={{ fontSize: 13, color: theme.textSub }}>{t("handover.030")}</label>
+        <input value={adminPass} onChange={(e) => setAdminPass(e.target.value)} style={{ ...inputStyle, marginBottom: 8 }} />
+        <label style={{ fontSize: 13, color: theme.textSub }}>{t("handover.031")}</label>
+        <input value={viewPass} onChange={(e) => setViewPass(e.target.value)} style={inputStyle} />
+      </div>
+
+      <div style={stepStyle}>
+        <div style={headStyle}>{t("handover.032")}</div>
+        <div style={noteStyle}>{t("handover.033")}</div>
+        <input type="file" accept="application/json,.json" onChange={(e) => e.target.files?.[0] && loadFile(e.target.files[0])} />
+        {backup && (() => {
+          const sm = backupSummary(backup.d);
+          return (
+            <div style={{ fontSize: 13, marginTop: 8 }}>
+              <div>{backup.name}</div>
+              <div style={{ color: theme.textSub }}>{t("handover.001", { date: sm.date })} ・ {t("handover.002", { players: sm.players, matches: sm.matches })}</div>
+              {!sm.full && <div style={{ color: theme.textSub }}>{t("handover.004")}</div>}
+              <button style={{ ...btnStyle, marginTop: 8, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={writeData}>
+                {busy ? <Loader2 className="spin" size={14} /> : t("handover.034")}
+              </button>
+            </div>
+          );
+        })()}
+      </div>
+
+      <div style={stepStyle}>
+        <div style={headStyle}>{t("handover.038")}</div>
+        <div style={noteStyle}>{t("handover.039")}</div>
+        <button style={btnStyle} onClick={download}>{t("handover.040")}</button>
+      </div>
+
+      {msg && (
+        <div style={{ ...cardStyle, borderColor: msg.ok ? theme.accent : theme.teamB, color: msg.ok ? theme.text : theme.teamB, fontSize: 14 }}>
+          {msg.text}
+        </div>
+      )}
     </div>
   );
 }

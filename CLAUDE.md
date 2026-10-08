@@ -60,13 +60,14 @@ Python等で一括置換した後は、必ず 1 → 5 の順で確認するこ�
 
 | ファイル | 行数 | 内容 |
 |---|---|---|
-| `src/CustomStats.jsx` | ~6060 | メイン(全UI・ロジック) |
-| `src/i18n.js` | ~1780 | 3言語辞書 **575キー**完全一致 |
+| `src/CustomStats.jsx` | ~6370 | メイン(全UI・ロジック) |
+| `src/i18n.js` | ~1920 | 3言語辞書 **618キー**完全一致 |
 | `src/champNames.js` | - | チャンピオン名対訳 + champLabel/champCanonical |
 | `src/itemEfficiency.js` | 275 | アイテム金銭効率の純粋計算 |
 | `src/itemEfficiency.test.mjs` | 247 | 上記のNode単体テスト29件 |
 | `src/scoreboardOcr.js` | 318 | KDA読み取り |
 | `src/digitTemplates.js`, `src/theme.js` | - | 数字テンプレート、16テーマ |
+| `src/pageSource.js` | - | 起動時のHTML原本(引継ぎ用HTMLの生成元)。**`main.jsx` の最初の import から動かさない** |
 | `check_shadowing.mjs` / `check_i18n.mjs` | - | 検証スクリプト |
 
 `index.html`(Viteエントリ)冒頭に FIREBASE_CONFIG と APP_CONFIG(adminPass / viewPass)。
@@ -82,8 +83,15 @@ Python等で一括置換した後は、必ず 1 → 5 の順で確認するこ�
   - `balance.banProtect` = 手動宣言 `{A:[],B:[]}` / `balance.banProtectOff` = ✕で外したOTP分 `{A:[],B:[]}`
 - **settings**: `{matchupWarnThreshold, matchupWarnLanes}` — 運用設定。session と分離
   - `matchupWarnLanes`: 格差レーン数がこれ以上で「組み直し推奨」警告(既定3)
+  - `movedTo`: 移転先URL。設定時は全員に移転案内だけを表示(管理者はPASSで開ける)
 - **rankRequests** / **champions**
 - **requests**: 要望掲示板。`{id, text, author, authorId(端末ID), ts, status: open|considering|planned|done|declined, reply, repliedAt, votes:{端末ID:true}}`。投稿・賛同はPASS不要、回答・削除は管理者PASS。done/declined は `repliedAt` から30日で閲覧端末が自動削除
+
+## 引継ぎ(`引継ぎ手順書.md`)
+
+- エクスポートは完全バックアップ `{format:"crl-backup", version:2, players, matches, customChamps, settings, requests, rankRequests}`(session は対象外)。旧形式(version無し)のインポートは players / matches / champions のみ上書き
+- 引継ぎ用HTML = `PAGE_SOURCE` の `window.FIREBASE_CONFIG = {...};` / `window.APP_CONFIG = {...};` を正規表現で差し替えたもの。**この2行の書式(`= {` と `};`)を変えない**
+- 接続先未設定(`databaseURL` なし)で開くと `SetupScreen`(Firebase設定貼付 → PASS → JSON書込 → 設定済みHTML保存)
 
 ## レーティング
 
