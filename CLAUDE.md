@@ -92,6 +92,7 @@ Python等で一括置換した後は、必ず 1 → 5 の順で確認するこ�
 - エクスポートは完全バックアップ `{format:"crl-backup", version:2, players, matches, customChamps, settings, requests, rankRequests}`(session は対象外)。旧形式(version無し)のインポートは players / matches / champions のみ上書き
 - 引継ぎ用HTML = `PAGE_SOURCE` の `window.FIREBASE_CONFIG = {...};` / `window.APP_CONFIG = {...};` を正規表現で差し替えたもの。**この2行の書式(`= {` と `};`)を変えない**
 - 接続先未設定(`databaseURL` なし)で開くと `SetupScreen`(Firebase設定貼付 → PASS → JSON書込 → 設定済みHTML保存)
+- Firebaseルールの正本は `database.rules.json`。変更時は `SETUP_RULES_JSON`(初期設定画面に表示)も揃える。`.validate` は削除時に評価されないため削除防止にはならない
 
 ## レーティング
 

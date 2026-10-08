@@ -6233,8 +6233,22 @@ function MatchTeams({ m, nameOf }) {
 // 初期設定画面: 接続先が未設定のHTML(引継ぎ用HTML)を開いたときに表示する。
 // Firebase設定とPASSを入力して設定済みHTMLを書き出し、任意でバックアップJSONを新DBへ書き込む。
 const SETUP_WRITE_TIMEOUT_MS = 20000;
-// 新しいDBに設定するルール。CRLはログイン機能を使わないため customstats 配下を読み書き可能にする
-const SETUP_RULES_JSON = JSON.stringify({ rules: { customstats: { ".read": true, ".write": true } } }, null, 2);
+// 新しいDBに設定するルール(運用中の本番ルールと同一)。CRLはログイン機能を使わないため customstats 配下のみ読み書き可。
+// 注: .validate は削除時には評価されないため、players の削除防止としては機能しない(エミュレーターで確認済み)
+const SETUP_RULES_JSON = JSON.stringify({
+  rules: {
+    ".read": false,
+    ".write": false,
+    customstats: {
+      ".read": true,
+      ".write": true,
+      ".validate": "newData.exists()",
+      players: { ".validate": "newData.exists()" },
+      matches: { ".validate": true },
+      champions: { ".validate": true },
+    },
+  },
+}, null, 2);
 function SetupScreen() {
   const [cfgText, setCfgText] = useState("");
   const [dbUrl, setDbUrl] = useState("");
