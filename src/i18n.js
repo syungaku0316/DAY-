@@ -672,8 +672,9 @@ export const DICT = {
     "fearless.050": "ロール宣言",
     "fearless.051": "一時停止中(残り{n}秒)",
     "fearless.052": "再開",
-    "fearless.053": "各チームのキャプテンが、ピックしたチャンピオンのロールを選んで確定してください。同じチーム内で使用中のロールを選ぶと入れ替わります。時間切れの場合は、未選択の枠に残りのロールを割り当てて確定します。",
-    "fearless.054": "「1つ戻す」は持ち時間を延ばしません(戻した手番は元の残り時間から再開)。キャプテン制限中は、相手が次の手を打つまで自分の直前の手だけ戻せます。ロール宣言中の取り消し・試合確定の取り消し・一時停止・やり直しは管理者のみです。"
+    "fearless.053": "各チームのキャプテンが、ピックしたチャンピオンのロールを選んで確定してください。同じチーム内で使用中のロールを選ぶと入れ替わります。選んだロールは両チームが確定するまで相手には見えません。時間切れの場合は、未選択の枠に残りのロールを割り当てて確定します。",
+    "fearless.054": "「1つ戻す」は持ち時間を延ばしません(戻した手番は元の残り時間から再開)。キャプテン制限中は、相手が次の手を打つまで自分の直前の手だけ戻せます。ロール宣言中の取り消し・試合確定の取り消し・一時停止・やり直しは管理者のみです。",
+    "fearless.055": "両チームのロール確定後に公開されます"
   },
   "en": {
     "changelog.001": "What's New",
@@ -1347,8 +1348,9 @@ export const DICT = {
     "fearless.050": "Role declaration",
     "fearless.051": "Paused ({n}s left)",
     "fearless.052": "Resume",
-    "fearless.053": "Each captain assigns a role to each picked champion and locks them in. Choosing a role already used on the team swaps the two. On timeout, unassigned slots get the remaining roles and are locked.",
-    "fearless.054": "Undo does not add time: the restored turn resumes with its original remaining time. With the captain lock on, a captain can undo only their own latest move, until the other team acts. Undo during role declaration, undoing a confirmed game, pause and restart are admin-only."
+    "fearless.053": "Each captain assigns a role to each picked champion and locks them in. Choosing a role already used on the team swaps the two. Roles stay hidden from the other team until both teams lock in. On timeout, unassigned slots get the remaining roles and are locked.",
+    "fearless.054": "Undo does not add time: the restored turn resumes with its original remaining time. With the captain lock on, a captain can undo only their own latest move, until the other team acts. Undo during role declaration, undoing a confirmed game, pause and restart are admin-only.",
+    "fearless.055": "Revealed after both teams lock their roles"
   },
   "ko": {
     "changelog.001": "업데이트 내역",
@@ -2022,8 +2024,9 @@ export const DICT = {
     "fearless.050": "라인 선언",
     "fearless.051": "일시 정지 중 (남은 시간 {n}초)",
     "fearless.052": "재개",
-    "fearless.053": "각 팀 캡틴이 픽한 챔피언의 라인을 선택해 확정하세요. 같은 팀에서 이미 사용 중인 라인을 고르면 서로 바뀝니다. 시간이 초과되면 미선택 칸에 남은 라인을 배정해 확정합니다.",
-    "fearless.054": "'하나 되돌리기'는 제한 시간을 늘리지 않습니다 (되돌린 차례는 원래 남은 시간부터 재개). 캡틴 제한 중에는 상대가 다음 수를 두기 전까지 자신의 직전 수만 되돌릴 수 있습니다. 라인 선언 중 되돌리기·경기 확정 취소·일시 정지·다시 하기는 관리자만 가능합니다."
+    "fearless.053": "각 팀 캡틴이 픽한 챔피언의 라인을 선택해 확정하세요. 같은 팀에서 이미 사용 중인 라인을 고르면 서로 바뀝니다. 선택한 라인은 양 팀이 확정할 때까지 상대에게 보이지 않습니다. 시간이 초과되면 미선택 칸에 남은 라인을 배정해 확정합니다.",
+    "fearless.054": "'하나 되돌리기'는 제한 시간을 늘리지 않습니다 (되돌린 차례는 원래 남은 시간부터 재개). 캡틴 제한 중에는 상대가 다음 수를 두기 전까지 자신의 직전 수만 되돌릴 수 있습니다. 라인 선언 중 되돌리기·경기 확정 취소·일시 정지·다시 하기는 관리자만 가능합니다.",
+    "fearless.055": "양 팀의 라인 확정 후 공개됩니다"
   }
 };
 

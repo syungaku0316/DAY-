@@ -20,7 +20,7 @@ import { PAGE_SOURCE } from "./pageSource.js";
 
 /* 更新履歴。リリースのたびに先頭へ追記(手動管理)。Discordコピー文面と同様、UI言語に関わらず日本語固定 */
 const CHANGELOG = [
-  { date: "2026-10-10", text: "フィアレス: ピック後のロール宣言を追加。「1つ戻す」で持ち時間が延びないように変更(キャプテンは相手が次の手を打つまで自分の手のみ)" },
+  { date: "2026-10-10", text: "フィアレス: ピック後のロール宣言を追加(両チーム確定まで相手には非公開)。「1つ戻す」で持ち時間が延びないように変更(キャプテンは相手が次の手を打つまで自分の手のみ)" },
   { date: "2026-10-08", text: "引継ぎ機能を追加(全データのバックアップ、引継ぎ用HTML、移転設定)" },
   { date: "2026-10-06", text: "フィアレスドラフト画面を追加(マッチング→フィアレス。BAN/PICK・使用済みチャンプの制限・30秒タイマー・キャプテン制限)" },
   { date: "2026-10-04", text: "NGレーンは3つまでに(初心者は除く)。チーム分けを格差の出にくい計算に変更" },
@@ -1962,6 +1962,9 @@ function FearlessDraftTab({ champList, ddVer, champImgMap }) {
   const canUndo = isAdmin ? (step > 0 || games.length > 0) : !!lastSide && (!restricted || mySide === lastSide);
   const canPause = !restricted || isAdmin; // 一時停止は持ち時間を止めるため、制限中は管理者のみ
   const canRedo = !restricted || isAdmin;
+  // ロール宣言は両チーム確定まで相手に非公開。見えるのは自サイドのキャプテンと、キャプテンでない管理者(代理操作用)。
+  // 制限なしでは全員が両サイドを操作できるため非公開にできない
+  const roleVisible = (side) => complete || !restricted || mySide === side || (isAdmin && !mySide);
   const usable = (name) => !lockedBy.has(name) && !inDraft.has(name);
   const choose = (name) => {
     if (!myTurn || !usable(name)) return;
@@ -2130,10 +2133,11 @@ function FearlessDraftTab({ champList, ddVer, champImgMap }) {
       </div>
     );
   };
-  // k = そのサイドのピック枠番号(0-4)。ロール宣言中は全員にロールが見え、操作できるのは当該サイドのみ
+  // k = そのサイドのピック枠番号(0-4)。操作できるのは当該サイドのみ、相手には両チーム確定まで「?」
   const pickSlot = (s, side, k) => {
     const active = !done && s.idx === step;
-    const role = roles[side][k];
+    const hidden = !roleVisible(side);
+    const role = hidden ? "" : roles[side][k];
     return (
       <div key={s.idx} style={{ display: "flex", alignItems: "center", gap: 8, padding: 4, borderRadius: 8,
         border: `2px solid ${active ? sideColor(side) : "transparent"}`, background: active ? theme.surfaceAlt : "transparent" }}>
@@ -2141,10 +2145,11 @@ function FearlessDraftTab({ champList, ddVer, champImgMap }) {
         <span style={{ fontSize: 15, fontWeight: s.champ ? 700 : 400, color: s.champ ? theme.text : theme.textFaint, minWidth: 0, flex: 1 }}>
           {s.champ ? champLabel(s.champ) : "PICK"}
         </span>
-        {done && (rolesLocked[side] || !canAct(side) ? (
-          <span style={{ fontSize: 14, fontWeight: 700, minWidth: 44, textAlign: "center", padding: "2px 8px", borderRadius: 6,
+        {done && (hidden || rolesLocked[side] || !canAct(side) ? (
+          <span title={hidden ? t("fearless.055") : undefined}
+            style={{ fontSize: 14, fontWeight: 700, minWidth: 44, textAlign: "center", padding: "2px 8px", borderRadius: 6,
             border: `1px solid ${role ? sideColor(side) : theme.borderInput}`, color: role ? sideColor(side) : theme.textFaint }}>
-            {role || "—"}
+            {hidden ? "?" : role || "—"}
           </span>
         ) : (
           <select className="cs-input" value={role} disabled={busy} onChange={(ev) => setRole(side, k, ev.target.value)}
