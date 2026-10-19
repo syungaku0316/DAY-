@@ -20,6 +20,7 @@ import { PAGE_SOURCE } from "./pageSource.js";
 
 /* 更新履歴。リリースのたびに先頭へ追記(手動管理)。Discordコピー文面と同様、UI言語に関わらず日本語固定 */
 const CHANGELOG = [
+  { date: "2026-10-19", text: "選手登録の入力欄を「ディスコード名」「Riot ID(ゲーム名)」「#タグ」の3つに分割(「名前#タグ」の貼り付けは自動で分割)" },
   { date: "2026-10-10", text: "フィアレス: ピック後のロール宣言を追加(両チーム確定まで相手には非公開)。「1つ戻す」で持ち時間が延びないように変更(キャプテンは相手が次の手を打つまで自分の手のみ)" },
   { date: "2026-10-08", text: "引継ぎ機能を追加(全データのバックアップ、引継ぎ用HTML、移転設定)" },
   { date: "2026-10-06", text: "フィアレスドラフト画面を追加(マッチング→フィアレス。BAN/PICK・使用済みチャンプの制限・30秒タイマー・キャプテン制限)" },
@@ -2334,6 +2335,38 @@ function FearlessDraftTab({ champList, ddVer, champImgMap }) {
   );
 }
 
+// Riot ID は「ゲーム名#タグ」の1文字列で保存する(既存データ互換)。入力ミス防止のため入力欄はゲーム名とタグに分割し、
+// ゲーム名欄に「名前#タグ」が貼られた場合はタグ欄へ振り分ける
+const splitRiotId = (v) => {
+  const s0 = v || "";
+  const i = s0.lastIndexOf("#");
+  return i < 0 ? [s0, ""] : [s0.slice(0, i), s0.slice(i + 1)];
+};
+const cleanRiotTag = (v) => (v || "").replace(/[#\s]/g, "");
+// どちらか片方だけの入力はミスとして null を返す(両方空なら未登録 "")
+const joinRiotId = (name, tag) => {
+  const n = (name || "").trim();
+  const tg = cleanRiotTag(tag);
+  if (!n && !tg) return "";
+  return n && tg ? `${n}#${tg}` : null;
+};
+function RiotIdInputs({ name, tag, onChange, nameWidth }) {
+  const onName = (v) => {
+    if (!v.includes("#")) { onChange(v, tag); return; }
+    const [n, tg] = splitRiotId(v);
+    onChange(n, cleanRiotTag(tg) || tag);
+  };
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+      <input className="cs-input" style={{ flex: nameWidth ? `0 0 ${nameWidth}px` : "1 1 auto", minWidth: 0, boxSizing: "border-box" }}
+        placeholder={t("players.076")} value={name} onChange={(e) => onName(e.target.value)} />
+      <span style={{ fontWeight: 700, color: theme.textSub }}>#</span>
+      <input className="cs-input" style={{ flex: "0 0 84px", width: 84, boxSizing: "border-box" }}
+        placeholder={t("players.077")} value={tag} onChange={(e) => onChange(name, cleanRiotTag(e.target.value))} />
+    </div>
+  );
+}
+
 function Badge({ count }) {
   if (!count) return null;
   return (
@@ -2382,7 +2415,8 @@ export default function CustomStats() {
 
   // player registration
   const [newPlayerName, setNewPlayerName] = useState("");
-  const [newSummoner, setNewSummoner] = useState("");
+  const [newRiotName, setNewRiotName] = useState("");
+  const [newRiotTag, setNewRiotTag] = useState("");
   const [newProfs, setNewProfs] = useState({ TOP: "△", JG: "△", MID: "△", ADC: "△", SUP: "△" });
   const [newRank, setNewRank] = useState("アンランク");
 
@@ -2599,18 +2633,21 @@ export default function CustomStats() {
 
   const resetNewPlayerForm = () => {
     setNewPlayerName("");
-    setNewSummoner("");
+    setNewRiotName("");
+    setNewRiotTag("");
     setNewProfs({ TOP: "△", JG: "△", MID: "△", ADC: "△", SUP: "△" });
     setNewRank("アンランク");
   };
   const addPlayer = async () => {
     const name = newPlayerName.trim();
     if (!name || players.some((p) => p.name === name)) return;
+    const summonerName = joinRiotId(newRiotName, newRiotTag);
+    if (summonerName === null) { await themedAlert(t("players.078")); return; }
     const baseMu = RANKS.find(([label]) => label === newRank)?.[1] ?? MU0;
     const p = {
       id: crypto.randomUUID(), name,
       rank: newRank,
-      summonerName: newSummoner.trim(),
+      summonerName,
       roles: initRoles(newProfs, baseMu, newRank === "アンランク" || newRank === "初心者"),
       baseMu,
       status: "active",
@@ -2790,7 +2827,7 @@ export default function CustomStats() {
     const profs = {};
     ROLES.forEach((r) => { profs[r] = p.roles[r].prof; });
     setEditId(p.id);
-    setEditForm({ name: p.name, rank: p.rank || "アンランク", summonerName: p.summonerName || "", profs, status: p.status === "rest" ? "rest" : "active", adjust: !!p.adjust, honorRank: p.honorRank || "",
+    setEditForm({ name: p.name, rank: p.rank || "アンランク", riotName: splitRiotId(p.summonerName)[0], riotTag: splitRiotId(p.summonerName)[1], profs, status: p.status === "rest" ? "rest" : "active", adjust: !!p.adjust, honorRank: p.honorRank || "",
       otpRole: p.otp?.role || "", otpChamp: p.otp ? champLabel(p.otp.champion) : "" });
     setEditError("");
   };
@@ -2854,6 +2891,8 @@ export default function CustomStats() {
     const name = editForm.name.trim();
     if (!name) { setEditError(t("shell.022")); return; }
     if (players.some((p) => p.name === name && p.id !== editId)) { setEditError(t("shell.023")); return; }
+    const summonerName = joinRiotId(editForm.riotName, editForm.riotTag);
+    if (summonerName === null) { setEditError(t("players.078")); return; }
     if (!(await requireAdminPass(t("shell.024")))) return;
     const baseMu = RANKS.find(([label]) => label === editForm.rank)?.[1] ?? MU0;
     // 名誉レートは申告ランクより上位のみ許可(格下げ扱いになる下方向指定を防ぐ)
@@ -2873,7 +2912,7 @@ export default function CustomStats() {
       if (p.id !== editId) return p;
       const roles = { ...p.roles };
       ROLES.forEach((r) => { roles[r] = { ...roles[r], prof: editForm.profs[r] }; });
-      const np = { ...p, name, rank: editForm.rank, summonerName: editForm.summonerName.trim(), baseMu, roles, status: editForm.status, adjust: !!editForm.adjust };
+      const np = { ...p, name, rank: editForm.rank, summonerName, baseMu, roles, status: editForm.status, adjust: !!editForm.adjust };
       if (honorRank) np.honorRank = honorRank; else delete np.honorRank;
       if (otp) np.otp = otp; else delete np.otp;
       return np;
@@ -6275,15 +6314,14 @@ export default function CustomStats() {
             <div style={{ padding: 20 }}>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 420px))", gap: 16, marginBottom: 16 }}>
                 <div>
-                  <label style={{ ...labelStyle, fontSize: 14 }}>{t("players.002")}</label>
-                  <input className="cs-input" style={{ width: "100%", boxSizing: "border-box" }} placeholder={t("players.070")}
+                  <label style={{ ...labelStyle, fontSize: 14 }}>{t("players.075")}</label>
+                  <input className="cs-input" style={{ width: "100%", boxSizing: "border-box" }} placeholder={t("players.075")}
                     value={newPlayerName} onChange={(e) => setNewPlayerName(e.target.value)} />
                 </div>
                 <div>
                   <label style={{ ...labelStyle, fontSize: 14 }}>{t("players.003")}</label>
-                  <input className="cs-input" style={{ width: "100%", boxSizing: "border-box" }} placeholder={t("players.003")}
-                    value={newSummoner} onChange={(e) => setNewSummoner(e.target.value)} />
-                  <div style={{ fontSize: 11.5, color: theme.textFaint, marginTop: 4 }}>{t("players.004")}</div>
+                  <RiotIdInputs name={newRiotName} tag={newRiotTag} onChange={(n, tg) => { setNewRiotName(n); setNewRiotTag(tg); }} />
+                  <div style={{ fontSize: 11.5, color: theme.textFaint, marginTop: 4 }}>{t("players.079")} {t("players.004")}</div>
                 </div>
               </div>
 
@@ -6624,8 +6662,8 @@ export default function CustomStats() {
                                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
                                     <input className="cs-input" style={{ width: 140 }} value={editForm.name}
                                       onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} placeholder={t("players.042")} />
-                                    <input className="cs-input" style={{ width: 180 }} value={editForm.summonerName}
-                                      onChange={(e) => setEditForm({ ...editForm, summonerName: e.target.value })} placeholder={t("players.003")} />
+                                    <RiotIdInputs name={editForm.riotName} tag={editForm.riotTag} nameWidth={150}
+                                      onChange={(n, tg) => setEditForm({ ...editForm, riotName: n, riotTag: tg })} />
                                     <select className="cs-input" value={editForm.rank}
                                       onChange={(e) => setEditForm({ ...editForm, rank: e.target.value })}>
                                       {RANKS.map(([label, mu]) => <option key={label} value={label}>{rankLabel(label)} ({mu}pt)</option>)}
