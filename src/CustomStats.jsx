@@ -6,7 +6,7 @@ import { getDatabase, ref, onValue, set as fbSet, update as fbUpdate, remove as 
 import {
   Trophy, Swords, CheckCircle2, History, Users, UserPlus,
   Scale, Trash2, Loader2, X, UserRound, Pencil, Medal, ExternalLink, ListOrdered, Palette, Coins, RefreshCw, TrendingUp, Sparkles,
-  MessageSquare, ThumbsUp, Send, Ban, Play, Pause
+  MessageSquare, ThumbsUp, Send, Ban, Play, Pause, Volume2, VolumeX
 } from "lucide-react";
 import { computeEfficiency, PERCENT_DISPLAY_KEYS } from "./itemEfficiency.js";
 import { CHAMPSTATS, CHAMPSTATS_PATCH } from "./champStats.js";
@@ -20,6 +20,7 @@ import { PAGE_SOURCE } from "./pageSource.js";
 
 /* 更新履歴。リリースのたびに先頭へ追記(手動管理)。Discordコピー文面と同様、UI言語に関わらず日本語固定 */
 const CHANGELOG = [
+  { date: "2026-10-22", text: "フィアレス: 手番が切り替わると音が鳴るように(自チームの番は高い2音、残り5秒からカウントダウン音、端末ごとにON/OFF)" },
   { date: "2026-10-19", text: "選手登録の入力欄を「ディスコード名」「Riot ID(ゲーム名)」「#タグ」の3つに分割(「名前#タグ」の貼り付けは自動で分割)" },
   { date: "2026-10-10", text: "フィアレス: ピック後のロール宣言を追加(両チーム確定まで相手には非公開)。「1つ戻す」で持ち時間が延びないように変更(キャプテンは相手が次の手を打つまで自分の手のみ)" },
   { date: "2026-10-08", text: "引継ぎ機能を追加(全データのバックアップ、引継ぎ用HTML、移転設定)" },
@@ -1905,6 +1906,41 @@ async function updateFearless(expect, mutate) {
   } catch (e) { console.error("storage error", e); return "error"; }
 }
 // ひらがな入力でもカタカナ名に当たるようにする
+// 手番切替の通知音(Web Audio で合成、音声ファイル不要)。ブラウザの自動再生制限により、
+// その端末で一度クリック/キー操作するまでは鳴らない(操作時に resume する)
+let _fearlessAudio = null;
+const fearlessAudio = () => {
+  try {
+    if (!_fearlessAudio) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      _fearlessAudio = new AC();
+    }
+    return _fearlessAudio;
+  } catch { return null; }
+};
+// freqs を gap 秒間隔で順に鳴らす
+function playTones(freqs, { gap = 0.13, len = 0.2, vol = 0.3, type = "sine" } = {}) {
+  const ctx = fearlessAudio();
+  if (!ctx || ctx.state !== "running") return;
+  freqs.forEach((freq, i) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const at = ctx.currentTime + i * gap;
+    osc.type = type;
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.0001, at);
+    gain.gain.exponentialRampToValueAtTime(vol, at + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, at + len);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(at);
+    osc.stop(at + len + 0.02);
+  });
+}
+// mine=true(自チームの番)は高めの2音、それ以外は短い1音
+const playTurnSound = (mine) => playTones(mine ? [880, 1320] : [660]);
+// 残り5秒からのカウントダウン。残り1秒は高く長めに
+const playCountdownTick = (sec) => playTones([sec === 1 ? 1568 : 1046], { len: sec === 1 ? 0.25 : 0.08, vol: 0.25, type: "square" });
 const toKatakana = (s) => s.replace(/[ぁ-ゖ]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) + 0x60));
 
 function FearlessDraftTab({ champList, ddVer, champImgMap }) {
@@ -1915,10 +1951,25 @@ function FearlessDraftTab({ champList, ddVer, champImgMap }) {
   const [query, setQuery] = useState("");
   const [hideUsed, setHideUsed] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [soundOn, setSoundOn] = useState(() => { try { return localStorage.getItem("crl-fearless-sound") !== "off"; } catch { return true; } });
+  const toggleSound = () => {
+    const next = !soundOn;
+    setSoundOn(next);
+    try { localStorage.setItem("crl-fearless-sound", next ? "on" : "off"); } catch {}
+    if (next) { const ctx = fearlessAudio(); if (ctx) ctx.resume().then(() => playTurnSound(false)).catch(() => {}); }
+  };
+  // 自動再生制限の解除: この画面での最初の操作で音声を有効化
+  useEffect(() => {
+    const unlock = () => { const ctx = fearlessAudio(); if (ctx && ctx.state !== "running") ctx.resume().catch(() => {}); };
+    window.addEventListener("pointerdown", unlock);
+    window.addEventListener("keydown", unlock);
+    return () => { window.removeEventListener("pointerdown", unlock); window.removeEventListener("keydown", unlock); };
+  }, []);
   useEffect(() => {
     const db = getDb();
     if (!db) return undefined;
-    const un1 = onValue(ref(db, "customstats/fearless"), (snap) => setState(normFearless(snap.val())), (e) => console.error(e));
+    const un1 = onValue(ref(db, "customstats/fearless"), (snap) => { setState(normFearless(snap.val())); setLoaded(true); }, (e) => console.error(e));
     const un2 = onValue(ref(db, ".info/serverTimeOffset"), (snap) => { _fearlessOffset = Number(snap.val()) || 0; }, (e) => console.error(e));
     return () => { un1(); un2(); };
   }, []);
@@ -1966,6 +2017,16 @@ function FearlessDraftTab({ champList, ddVer, champImgMap }) {
   // ロール宣言は両チーム確定まで相手に非公開。見えるのは自サイドのキャプテンと、キャプテンでない管理者(代理操作用)。
   // 制限なしでは全員が両サイドを操作できるため非公開にできない
   const roleVisible = (side) => complete || !restricted || mySide === side || (isAdmin && !mySide);
+  // 手番(ロール宣言開始・完了を含む)が切り替わったら音を鳴らす。初回読み込み時は鳴らさない
+  const turnKey = `${games.length}-${step}-${complete ? 1 : 0}`;
+  const prevTurnRef = useRef(null);
+  useEffect(() => {
+    if (!loaded) return;
+    const prev = prevTurnRef.current;
+    prevTurnRef.current = turnKey;
+    if (prev === null || prev === turnKey || !soundOn) return;
+    playTurnSound(complete ? false : done ? !!mySide : !!mySide && mySide === curSide);
+  }, [loaded, turnKey]);
   const usable = (name) => !lockedBy.has(name) && !inDraft.has(name);
   const choose = (name) => {
     if (!myTurn || !usable(name)) return;
@@ -2058,6 +2119,16 @@ function FearlessDraftTab({ champList, ddVer, champImgMap }) {
     return () => clearInterval(id);
   }, [running]);
   const remainMs = running ? timer.turnAt + phaseLen - nowTs : paused ? timer.remain : null;
+  // カウントダウン音: 稼働中の残り5〜1秒で1秒ごとに1回(同じ手番・同じ秒では1回だけ)
+  const secLeft = running ? Math.ceil(remainMs / 1000) : null;
+  const tickRef = useRef("");
+  useEffect(() => {
+    if (!soundOn || secLeft == null || secLeft < 1 || secLeft > 5) return;
+    const key = `${turnKey}-${timer.turnAt}-${secLeft}`;
+    if (tickRef.current === key) return;
+    tickRef.current = key;
+    playCountdownTick(secLeft);
+  }, [secLeft, soundOn]);
   const autoKeyRef = useRef("");
   useEffect(() => {
     if (!running || remainMs > 0 || busy) return;
@@ -2217,6 +2288,11 @@ function FearlessDraftTab({ champList, ddVer, champImgMap }) {
             </span>
           )}
           {busy && <Loader2 size={16} className="spin" />}
+          <button className="cs-btn-ghost" title={t("fearless.057")} onClick={toggleSound}
+            style={{ marginLeft: "auto", padding: "3px 10px", fontSize: 13, display: "inline-flex", alignItems: "center", gap: 4,
+              color: soundOn ? theme.accent : theme.textFaint }}>
+            {soundOn ? <Volume2 size={14} /> : <VolumeX size={14} />} {t(soundOn ? "fearless.056" : "fearless.058")}
+          </button>
         </div>
         {done && !complete && (
           <div style={{ fontSize: 13, color: theme.textSub, marginBottom: 10, lineHeight: 1.6 }}>{t("fearless.053")}</div>
