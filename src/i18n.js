@@ -681,7 +681,7 @@ export const DICT = {
     "fearless.054": "「1つ戻す」は持ち時間を延ばしません(戻した手番は元の残り時間から再開)。キャプテン制限中は、相手が次の手を打つまで自分の直前の手だけ戻せます。ロール宣言中の取り消し・試合確定の取り消し・一時停止・やり直しは管理者のみです。",
     "fearless.055": "両チームのロール確定後に公開されます",
     "fearless.056": "手番の音: ON",
-    "fearless.057": "手番が切り替わると音が鳴ります(自チームの番は高い2音)。この画面を一度クリックすると鳴るようになります。設定は端末ごとです",
+    "fearless.057": "手番が切り替わると音が鳴ります(自チームの番は高い2音)。残り5秒からはカウントダウン音が鳴ります。この画面を一度クリックすると鳴るようになります。設定は端末ごとです",
     "fearless.058": "手番の音: OFF"
   },
   "en": {
@@ -1365,7 +1365,7 @@ export const DICT = {
     "fearless.054": "Undo does not add time: the restored turn resumes with its original remaining time. With the captain lock on, a captain can undo only their own latest move, until the other team acts. Undo during role declaration, undoing a confirmed game, pause and restart are admin-only.",
     "fearless.055": "Revealed after both teams lock their roles",
     "fearless.056": "Turn sound: ON",
-    "fearless.057": "Plays a sound when the turn changes (two high notes on your team's turn). Click this screen once to enable audio. Saved per device.",
+    "fearless.057": "Plays a sound when the turn changes (two high notes on your team's turn), plus a countdown for the last 5 seconds. Click this screen once to enable audio. Saved per device.",
     "fearless.058": "Turn sound: OFF"
   },
   "ko": {
@@ -2049,7 +2049,7 @@ export const DICT = {
     "fearless.054": "'하나 되돌리기'는 제한 시간을 늘리지 않습니다 (되돌린 차례는 원래 남은 시간부터 재개). 캡틴 제한 중에는 상대가 다음 수를 두기 전까지 자신의 직전 수만 되돌릴 수 있습니다. 라인 선언 중 되돌리기·경기 확정 취소·일시 정지·다시 하기는 관리자만 가능합니다.",
     "fearless.055": "양 팀의 라인 확정 후 공개됩니다",
     "fearless.056": "차례 알림음: ON",
-    "fearless.057": "차례가 바뀌면 소리가 납니다 (우리 팀 차례는 높은 두 음). 이 화면을 한 번 클릭하면 소리가 나기 시작합니다. 설정은 기기별로 저장됩니다",
+    "fearless.057": "차례가 바뀌면 소리가 납니다 (우리 팀 차례는 높은 두 음). 남은 5초부터는 카운트다운 소리가 납니다. 이 화면을 한 번 클릭하면 소리가 나기 시작합니다. 설정은 기기별로 저장됩니다",
     "fearless.058": "차례 알림음: OFF"
   }
 };

@@ -20,7 +20,7 @@ import { PAGE_SOURCE } from "./pageSource.js";
 
 /* 更新履歴。リリースのたびに先頭へ追記(手動管理)。Discordコピー文面と同様、UI言語に関わらず日本語固定 */
 const CHANGELOG = [
-  { date: "2026-10-22", text: "フィアレス: 手番が切り替わると音が鳴るように(自チームの番は高い2音、端末ごとにON/OFF)" },
+  { date: "2026-10-22", text: "フィアレス: 手番が切り替わると音が鳴るように(自チームの番は高い2音、残り5秒からカウントダウン音、端末ごとにON/OFF)" },
   { date: "2026-10-19", text: "選手登録の入力欄を「ディスコード名」「Riot ID(ゲーム名)」「#タグ」の3つに分割(「名前#タグ」の貼り付けは自動で分割)" },
   { date: "2026-10-10", text: "フィアレス: ピック後のロール宣言を追加(両チーム確定まで相手には非公開)。「1つ戻す」で持ち時間が延びないように変更(キャプテンは相手が次の手を打つまで自分の手のみ)" },
   { date: "2026-10-08", text: "引継ぎ機能を追加(全データのバックアップ、引継ぎ用HTML、移転設定)" },
@@ -1919,24 +1919,28 @@ const fearlessAudio = () => {
     return _fearlessAudio;
   } catch { return null; }
 };
-// mine=true(自チームの番)は高めの2音、それ以外は短い1音
-function playTurnSound(mine) {
+// freqs を gap 秒間隔で順に鳴らす
+function playTones(freqs, { gap = 0.13, len = 0.2, vol = 0.3, type = "sine" } = {}) {
   const ctx = fearlessAudio();
   if (!ctx || ctx.state !== "running") return;
-  (mine ? [880, 1320] : [660]).forEach((freq, i) => {
+  freqs.forEach((freq, i) => {
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
-    const at = ctx.currentTime + i * 0.13;
-    osc.type = "sine";
+    const at = ctx.currentTime + i * gap;
+    osc.type = type;
     osc.frequency.value = freq;
     gain.gain.setValueAtTime(0.0001, at);
-    gain.gain.exponentialRampToValueAtTime(0.3, at + 0.01);
-    gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.2);
+    gain.gain.exponentialRampToValueAtTime(vol, at + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, at + len);
     osc.connect(gain).connect(ctx.destination);
     osc.start(at);
-    osc.stop(at + 0.22);
+    osc.stop(at + len + 0.02);
   });
 }
+// mine=true(自チームの番)は高めの2音、それ以外は短い1音
+const playTurnSound = (mine) => playTones(mine ? [880, 1320] : [660]);
+// 残り5秒からのカウントダウン。残り1秒は高く長めに
+const playCountdownTick = (sec) => playTones([sec === 1 ? 1568 : 1046], { len: sec === 1 ? 0.25 : 0.08, vol: 0.25, type: "square" });
 const toKatakana = (s) => s.replace(/[ぁ-ゖ]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) + 0x60));
 
 function FearlessDraftTab({ champList, ddVer, champImgMap }) {
@@ -2115,6 +2119,16 @@ function FearlessDraftTab({ champList, ddVer, champImgMap }) {
     return () => clearInterval(id);
   }, [running]);
   const remainMs = running ? timer.turnAt + phaseLen - nowTs : paused ? timer.remain : null;
+  // カウントダウン音: 稼働中の残り5〜1秒で1秒ごとに1回(同じ手番・同じ秒では1回だけ)
+  const secLeft = running ? Math.ceil(remainMs / 1000) : null;
+  const tickRef = useRef("");
+  useEffect(() => {
+    if (!soundOn || secLeft == null || secLeft < 1 || secLeft > 5) return;
+    const key = `${turnKey}-${timer.turnAt}-${secLeft}`;
+    if (tickRef.current === key) return;
+    tickRef.current = key;
+    playCountdownTick(secLeft);
+  }, [secLeft, soundOn]);
   const autoKeyRef = useRef("");
   useEffect(() => {
     if (!running || remainMs > 0 || busy) return;
