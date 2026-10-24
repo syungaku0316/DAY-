@@ -12,7 +12,7 @@ import { computeEfficiency, PERCENT_DISPLAY_KEYS } from "./itemEfficiency.js";
 import { CHAMPSTATS, CHAMPSTATS_PATCH } from "./champStats.js";
 import { computeAt, STAT_ROWS, COMPARE_LEVELS, MAX_LEVEL } from "./champGrowth.js";
 import { BACKUP_FORMAT, buildBackup, backupToNodes } from "./backup.js";
-import { splitIntoLobbies, lobbySwapCandidates } from "./lobby.js";
+import { splitIntoLobbies, lobbySwapCandidates, remainingPool } from "./lobby.js";
 import {
   MU0, SIGMA_RATED, SIGMA_UNRANKED, SIGMA_FLOOR, BETA, TAU, K_SCALE, STREAK_STEP, STREAK_MAX_MULT, STREAK_MIN_MULT,
   RATING_FLOOR, RATING_CEIL, clampRating, ROLES, RANKS, PROF_RATE, PROF_SIGMA_MULT,
@@ -4940,6 +4940,40 @@ export default function CustomStats() {
     await notifyMatchupGaps(res1, null, t("balance.103", { n: 1 }));
     await notifyMatchupGaps(res2, null, t("balance.103", { n: 2 }));
   };
+  // 第1試合を組んだ後、そのメンバーを除いた出席者から10人を選んで第2試合を編成する(作り直しも同じ)。
+  // 選び方・NGで組めない時の入替は1試合の全自動編成と同じ。レーン固定・対面指定は使わない
+  const autoAssignNext = async () => {
+    if (!balanceResult || !balanceResult.teamA) return;
+    if (!(await requireAdminPass(t(balanceResult2 ? "balance.109" : "balance.107")))) return;
+    const pool = remainingPool(players, [balanceResult]);
+    if (pool.length < 10) { themedAlert(t("balance.108", { n: pool.length })); return; }
+    const toChosen = (ps) => ps.map((p) => ({
+      id: p.id, name: p.name, roles: p.roles, lockedTeam: null, lockedRole: null,
+      prefRoles: p.prefRoles || [], ngRoles: p.ngRoles || [],
+    }));
+    const split = (ps) => bestBalancedSplit(toChosen(ps), matchupThreshold, matchupLaneLimit);
+    let seated = pickSeatsFairly(pool, 10, todayCounts);
+    let result = split(seated);
+    if (!result) {
+      // 参加回数の多い人から順に、選ばれなかった人と1人ずつ入れ替えて再試行(試行数は上限あり)
+      const notSeated = pool.filter((p) => !seated.some((x) => x.id === p.id));
+      const outOrder = [...seated].sort((a, b) => (todayCounts[b.id] || 0) - (todayCounts[a.id] || 0));
+      let tries = 0;
+      outer: for (const out of outOrder) {
+        for (const cand of notSeated) {
+          if (++tries > 30) break outer;
+          const trial = seated.map((x) => (x.id === out.id ? cand : x));
+          const r = split(trial);
+          if (r) { seated = trial; result = r; break outer; }
+        }
+      }
+    }
+    if (!result) { themedAlert(t("shell.060")); return; }
+    setSwapSel(null);
+    const roster = [...new Set([...session.roster, ...seated.map((p) => p.id)])];
+    await saveLobby(1, result, { roster });
+    await notifyMatchupGaps(result, null, t("balance.103", { n: 2 }));
+  };
   // 段階①: 状態(アクティブ優先、調整枠は不足分のみ) → 参加回数(本日)が少ない順に自動選出
   const seating = useMemo(() => {
     const roster = session.roster.map((id) => players.find((p) => p.id === id)).filter(Boolean);
@@ -7133,6 +7167,21 @@ export default function CustomStats() {
                     <div style={{ flex: "1 1 100%", fontSize: 12, color: theme.textFaint }}>
                       {activeCount < 20 ? t("balance.099", { n: activeCount }) : t("balance.106")}
                     </div>
+                  </div>
+                );
+              })()}
+              {balanceResult && balanceResult.teamA && (() => {
+                const restCount = remainingPool(players, [balanceResult]).length;
+                return (
+                  <div style={{ flex: "1 1 100%", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", borderTop: `1px solid ${theme.borderTable}`, paddingTop: 10 }}>
+                    <span style={{ fontSize: 12, color: theme.textFaint, flex: "1 1 240px" }}>
+                      {restCount < 10 ? t("balance.108", { n: restCount }) : t("balance.110", { n: restCount })}
+                    </span>
+                    <button className="cs-btn-ghost" disabled={restCount < 10}
+                      style={{ padding: "8px 16px", fontSize: 14, fontWeight: 700, borderColor: theme.accent, color: theme.accent, opacity: restCount < 10 ? 0.5 : 1 }}
+                      onClick={autoAssignNext}>
+                      {t(balanceResult2 ? "balance.109" : "balance.107")}
+                    </button>
                   </div>
                 );
               })()}

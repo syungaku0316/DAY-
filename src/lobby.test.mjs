@@ -1,5 +1,5 @@
 // Node単体テスト（実行: node src/lobby.test.mjs）
-import { splitIntoLobbies, lobbySwapCandidates, LOBBY_MODES } from "./lobby.js";
+import { splitIntoLobbies, lobbySwapCandidates, LOBBY_MODES, remainingPool } from "./lobby.js";
 
 let failed = 0;
 function assert(cond, label) {
@@ -40,6 +40,16 @@ assert(cands.length === 100, "入替候補は 10×10 通り");
 assert(cands[0][0].id === "p9" && cands[0][1].id === "p10", "最初の候補は卓の境目の2人(p9 と p10)");
 const gaps = cands.map(([a, b]) => Math.abs(ratingOf(a) - ratingOf(b)));
 assert(gaps.every((g, i) => i === 0 || gaps[i - 1] <= g), "候補はレート差の小さい順");
+
+// ---- 第1試合のメンバーを除いた残りの出席者(第2試合を後から組む用) ----
+const roster = [
+  { id: "a", status: "active" }, { id: "b", status: "active" }, { id: "c", status: "rest" },
+  { id: "d", status: "active", adjust: true }, { id: "e", status: "active" },
+];
+const match1 = { teamA: [{ id: "a" }], teamB: [{ id: "b" }] };
+assert(remainingPool(roster, [match1]).map((p) => p.id).join() === "d,e", "残り: 第1試合の出場者と休みを除く(調整枠は含む)");
+assert(remainingPool(roster, [match1, null, undefined]).length === 2, "残り: 未編成(null)の試合は無視");
+assert(remainingPool(roster, []).length === 4, "残り: 編成が無ければ休み以外の全員");
 
 console.log(failed === 0 ? "\nすべて成功" : `\n${failed}件失敗`);
 process.exit(failed === 0 ? 0 : 1);

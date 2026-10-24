@@ -21,6 +21,13 @@ export function splitIntoLobbies(players, mode, ratingOf) {
   return [sorted.slice(0, half), sorted.slice(half)];
 }
 
+// 編成済みの試合(results: チーム分け結果の配列。null は無視)に出ていない出席者(休み以外)。
+// 第1試合を組んだ後に、残りのメンバーで第2試合を組むときの候補になる
+export function remainingPool(players, results) {
+  const taken = new Set(results.filter((r) => r && r.teamA).flatMap((r) => [...r.teamA, ...r.teamB]).map((x) => x.id));
+  return players.filter((p) => p.status !== "rest" && !taken.has(p.id));
+}
+
 // NGレーン等でどちらかの卓が組めなかった時に試す、卓をまたいだ1対1の入替候補。
 // レートの近い2人から順に試し、卓分けの方針(実力順/混ぜる)をなるべく崩さない
 export function lobbySwapCandidates(l1, l2, ratingOf) {

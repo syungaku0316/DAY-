@@ -1,6 +1,10 @@
 // 自動生成: 多言語辞書 (ja/ko/en)
 export const DICT = {
   "ja": {
+    "balance.107": "残りのメンバーで第2試合を編成",
+    "balance.108": "第2試合には、第1試合に出ていない出席者が10人以上必要です(現在{n}人)",
+    "balance.109": "第2試合を作り直す",
+    "balance.110": "第1試合のメンバーを除いた出席者{n}人から、参加回数の少ない順に10人を選んで編成します(レーン固定・対面指定は使いません)。",
     "balance.100": "2試合の分け方",
     "balance.101": "実力順(上位卓・下位卓)",
     "balance.102": "混ぜる(両卓を同じくらいに)",
@@ -866,6 +870,10 @@ export const DICT = {
     "fearless.058": "手番の音: OFF"
   },
   "en": {
+    "balance.107": "Build game 2 from the rest",
+    "balance.108": "Game 2 needs 10 or more attendees who are not in game 1 (now {n})",
+    "balance.109": "Rebuild game 2",
+    "balance.110": "Picks 10 of the {n} attendees not in game 1, fewest games first (lane locks and matchups are not used).",
     "balance.100": "Split into 2 games by",
     "balance.101": "Skill (upper / lower game)",
     "balance.102": "Mixed (even games)",
@@ -1731,6 +1739,10 @@ export const DICT = {
     "fearless.058": "Turn sound: OFF"
   },
   "ko": {
+    "balance.107": "남은 멤버로 2경기 편성",
+    "balance.108": "2경기에는 1경기에 나가지 않는 참석자가 10명 이상 필요합니다 (현재 {n}명)",
+    "balance.109": "2경기 다시 편성",
+    "balance.110": "1경기 멤버를 제외한 참석자 {n}명 중 참가 횟수가 적은 순으로 10명을 골라 편성합니다 (라인 고정·맞라인 지정은 사용하지 않습니다).",
     "balance.100": "2경기 나누는 방법",
     "balance.101": "실력순 (상위·하위 경기)",
     "balance.102": "섞기 (양 경기를 비슷하게)",
