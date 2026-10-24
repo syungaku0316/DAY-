@@ -3901,6 +3901,7 @@ export default function CustomStats() {
   const balanceCardRef = useRef(null); // 画像コピー対象DOM(チーム分け結果+バン保護枠)
   const [banInput, setBanInput] = useState({ A: "", B: "" }); // バン保護枠の入力中テキスト(チームごと)
   const [otpInput, setOtpInput] = useState({ role: "", champ: "" }); // 自分カードのOTP入力中の値(role空=登録済みロール等を初期表示)
+  const [riotEdit, setRiotEdit] = useState(null); // 自分カードのRiot ID編集中の値 {name, tag}(null=閉じている)
   const [rankReqOpenFor, setRankReqOpenFor] = useState(null); // ランク変更申請フォームを開いている選手ID
   const [rankReqValue, setRankReqValue] = useState("アンランク");
   const [rankReqProfs, setRankReqProfs] = useState({});
@@ -4478,6 +4479,18 @@ export default function CustomStats() {
   const knownChampSet = () => new Set([...(ddChamps ? ddChamps.map((x) => x.name) : CHAMPIONS), ...customChamps]);
 
   // OTP登録: 希望/NGレーンと同じく本人がPASS不要で設定できる。champInput=null で解除
+  // Riot ID(サモナーネーム)の本人変更。ゲーム内の名前変更に追従するだけでレートに影響しないため、OTPと同じくPASS不要
+  const setPlayerRiotId = async (id, riotName, riotTag) => {
+    const summonerName = joinRiotId(riotName, riotTag);
+    if (summonerName === null) { await themedAlert(t("players.078")); return false; }
+    const dup = summonerName && players.find((x) => x.id !== id && (x.summonerName || "").toLowerCase() === summonerName.toLowerCase());
+    if (dup) { await themedAlert(t("attend.043", { name: dup.name }), [dup.name]); return false; }
+    const next = players.map((x) => (x.id === id ? { ...x, summonerName } : x));
+    setPlayers(next);
+    await saveShared("players", next);
+    return true;
+  };
+
   const setPlayerOtp = async (id, role, champInput) => {
     let otp = null;
     if (champInput != null) {
@@ -7425,6 +7438,27 @@ export default function CustomStats() {
                     <div style={{ fontSize: 13, color: theme.textSub }}>{rankLabel(myPlayer.rank)} ・ {t("stats.004")} {myPlayer.wins}{t("board.010")}{myPlayer.losses}{t("board.011")}</div>
                   </div>
                   <button className="cs-btn-ghost" style={{ padding: "3px 10px", fontSize: 13, marginLeft: "auto" }} onClick={() => setMyPickerOpen(true)}>{t("attend.030")}</button>
+                </div>
+
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 13, color: theme.textSub, marginBottom: 6, fontWeight: 700 }}>{t("attend.041")}</div>
+                  {riotEdit ? (
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                      <RiotIdInputs name={riotEdit.name} tag={riotEdit.tag} nameWidth={180} onChange={(n, tg) => setRiotEdit({ name: n, tag: tg })} />
+                      <button className="cs-btn" style={{ padding: "4px 12px", fontSize: 13 }}
+                        onClick={async () => { if (await setPlayerRiotId(myPlayer.id, riotEdit.name, riotEdit.tag)) setRiotEdit(null); }}>{t("otp.004")}</button>
+                      <button className="cs-btn-ghost" style={{ padding: "4px 12px", fontSize: 13 }} onClick={() => setRiotEdit(null)}>{t("players.040")}</button>
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", fontSize: 14 }}>
+                      {myPlayer.summonerName ? <b>{myPlayer.summonerName}</b> : <span style={{ color: theme.textFaint }}>{t("attend.042")}</span>}
+                      <button className="cs-btn-ghost" style={{ padding: "1px 10px", fontSize: 12 }}
+                        onClick={() => { const [n, tg] = splitRiotId(myPlayer.summonerName); setRiotEdit({ name: n, tag: tg }); }}>
+                        <Pencil size={11} /> {t("attend.044")}
+                      </button>
+                    </div>
+                  )}
+                  <div style={{ fontSize: 11.5, color: theme.textFaint, marginTop: 4 }}>{t("attend.045")}</div>
                 </div>
 
                 <div style={{ fontSize: 13, color: theme.textSub, marginBottom: 6, fontWeight: 700 }}>{t("attend.025")}</div>

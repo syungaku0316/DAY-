@@ -1,6 +1,11 @@
 // 自動生成: 多言語辞書 (ja/ko/en)
 export const DICT = {
   "ja": {
+    "attend.041": "Riot ID(サモナーネーム)",
+    "attend.042": "未登録",
+    "attend.043": "このRiot IDは{name}さんが登録済みです",
+    "attend.044": "変更",
+    "attend.045": "ゲーム内で名前を変えたらここで直せます(PASS不要)。チーム分けのRiot IDコピーやOP.GGリンクに使われます。",
     "cup.158": "登録締切(空欄なら「今すぐ締め切る」で手動)",
     "cup.159": "今すぐ締め切る",
     "cup.160": "受付を再開",
@@ -847,6 +852,11 @@ export const DICT = {
     "fearless.058": "手番の音: OFF"
   },
   "en": {
+    "attend.041": "Riot ID (summoner name)",
+    "attend.042": "Not set",
+    "attend.043": "This Riot ID is already registered by {name}",
+    "attend.044": "Change",
+    "attend.045": "If you change your in-game name, update it here (no password needed). It is used for Riot ID copy and OP.GG links.",
     "cup.158": "Registration deadline (leave empty to close manually)",
     "cup.159": "Close now",
     "cup.160": "Reopen registration",
@@ -1693,6 +1703,11 @@ export const DICT = {
     "fearless.058": "Turn sound: OFF"
   },
   "ko": {
+    "attend.041": "Riot ID (소환사명)",
+    "attend.042": "미등록",
+    "attend.043": "이 Riot ID는 {name} 님이 이미 등록했습니다",
+    "attend.044": "변경",
+    "attend.045": "게임 내 이름을 바꿨다면 여기서 수정할 수 있습니다 (PASS 불필요). 팀 나누기의 Riot ID 복사와 OP.GG 링크에 사용됩니다.",
     "cup.158": "등록 마감 (비워 두면 「지금 마감」으로 수동 마감)",
     "cup.159": "지금 마감",
     "cup.160": "접수 재개",
