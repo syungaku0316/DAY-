@@ -13,8 +13,30 @@ export const DEFAULT_RULES = {
 // Discordコピー用のステージ名(UI言語に関わらず日本語固定)
 export const STAGE_JA = { scrim: "スクリム", main: "本番", sf1: "準決勝1", sf2: "準決勝2", final: "決勝", third: "3位決定戦" };
 
-export const toTenths = (x) => Math.round(Number(x || 0) * 10);
+// ポイントは画面の表示値(toFixed(1))を正とする。Math.round(x*10) だと 0.15 のような値で表示(0.1)とずれるため toFixed を経由する
+export const toTenths = (x) => Math.round(Number(Number(x || 0).toFixed(1)) * 10);
 export const fmtTenths = (n) => (n / 10).toFixed(1);
+// 表示値どうしの合計(0.1pt単位の整数)。「画面の数字を手で足した結果」と常に一致する
+export const sumTenths = (values) => values.reduce((s, x) => s + toTenths(x), 0);
+
+// チーム分け結果の枠(slot = {id, role, mu(編成時の値)})に出すレート。現在の選手データを優先し、
+// 編成後に試合が承認されても選手一覧・対面格差の警告と食い違わないようにする。選手が消えていれば編成時の値
+export function slotLiveMu(slot, players) {
+  const p = players.find((x) => x.id === slot.id);
+  const live = p?.roles?.[slot.role]?.mu;
+  if (typeof live === "number") return live;
+  return typeof slot.mu === "number" ? slot.mu : NaN;
+}
+
+// 選手の最高ロールとその値(0.1pt単位)。補欠候補など「どのロールに入るか未定」の表示に使う
+export function bestRoleOf(player) {
+  let best = null;
+  FX_ROLES.forEach((r) => {
+    const v = toTenths(player?.roles?.[r]?.mu);
+    if (!best || v > best.tenths) best = { role: r, tenths: v };
+  });
+  return best;
+}
 const vals = (o) => (Array.isArray(o) ? o.filter(Boolean) : o && typeof o === "object" ? Object.values(o).filter(Boolean) : []);
 
 // 管理画面の数値入力をそのまま受けるため、不正値は既定値に、範囲外は範囲内に丸める
@@ -51,7 +73,7 @@ export function isMasterPlusAuto(player) {
   return !!player && (MPLUS_RANKS.includes(player.rank) || MPLUS_RANKS.includes(player.honorRank));
 }
 
-const roundPt = (mu) => Math.round(Number(mu || 0) * 10) / 10;
+const roundPt = (mu) => toTenths(mu) / 10;
 export function snapshotMember(player, role) {
   return { playerId: player.id, name: player.name, pts: roundPt(player.roles?.[role]?.mu) };
 }

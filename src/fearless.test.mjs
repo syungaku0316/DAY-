@@ -3,7 +3,7 @@ import {
   toTenths, isMasterPlusAuto, snapshotMember, snapshotSub, lineupTenths, validateTeam, validateLineup,
   orderTeams, buildSchedule, seriesState, resolveBracket, finalPlacements, fearlessLocked, fearlessConflicts,
   sideChooser, subRoleUsage, tournamentStats, drawSeeds, drawSurvivors, hasAnyResult, starterLineup,
-  normalizeRules, fearlessBlocked, findDraftRecord, splitChampList, isEntryOpen,
+  normalizeRules, fearlessBlocked, findDraftRecord, splitChampList, isEntryOpen, fmtTenths, sumTenths, slotLiveMu, bestRoleOf,
 } from "./fearless.js";
 
 let failed = 0;
@@ -211,6 +211,37 @@ assert(isEntryOpen({ status: "entry", entryDeadline: NOW + 60000 }, NOW), "締�
 assert(!isEntryOpen({ status: "running" }, NOW), "締切: 試合が始まった大会は受付終了");
 assert(!isEntryOpen({ status: "finished" }, NOW), "締切: 終了した大会は受付終了");
 assert(!isEntryOpen(null, NOW), "締切: 大会が無ければ受付しない");
+
+
+// ---- ポイントは「画面の表示値(toFixed(1))」と完全に一致させる ----
+// 0.15 は2進数で 0.1499… のため toFixed(1) は "0.1"。Math.round(0.15*10) は 2 になり表示とずれる
+assert(toTenths(0.15) === 1, "丸め: 0.15 は表示どおり 0.1");
+assert(toTenths(84.25) === Number((84.25).toFixed(1)) * 10, "丸め: 84.25 も表示どおり");
+let rmis = 0;
+for (let i = 0; i < 20000; i++) {
+  const x = Math.random() * 160;
+  if (fmtTenths(toTenths(x)) !== x.toFixed(1)) rmis++;
+}
+assert(rmis === 0, `丸め: ランダム2万件で表示値と一致(不一致${rmis}件)`);
+const sp = snapshotMember({ id: "x", name: "x", roles: { TOP: { mu: 0.15 } } }, "TOP");
+assert(sp.pts.toFixed(1) === (0.15).toFixed(1), "スナップショット: 表示値と同じ値で固定");
+
+// ---- 合計は表示値の合計(実データで 311.5 と 311.7 に割れた例) ----
+const shownVals = [58.9, 95.75995525731209, 53.560277778796774, 60.45237968403639, 42.853707248293865];
+assert(sumTenths(shownVals) === 3117, "合計: 表示値 58.9+95.8+53.6+60.5+42.9 = 311.7");
+assert(fmtTenths(sumTenths([0.1, 0.2])) === "0.3", "合計: 浮動小数の誤差が出ない");
+
+
+// ---- チーム分け結果の表示は現在のレートを使う(編成後に試合が承認されても他画面と食い違わない) ----
+const livePs = [{ id: "p1", roles: { TOP: { mu: 86.04 } } }];
+assert(slotLiveMu({ id: "p1", role: "TOP", mu: 83.0 }, livePs) === 86.04, "チーム分け: 保存時83.0でも現在の86.0を表示");
+assert(slotLiveMu({ id: "gone", role: "TOP", mu: 83.0 }, livePs) === 83.0, "チーム分け: 選手が消えていれば保存値");
+assert(Number.isNaN(slotLiveMu({ id: "gone", role: "TOP" }, livePs)), "チーム分け: どちらも無ければNaN");
+
+// ---- 補欠候補は「どのロールの値か」を添える ----
+const bestP = { roles: { TOP: { mu: 80 }, JG: { mu: 70 }, MID: { mu: 83 }, ADC: { mu: 86 }, SUP: { mu: 60 } } };
+const best = bestRoleOf(bestP);
+assert(best.role === "ADC" && best.tenths === 860, "補欠候補: 最高ロールとその値(ADC 86.0)");
 
 console.log(failed === 0 ? "\nすべて成功" : `\n${failed}件失敗`);
 process.exit(failed === 0 ? 0 : 1);

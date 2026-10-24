@@ -1,6 +1,7 @@
 // 自動生成: 多言語辞書 (ja/ko/en)
 export const DICT = {
   "ja": {
+    "cup.167": "この選手の最も高いロール",
     "attend.041": "Riot ID(サモナーネーム)",
     "attend.042": "未登録",
     "attend.043": "このRiot IDは{name}さんが登録済みです",
@@ -852,6 +853,7 @@ export const DICT = {
     "fearless.058": "手番の音: OFF"
   },
   "en": {
+    "cup.167": "This player's highest-rated role",
     "attend.041": "Riot ID (summoner name)",
     "attend.042": "Not set",
     "attend.043": "This Riot ID is already registered by {name}",
@@ -1703,6 +1705,7 @@ export const DICT = {
     "fearless.058": "Turn sound: OFF"
   },
   "ko": {
+    "cup.167": "이 선수의 가장 높은 라인",
     "attend.041": "Riot ID (소환사명)",
     "attend.042": "미등록",
     "attend.043": "이 Riot ID는 {name} 님이 이미 등록했습니다",

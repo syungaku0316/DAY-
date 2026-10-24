@@ -12,7 +12,7 @@ import { computeEfficiency, PERCENT_DISPLAY_KEYS } from "./itemEfficiency.js";
 import { CHAMPSTATS, CHAMPSTATS_PATCH } from "./champStats.js";
 import { computeAt, STAT_ROWS, COMPARE_LEVELS, MAX_LEVEL } from "./champGrowth.js";
 import {
-  FX_ROLES, DEFAULT_RULES, STAGE_JA, toTenths, fmtTenths, normalizeRules, isMasterPlusAuto, snapshotMember, snapshotSub,
+  FX_ROLES, DEFAULT_RULES, STAGE_JA, toTenths, fmtTenths, sumTenths, slotLiveMu, bestRoleOf, normalizeRules, isMasterPlusAuto, snapshotMember, snapshotSub,
   teamSubs, teamPlayerIds, playerNameIn, starterLineup, validateTeam, validateLineup, orderTeams, buildSchedule, gameList,
   resolveBracket, hasAnyResult, finalPlacements, fearlessLocked, fearlessConflicts, sideChooser, subRoleUsage,
   tournamentStats, drawSeeds, drawSurvivors, gamePicks, fearlessBlocked, findDraftRecord, splitChampList, isEntryOpen,
@@ -176,13 +176,25 @@ const ngLimited = (p) => p.rank !== "初心者";
 // μは編成時スナップショット(slot.mu)ではなく現在の選手データを優先する。
 // 編成後に承認等でレートが動いた場合、対面比較タブの表示(statFor)とズレるのを防ぐため
 // (liveWanted / liveNg と同じ「表示はライブ計算」方針に揃える)。
+// チーム分け結果のレート差(表示)。両チームの「計」(表示値の合計)の差にして、画面の数字と必ず一致させる
+// (保存済みの balanceResult.diff は旧方式で計算されている場合があるため使わない)
+// 枠の値は現在のレート(slotLiveMu)。選手カード・計・対面格差の警告と同じ値を使う
+const fxTeamSum10 = (list, players) => sumTenths(list.map((x) => slotLiveMu(x, players)));
+const fxShownTeamDiff = (br, players) => fmtTenths(Math.abs(fxTeamSum10(br.teamA, players) - fxTeamSum10(br.teamB, players)));
+const fxShownLaneDiff = (br, players) => fmtTenths(ROLES.reduce((s, r) => {
+  const a = br.teamA.find((x) => x.role === r), b = br.teamB.find((x) => x.role === r);
+  return a && b ? s + Math.abs(toTenths(slotLiveMu(a, players)) - toTenths(slotLiveMu(b, players))) : s;
+}, 0));
+
 function matchupGaps(balanceResult, players, threshold) {
   if (!balanceResult || !balanceResult.teamA || !balanceResult.teamB) return [];
   const th = clampMatchupWarn(threshold);
+  // 判定・表示とも画面の表示値(小数第1位)で行う(生の値だと「表示上15.0差なのに警告が出ない」等のずれが出るため)
   const muOf = (slot) => {
     const p = players.find((x) => x.id === slot.id);
     const live = p?.roles?.[slot.role]?.mu;
-    return typeof live === "number" ? live : slot.mu;
+    const v = slotLiveMu(slot, players);
+    return v === v ? toTenths(v) / 10 : NaN;
   };
   const out = [];
   ROLES.forEach((role) => {
@@ -191,8 +203,8 @@ function matchupGaps(balanceResult, players, threshold) {
     if (!a || !b) return; // 片側欠員のレーンは判定しない
     const muA = muOf(a), muB = muOf(b);
     if (muA !== muA || muB !== muB) return; // NaNガード(既存 laneDiff と同方針)
-    const diff = Math.abs(muA - muB);
-    if (diff < th) return;
+    const diff = Math.abs(toTenths(muA) - toTenths(muB)) / 10;
+    if (toTenths(diff) < toTenths(th)) return;
     out.push({
       role, diff,
       aId: a.id, bId: b.id, aName: a.name, bName: b.name, muA, muB,
@@ -727,7 +739,7 @@ function bestBalancedSplit(players, gapTh = MATCHUP_WARN_DEFAULT, laneLimit = MA
       for (let i = 0; i < team.length; i++) {
         const p = team[i];
         const role = perm[i];
-        const m = p.roles[role].mu;
+        const m = toTenths(p.roles[role].mu); // 表示値(0.1pt単位の整数)。表示の「計」「レート差」と一致させる
         sum += m;
         lane[ROLE_ORDER[role]] = m;
         if (p.prefRoles && p.prefRoles.length && p.prefRoles.includes(role)) hits++;
@@ -753,16 +765,18 @@ function bestBalancedSplit(players, gapTh = MATCHUP_WARN_DEFAULT, laneLimit = MA
 
     for (const a of evA) {
       for (const b of evB) {
-        const teamDiff = Math.abs(a.sum - b.sum);
+        // sum / lane は0.1pt単位の整数。スコアは従来どおりpt単位に戻して計算する
+        const teamDiff = Math.abs(a.sum - b.sum) / 10;
+        const th10 = toTenths(gapTh);
         let laneDiff = 0, gapLanes = 0, gapExcess = 0;
         for (let r = 0; r < 5; r++) {
           const x = a.lane[r], y = b.lane[r];
           if (x !== x || y !== y) continue; // NaNチェック(片側欠員レーン)
-          const g = Math.abs(x - y);
-          laneDiff += g;
-          if (g >= gapTh) { gapLanes++; gapExcess += g - gapTh; }
+          const g10 = Math.abs(x - y);
+          laneDiff += g10 / 10;
+          if (g10 >= th10) { gapLanes++; gapExcess += (g10 - th10) / 10; }
         }
-        const balanceScore = teamDiff + 0.5 * laneDiff - 0.05 * (a.sum + b.sum);
+        const balanceScore = teamDiff + 0.5 * laneDiff - 0.05 * (a.sum + b.sum) / 10;
         const gapOver = Math.max(0, gapLanes - (laneLimit - 1)); // 組み直し推奨ラインに達した分
         const hits = a.hits + b.hits;
         // 段階的優先順位: ①NGレーン回避 → ②組み直し推奨ラインの格差回避 → ③希望充足と格差・バランスの加重和
@@ -2793,7 +2807,7 @@ function TeamBuilderCard({ players, ChampIcon, rules, teamsObj = {}, others = []
   const q = search.trim().toLowerCase();
   const cands = players
     .filter((p) => !q || p.name.toLowerCase().includes(q) || (p.summonerName || "").toLowerCase().includes(q))
-    .map((p) => ({ p, val: slot === "SUB" ? Math.max(...FX_ROLES.map((r) => toTenths(p.roles[r].mu))) : toTenths(p.roles[slot].mu) }))
+    .map((p) => { const best = bestRoleOf(p); return { p, val: slot === "SUB" ? best.tenths : toTenths(p.roles[slot].mu), bestRole: best.role }; })
     .sort((a, b) => b.val - a.val);
   const inDraft = new Set([...Object.values(draft.members), ...draft.subs]);
   const slotIssues = v.errors.filter((e) => e.code !== "slotEmpty");
@@ -2882,7 +2896,7 @@ function TeamBuilderCard({ players, ChampIcon, rules, teamsObj = {}, others = []
           <input className="cs-input" value={search} placeholder={t("cup.020")} onChange={(e) => setSearch(e.target.value)}
             style={{ width: "100%", boxSizing: "border-box", fontSize: 14, marginBottom: 6 }} />
           <div className="cs-scroll" style={{ maxHeight: 360, overflowY: "auto", display: "flex", flexDirection: "column", gap: 4 }}>
-            {cands.map(({ p, val }) => {
+            {cands.map(({ p, val, bestRole }) => {
               const other = otherTeamOf(p.id);
               const mine = inDraft.has(p.id);
               const fits = val <= room10;
@@ -2902,7 +2916,10 @@ function TeamBuilderCard({ players, ChampIcon, rules, teamsObj = {}, others = []
                       {other ? ` ・ ${t("cup.023", { team: other.name })}` : mine ? ` ・ ${t("cup.024")}` : ""}
                     </div>
                   </div>
-                  <div style={{ fontWeight: 700, fontSize: 15, fontVariantNumeric: "tabular-nums" }}>{fmtTenths(val)}</div>
+                  <div style={{ fontWeight: 700, fontSize: 15, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
+                    {slot === "SUB" && <span title={t("cup.167")} style={{ fontSize: 12, color: theme.accent, marginRight: 4 }}>{bestRole}</span>}
+                    {fmtTenths(val)}
+                  </div>
                   {slot !== "SUB" && !other && (
                     <span style={fxChip(fits ? theme.accentBright : theme.teamB)}>{t(fits ? "cup.021" : "cup.022")}</span>
                   )}
@@ -4866,13 +4883,14 @@ export default function CustomStats() {
   // チームA/B配列から差分指標(diff/laneDiff/prefHits/ngHits)を再計算する共通処理。
   // タップ入替・選手交代の両方から呼ばれる。
   const recalcResult = (teamA, teamB) => {
-    const sum = (arr) => arr.reduce((s, x) => s + x.mu, 0);
-    const laneOf = (arr) => { const m = {}; arr.forEach((x) => { m[x.role] = x.mu; }); return m; };
+    // 表示値(0.1pt単位の整数)で計算し、表示の「計」「レート差」と一致させる
+    const sum = (arr) => sumTenths(arr.map((x) => x.mu));
+    const laneOf = (arr) => { const m = {}; arr.forEach((x) => { m[x.role] = toTenths(x.mu); }); return m; };
     const laneA = laneOf(teamA), laneB = laneOf(teamB);
-    const laneDiff = ROLES.reduce((s, r) => s + (laneA[r] != null && laneB[r] != null ? Math.abs(laneA[r] - laneB[r]) : 0), 0);
+    const laneDiff = ROLES.reduce((s, r) => s + (laneA[r] != null && laneB[r] != null ? Math.abs(laneA[r] - laneB[r]) : 0), 0) / 10;
     const prefHits = [...teamA, ...teamB].filter((x) => x.wanted).length;
     const ngHits = [...teamA, ...teamB].filter((x) => x.isNg).length;
-    return { teamA, teamB, diff: Math.abs(sum(teamA) - sum(teamB)), laneDiff, prefHits, ngHits, manual: true };
+    return { teamA, teamB, diff: Math.abs(sum(teamA) - sum(teamB)) / 10, laneDiff, prefHits, ngHits, manual: true };
   };
   const buildSlot = (p, role) => ({
     id: p.id, name: p.name, role,
@@ -7208,12 +7226,12 @@ export default function CustomStats() {
                         return (
                           <div key={side} style={{ ...cardStyle, borderColor: color }}>
                             <div style={{ color, fontWeight: 700, marginBottom: 10, fontSize: 16 }}>
-                              {sideLabel(side)} <span style={{ fontWeight: 400, color: theme.textFaint, fontSize: 14 }}>{t("balance.033")}{list.reduce((s, x) => s + x.mu, 0).toFixed(1)}</span>
+                              {sideLabel(side)} <span style={{ fontWeight: 400, color: theme.textFaint, fontSize: 14 }}>{t("balance.033")}{fmtTenths(fxTeamSum10(list, players))}</span>
                             </div>
                             {list.map((bp, idx) => {
                               const gapWarn = matchupWarnings.find((w) => w.role === bp.role) || null;
                               return (
-                                <PlayerSlotCard key={idx} p={players.find((x) => x.id === bp.id)} role={bp.role} name={bp.name} mu={bp.mu}
+                                <PlayerSlotCard key={idx} p={players.find((x) => x.id === bp.id)} role={bp.role} name={bp.name} mu={slotLiveMu(bp, players)}
                                   ChampIcon={ChampIcon} onClick={() => handleSlotTap(side, idx)}
                                   selected={!!(swapSel && swapSel.team === side && swapSel.idx === idx)} warnLeft={!!gapWarn}
                                   badges={gapWarn && <span title={t("balance.076")} style={{ color: theme.teamB, fontWeight: 700, fontSize: 13, marginLeft: 6 }}>⚠ {t("balance.078", { diff: gapWarn.diff.toFixed(1) })}</span>} />
@@ -7268,7 +7286,7 @@ export default function CustomStats() {
                     </div>
 
                     <div style={{ fontSize: 13, color: theme.textFaint, marginTop: 8, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                      <span>{t("balance.045")} {balanceResult.diff.toFixed(1)} {t("balance.046")} {balanceResult.laneDiff.toFixed(1)}</span>
+                      <span>{t("balance.045")} {fxShownTeamDiff(balanceResult, players)} {t("balance.046")} {fxShownLaneDiff(balanceResult, players)}</span>
                       <button className="cs-btn-ghost" title={t("balance.084")}
                         style={{ padding: "1px 8px", fontSize: 13, lineHeight: 1.5, fontWeight: 700 }}
                         onClick={() => themedAlert([
@@ -7292,11 +7310,11 @@ export default function CustomStats() {
                         if (banText("B")) banLines.push(`レッド: ${banText("B")}`);
                         const txt = [
                           "【チーム分け】",
-                          `■ ブルーサイド（計${balanceResult.teamA.reduce((s, x) => s + x.mu, 0).toFixed(0)}）`,
+                          `■ ブルーサイド（計${fmtTenths(fxTeamSum10(balanceResult.teamA, players))}）`,
                           ...balanceResult.teamA.map(line),
-                          `■ レッドサイド（計${balanceResult.teamB.reduce((s, x) => s + x.mu, 0).toFixed(0)}）`,
+                          `■ レッドサイド（計${fmtTenths(fxTeamSum10(balanceResult.teamB, players))}）`,
                           ...balanceResult.teamB.map(line),
-                          `レート差: ${balanceResult.diff.toFixed(1)}`,
+                          `レート差: ${fxShownTeamDiff(balanceResult, players)}`,
                           ...(banLines.length ? ["", "── バン保護 ──", ...banLines] : []),
                         ].join("\n");
                         try { await navigator.clipboard.writeText(txt); themedAlert(t("balance.047")); }
