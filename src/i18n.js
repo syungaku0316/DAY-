@@ -1,6 +1,15 @@
 // 自動生成: 多言語辞書 (ja/ko/en)
 export const DICT = {
   "ja": {
+    "balance.100": "2試合の分け方",
+    "balance.101": "実力順(上位卓・下位卓)",
+    "balance.102": "混ぜる(両卓を同じくらいに)",
+    "balance.103": "第{n}試合",
+    "balance.104": "上位卓",
+    "balance.105": "下位卓",
+    "balance.106": "参加回数の少ない順に20人を選び、10人ずつ2試合に分けてそれぞれチーム分けします。レーン固定・対面指定は使いません。",
+    "balance.098": "2試合同時に編成",
+    "balance.099": "2試合同時の編成には出席者が20人以上必要です(現在{n}人)",
     "report.040": "{side}が{n}人です(5対5で報告してください)",
     "report.041": "{side}で{role}が重複しています(ロールを確認してください)",
     "report.042": "{name}が2回登録されています",
@@ -857,6 +866,15 @@ export const DICT = {
     "fearless.058": "手番の音: OFF"
   },
   "en": {
+    "balance.100": "Split into 2 games by",
+    "balance.101": "Skill (upper / lower game)",
+    "balance.102": "Mixed (even games)",
+    "balance.103": "Game {n}",
+    "balance.104": "Upper game",
+    "balance.105": "Lower game",
+    "balance.106": "Picks 20 players with the fewest games today, splits them into two games of 10 and balances each. Lane locks and matchups are not used.",
+    "balance.098": "Build 2 games at once",
+    "balance.099": "Building 2 games at once needs 20 or more attendees (now {n})",
     "report.040": "{side} has {n} players (report 5 vs 5)",
     "report.041": "{role} is duplicated on {side} (check the roles)",
     "report.042": "{name} is entered twice",
@@ -1713,6 +1731,15 @@ export const DICT = {
     "fearless.058": "Turn sound: OFF"
   },
   "ko": {
+    "balance.100": "2경기 나누는 방법",
+    "balance.101": "실력순 (상위·하위 경기)",
+    "balance.102": "섞기 (양 경기를 비슷하게)",
+    "balance.103": "{n}경기",
+    "balance.104": "상위 경기",
+    "balance.105": "하위 경기",
+    "balance.106": "참가 횟수가 적은 순으로 20명을 골라 10명씩 2경기로 나누고 각각 팀을 나눕니다. 라인 고정·맞라인 지정은 사용하지 않습니다.",
+    "balance.098": "2경기 동시 편성",
+    "balance.099": "2경기 동시 편성에는 참석자가 20명 이상 필요합니다 (현재 {n}명)",
     "report.040": "{side}이(가) {n}명입니다 (5대5로 보고하세요)",
     "report.041": "{side}에서 {role}이(가) 중복됩니다 (라인을 확인하세요)",
     "report.042": "{name}이(가) 두 번 등록되어 있습니다",

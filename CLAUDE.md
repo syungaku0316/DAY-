@@ -33,6 +33,7 @@ node src/itemEfficiency.test.mjs
 node src/fearless.test.mjs
 node src/rating.test.mjs
 node src/backup.test.mjs
+node src/lobby.test.mjs
 
 # 5. ビルド
 npx vite build   # → dist/index.html(単一ファイル 約1.0MB)
@@ -67,6 +68,7 @@ Python等で一括置換した後は、必ず 1 → 5 の順で確認するこ�
 | `src/i18n.js` | ~2530 | 3言語辞書 **825キー**完全一致 |
 | `src/rating.js` | - | レート計算(純関数): initRoles / computeLaneUpdate / applyMatchToPlayers / recomputeAll(承認済みのみ適用)/ validateMatchEntries / patchPlayerById |
 | `src/rating.test.mjs` | - | 上記の単体テスト(現行の計算式の固定を含む) |
+| `src/lobby.js` / `src/lobby.test.mjs` | - | 2試合同時マッチングの卓分け(実力順 tier / 混ぜる mix)と、組めない時の卓間入替候補 |
 | `src/backup.js` / `src/backup.test.mjs` | - | バックアップJSON(大会記録 cup を含む)と復元用ノード変換 |
 | `src/fearless.js` | 328 | フィアレス大会の純粋計算(ポイント検証・対戦表・ロック判定・成績)。i18n非依存、エラーはcodeで返す |
 | `src/fearless.test.mjs` | 154 | 上記のNode単体テスト |
@@ -90,7 +92,7 @@ Python等で一括置換した後は、必ず 1 → 5 の順で確認するこ�
   - `ngRoles`: **最大3つ**(ランク「初心者」は無制限)。超過データは読み込み時にリセット(`migratePlayer`)
   - `otp`: 1人1体・ロール紐付け。本人(PASS不要)/管理者が設定。登録ロールに配置された時だけ自チームのバン保護枠へ自動反映(保存はせずライブ計算)
 - **matches**: ID単位個別保存。`image` は承認/却下時に自動削除
-- **session**: `{roster, prefs, resetAt, balance}` — クリア時に未知フィールドは落ちる
+- **session**: `{roster, prefs, resetAt, balance, balance2}`(balance2 = 2試合同時編成の第2試合。1試合の編成・事前固定の変更・クリアで null) — クリア時に未知フィールドは落ちる
   - `balance.banProtect` = 手動宣言 `{A:[],B:[]}` / `balance.banProtectOff` = ✕で外したOTP分 `{A:[],B:[]}`
 - **settings**: `{matchupWarnThreshold, matchupWarnLanes}` — 運用設定。session と分離
   - `matchupWarnLanes`: 格差レーン数がこれ以上で「組み直し推奨」警告(既定3)

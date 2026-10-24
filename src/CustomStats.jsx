@@ -12,6 +12,7 @@ import { computeEfficiency, PERCENT_DISPLAY_KEYS } from "./itemEfficiency.js";
 import { CHAMPSTATS, CHAMPSTATS_PATCH } from "./champStats.js";
 import { computeAt, STAT_ROWS, COMPARE_LEVELS, MAX_LEVEL } from "./champGrowth.js";
 import { BACKUP_FORMAT, buildBackup, backupToNodes } from "./backup.js";
+import { splitIntoLobbies, lobbySwapCandidates } from "./lobby.js";
 import {
   MU0, SIGMA_RATED, SIGMA_UNRANKED, SIGMA_FLOOR, BETA, TAU, K_SCALE, STREAK_STEP, STREAK_MAX_MULT, STREAK_MIN_MULT,
   RATING_FLOOR, RATING_CEIL, clampRating, ROLES, RANKS, PROF_RATE, PROF_SIGMA_MULT,
@@ -3741,11 +3742,16 @@ export default function CustomStats() {
   const [editError, setEditError] = useState("");
 
   const [balanceResult, setBalanceResult] = useState(undefined); // undefined=未実行, null=割当不能
+  const [balanceResult2, setBalanceResult2] = useState(null); // 2試合同時編成の第2試合(null=1試合のみ)
+  // 2試合同時の卓の分け方(tier=実力順 / mix=混ぜる)。操作する人の端末ごとに覚える
+  const [lobbyMode, setLobbyModeState] = useState(() => { try { return localStorage.getItem("crl-lobby-mode") === "mix" ? "mix" : "tier"; } catch { return "tier"; } });
+  const setLobbyMode = (m) => { setLobbyModeState(m); try { localStorage.setItem("crl-lobby-mode", m); } catch {} };
+  const [scoutLobby, setScoutLobby] = useState(0); // マルチサーチで表示中の試合(2試合同時のとき)
   // 運用設定(全端末共有・管理者PASSで変更)。customstats/settings を購読する。
   const [settings, setSettings] = useState({ matchupWarnThreshold: MATCHUP_WARN_DEFAULT, matchupWarnLanes: MATCHUP_LANES_DEFAULT, movedTo: "" });
   const matchupThreshold = settings.matchupWarnThreshold;
   const matchupLaneLimit = settings.matchupWarnLanes;
-  const [swapSel, setSwapSel] = useState(null); // { team:'A'|'B', idx:number } タップ入替の1人目選択
+  const [swapSel, setSwapSel] = useState(null); // { li:0|1(試合), team:'A'|'B', idx:number } タップ入替の1人目選択
   const [subPickerOpen, setSubPickerOpen] = useState(false); // 選手交代の交代先選択パネル開閉
   const [champExpanded, setChampExpanded] = useState(false); // 個人成績: チャンピオン別成績の全件表示
   const [champHist, setChampHist] = useState(null); // 個人成績: チャンピオン別試合履歴ポップアップの対象チャンピオン
@@ -3755,8 +3761,8 @@ export default function CustomStats() {
   const [dialogInput, setDialogInput] = useState("");
   useEffect(() => { _dialogSet = (d) => { setDialogInput(d.defaultValue || ""); setDialog(d); }; return () => { _dialogSet = null; }; }, []);
   const closeDialog = (value) => { const d = dialog; setDialog(null); if (d && d.resolve) d.resolve(value); };
-  const balanceCardRef = useRef(null); // 画像コピー対象DOM(チーム分け結果+バン保護枠)
-  const [banInput, setBanInput] = useState({ A: "", B: "" }); // バン保護枠の入力中テキスト(チームごと)
+  const lobbyCardRefs = useRef([]); // 画像コピー対象DOM(試合ごとのチーム分け結果+バン保護枠)
+  const [banInput, setBanInput] = useState({}); // バン保護枠の入力中テキスト(キー: 試合番号+チーム)
   const [otpInput, setOtpInput] = useState({ role: "", champ: "" }); // 自分カードのOTP入力中の値(role空=登録済みロール等を初期表示)
   const [riotEdit, setRiotEdit] = useState(null); // 自分カードのRiot ID編集中の値 {name, tag}(null=閉じている)
   const [rankReqOpenFor, setRankReqOpenFor] = useState(null); // ランク変更申請フォームを開いている選手ID
@@ -3857,9 +3863,10 @@ export default function CustomStats() {
     const un3 = onValue(ref(db, "customstats/champions"), (snap) => setCustomChamps(asArray(snap.val())), onErr);
     const un4 = onValue(ref(db, "customstats/session"), (snap) => {
       const v = snap.val() || {};
-      setSession({ roster: asArray(v.roster), prefs: v.prefs || {}, resetAt: v.resetAt || 0, balance: v.balance || null });
+      setSession({ roster: asArray(v.roster), prefs: v.prefs || {}, resetAt: v.resetAt || 0, balance: v.balance || null, balance2: v.balance2 || null });
       // チーム分け結果は共有session経由で全端末に反映する(自端末での再実行を不要にするため)
       setBalanceResult(v.balance || undefined);
+      setBalanceResult2(v.balance2 || null);
     }, onErr);
     const un5 = onValue(ref(db, "customstats/settings"), (snap) => {
       const v = snap.val() || {};
@@ -4363,48 +4370,58 @@ export default function CustomStats() {
   // 他のチーム分け情報と同じくsession.balance経由で全端末に同期する。
   // 加えて、登録ロールに配置された選手のOTPを自動で保護扱いにする。OTP分は保存せず選手データから
   // 毎回ライブ計算するので、入替・交代・OTP変更にも追従する。✕で外したOTPは banProtectOff に記録する。
-  const otpProtects = (team) => {
-    if (!balanceResult) return [];
-    return (team === "A" ? balanceResult.teamA : balanceResult.teamB).flatMap((s) => {
+  const resultOf = (li) => (li === 1 ? balanceResult2 : balanceResult);
+  // 試合 li のチーム分け結果を保存(画面と共有session)。extra は session に同時に書く値
+  const saveLobby = async (li, result, extra = {}) => {
+    (li === 1 ? setBalanceResult2 : setBalanceResult)(result);
+    const nextSession = { ...session, [li === 1 ? "balance2" : "balance"]: result, ...extra };
+    setSession(nextSession);
+    await saveSession(nextSession);
+  };
+  const otpProtects = (li, team) => {
+    const res = resultOf(li);
+    if (!res) return [];
+    return (team === "A" ? res.teamA : res.teamB).flatMap((s) => {
       const p = players.find((x) => x.id === s.id);
       const champ = otpChampFor(p, s.role);
       return champ ? [{ champ, otpOf: p.name }] : [];
     });
   };
-  const banProtectList = (team) => {
-    if (!balanceResult) return [];
-    const manual = (balanceResult.banProtect || {})[team] || [];
-    const off = (balanceResult.banProtectOff || {})[team] || [];
+  const banProtectList = (li, team) => {
+    const res = resultOf(li);
+    if (!res) return [];
+    const manual = (res.banProtect || {})[team] || [];
+    const off = (res.banProtectOff || {})[team] || [];
     const out = manual.map((champ) => ({ champ, otpOf: null }));
-    otpProtects(team).forEach((o) => {
+    otpProtects(li, team).forEach((o) => {
       if (!off.includes(o.champ) && !out.some((x) => x.champ === o.champ)) out.push(o);
     });
     return out;
   };
-  const updateBanProtect = async (team, list, offList) => {
-    const next = {
-      ...balanceResult,
-      banProtect: { ...(balanceResult.banProtect || { A: [], B: [] }), [team]: list },
-      banProtectOff: { ...(balanceResult.banProtectOff || { A: [], B: [] }), [team]: offList },
-    };
-    setBalanceResult(next);
-    const nextSession = { ...session, balance: next };
-    setSession(nextSession);
-    await saveSession(nextSession);
+  const updateBanProtect = async (li, team, list, offList) => {
+    const res = resultOf(li);
+    await saveLobby(li, {
+      ...res,
+      banProtect: { ...(res.banProtect || { A: [], B: [] }), [team]: list },
+      banProtectOff: { ...(res.banProtectOff || { A: [], B: [] }), [team]: offList },
+    });
   };
-  const addBanProtect = (team, champion) => {
+  const addBanProtect = (li, team, champion) => {
+    const res = resultOf(li);
     const champ = champCanonical(champion.trim());
-    if (!champ) return;
-    const cur = (balanceResult.banProtect || {})[team] || [];
-    const off = (balanceResult.banProtectOff || {})[team] || [];
+    if (!champ || !res) return;
+    const cur = (res.banProtect || {})[team] || [];
+    const off = (res.banProtectOff || {})[team] || [];
     if (cur.includes(champ) && !off.includes(champ)) return;
-    updateBanProtect(team, cur.includes(champ) ? cur : [...cur, champ], off.filter((c) => c !== champ));
+    updateBanProtect(li, team, cur.includes(champ) ? cur : [...cur, champ], off.filter((c) => c !== champ));
   };
-  const removeBanProtect = (team, champion) => {
-    const cur = (balanceResult.banProtect || {})[team] || [];
-    const off = (balanceResult.banProtectOff || {})[team] || [];
-    const fromOtp = otpProtects(team).some((o) => o.champ === champion);
-    updateBanProtect(team, cur.filter((c) => c !== champion), fromOtp && !off.includes(champion) ? [...off, champion] : off);
+  const removeBanProtect = (li, team, champion) => {
+    const res = resultOf(li);
+    if (!res) return;
+    const cur = (res.banProtect || {})[team] || [];
+    const off = (res.banProtectOff || {})[team] || [];
+    const fromOtp = otpProtects(li, team).some((o) => o.champ === champion);
+    updateBanProtect(li, team, cur.filter((c) => c !== champion), fromOtp && !off.includes(champion) ? [...off, champion] : off);
   };
 
   // html2canvas動的ロード(Tesseract.jsと同じ遅延ロードパターン)
@@ -4579,7 +4596,7 @@ export default function CustomStats() {
 
   const setPref = async (playerId, patch) => {
     const cur = (session.prefs || {})[playerId] || { team: "AUTO", roles: [] };
-    const next = { ...session, prefs: { ...(session.prefs || {}), [playerId]: { ...cur, ...patch } }, balance: null };
+    const next = { ...session, prefs: { ...(session.prefs || {}), [playerId]: { ...cur, ...patch } }, balance: null, balance2: null };
     setSession(next);
     await saveSession(next);
   };
@@ -4590,12 +4607,12 @@ export default function CustomStats() {
       const cur = nextPrefs[pid] || { team: "AUTO", roles: [] };
       nextPrefs[pid] = { ...cur, ...patch };
     });
-    const next = { ...session, prefs: nextPrefs, balance: null };
+    const next = { ...session, prefs: nextPrefs, balance: null, balance2: null };
     setSession(next);
     await saveSession(next);
   };
   const clearRoster = async () => {
-    const next = { roster: [], prefs: {}, resetAt: session.resetAt || 0, balance: null };
+    const next = { roster: [], prefs: {}, resetAt: session.resetAt || 0, balance: null, balance2: null };
     setSession(next);
     await saveSession(next);
   };
@@ -4633,17 +4650,11 @@ export default function CustomStats() {
     await saveSession(next);
   };
 
-  // 対面レート格差(しきい値以上)の一覧。ライブμ基準で常に再計算される。
-  const matchupWarnings = useMemo(
-    () => matchupGaps(balanceResult, players, matchupThreshold),
-    [balanceResult, players, matchupThreshold]
-  );
-  const warnRoles = useMemo(() => new Set(matchupWarnings.map((w) => w.role)), [matchupWarnings]);
 
   // 編成確定直後に格差マッチアップを通知する。
   // prevRoles を渡した場合は「新たに増えたレーンがある場合のみ」表示する
   // (タップ入替のたびに毎回モーダルが出るのを防ぐため)。
-  const notifyMatchupGaps = async (result, prevRoles = null) => {
+  const notifyMatchupGaps = async (result, prevRoles = null, label = "") => {
     const gaps = matchupGaps(result, players, matchupThreshold);
     if (!gaps.length) return;
     if (prevRoles && gaps.every((g) => prevRoles.has(g.role))) return;
@@ -4656,7 +4667,7 @@ export default function CustomStats() {
     const footer = gaps.length >= matchupLaneLimit
       ? t("balance.097", { n: gaps.length, k: matchupLaneLimit })
       : t("balance.076");
-    await themedAlert([t("balance.075"), "", ...lines, "", footer].join("\n"), names, { nowrap: true });
+    await themedAlert([...(label ? [label] : []), t("balance.075"), "", ...lines, "", footer].join("\n"), names, { nowrap: true });
   };
 
   // 対面レート格差の警告しきい値を変更する(管理者PASS要・全端末共有)。
@@ -4714,11 +4725,13 @@ export default function CustomStats() {
 
   // チーム分け結果のスロット(チーム×ロール)間で選手を入替える(手動微調整)。
   // ロールは各スロットに固定のまま、そこに座る選手だけが入れ替わる。
-  const handleSlotTap = async (team, idx) => {
-    if (!swapSel) { setSwapSel({ team, idx }); setSubPickerOpen(false); return; }
+  const handleSlotTap = async (li, team, idx) => {
+    // 入替は同じ試合の中だけ。別の試合の枠をタップしたら選び直し
+    if (!swapSel || swapSel.li !== li) { setSwapSel({ li, team, idx }); setSubPickerOpen(false); return; }
     if (swapSel.team === team && swapSel.idx === idx) { setSwapSel(null); setSubPickerOpen(false); return; }
 
-    const teamA = [...balanceResult.teamA], teamB = [...balanceResult.teamB];
+    const res = resultOf(li);
+    const teamA = [...res.teamA], teamB = [...res.teamB];
     const arrOf = (team) => (team === "A" ? teamA : teamB);
     const slotA = arrOf(swapSel.team)[swapSel.idx];
     const slotB = arrOf(team)[idx];
@@ -4744,25 +4757,25 @@ export default function CustomStats() {
       return;
     }
 
-    const prevRoles = new Set(matchupGaps(balanceResult, players, matchupThreshold).map((g) => g.role));
+    const prevRoles = new Set(matchupGaps(res, players, matchupThreshold).map((g) => g.role));
 
     arrOf(swapSel.team)[swapSel.idx] = buildSlot(pB, roleA);
     arrOf(team)[idx] = buildSlot(pA, roleB);
 
-    const result = { ...balanceResult, ...recalcResult(teamA, teamB) };
-    setBalanceResult(result);
+    const result = { ...res, ...recalcResult(teamA, teamB) };
     setSwapSel(null);
-    const nextSession = { ...session, balance: result };
-    setSession(nextSession);
-    await saveSession(nextSession);
-    await notifyMatchupGaps(result, prevRoles);
+    await saveLobby(li, result);
+    await notifyMatchupGaps(result, prevRoles, balanceResult2 ? t("balance.103", { n: li + 1 }) : "");
   };
 
-  // 選手交代: 選択中のスロットに、現在チームに入っていない選手を投入する。
+  // 選手交代: 選択中のスロットに、どちらの試合にも入っていない選手を投入する。
   // 交代元はチームから抜けるがrosterからは外さない(待機扱いに戻る)。
   const handleSubstitute = async (candidateId) => {
-    if (!swapSel || !balanceResult) return;
-    const teamA = [...balanceResult.teamA], teamB = [...balanceResult.teamB];
+    if (!swapSel) return;
+    const li = swapSel.li;
+    const res = resultOf(li);
+    if (!res) return;
+    const teamA = [...res.teamA], teamB = [...res.teamB];
     const arrOf = (team) => (team === "A" ? teamA : teamB);
     const slot = arrOf(swapSel.team)[swapSel.idx];
     const role = slot.role;
@@ -4777,18 +4790,15 @@ export default function CustomStats() {
     if (!(await themedConfirm(t("shell.084", { out: outPlayer ? outPlayer.name : "-", in: inPlayer.name, role }), [outPlayer ? outPlayer.name : "", inPlayer.name, role]))) return;
     if (!(await requireAdminPass(t("balance.059")))) return;
 
-    const prevRoles = new Set(matchupGaps(balanceResult, players, matchupThreshold).map((g) => g.role));
+    const prevRoles = new Set(matchupGaps(res, players, matchupThreshold).map((g) => g.role));
 
     arrOf(swapSel.team)[swapSel.idx] = buildSlot(inPlayer, role);
-    const result = { ...balanceResult, ...recalcResult(teamA, teamB) };
-    setBalanceResult(result);
+    const result = { ...res, ...recalcResult(teamA, teamB) };
     setSwapSel(null);
     setSubPickerOpen(false);
     const nextRoster = session.roster.includes(candidateId) ? session.roster : [...session.roster, candidateId];
-    const nextSession = { ...session, roster: nextRoster, balance: result };
-    setSession(nextSession);
-    await saveSession(nextSession);
-    await notifyMatchupGaps(result, prevRoles);
+    await saveLobby(li, result, { roster: nextRoster });
+    await notifyMatchupGaps(result, prevRoles, balanceResult2 ? t("balance.103", { n: li + 1 }) : "");
   };
 
   // 登録済み全メンバーから直接10人を自動選出してチーム編成まで一括実行。
@@ -4890,10 +4900,45 @@ export default function CustomStats() {
     }
 
     setBalanceResult(result);
-    const nextSession = { ...session, roster: seated.map((p) => p.id), resetAt: session.resetAt || 0, balance: result || null };
+    setBalanceResult2(null);
+    const nextSession = { ...session, roster: seated.map((p) => p.id), resetAt: session.resetAt || 0, balance: result || null, balance2: null };
     setSession(nextSession);
     await saveSession(nextSession);
     await notifyMatchupGaps(result);
+  };
+  // 2試合同時の自動編成: 参加回数の少ない順に20人を選び、卓の分け方(実力順/混ぜる)で10人ずつに分けてから、
+  // 各卓を1試合のときと同じ方法でチーム分けする。レーン固定・対面指定(事前固定)は使わない
+  const autoAssignTwo = async () => {
+    if (!(await requireAdminPass(t("balance.098")))) return;
+    const pool = players.filter((p) => p.status !== "rest");
+    if (pool.length < 20) { themedAlert(t("balance.099", { n: pool.length })); return; }
+    const toChosen = (ps) => ps.map((p) => ({
+      id: p.id, name: p.name, roles: p.roles, lockedTeam: null, lockedRole: null,
+      prefRoles: p.prefRoles || [], ngRoles: p.ngRoles || [],
+    }));
+    const split = (ps) => bestBalancedSplit(toChosen(ps), matchupThreshold, matchupLaneLimit);
+    const ratingOf = (p) => repRating(p).mu;
+    const seated = pickSeatsFairly(pool, 20, todayCounts);
+    let [l1, l2] = splitIntoLobbies(seated, lobbyMode, ratingOf);
+    let r1 = split(l1), r2 = split(l2);
+    // NGレーン等でどちらかの卓が組めなければ、レートの近い2人を卓の間で入れ替えて再試行(方針を崩しにくい順)
+    if (!r1 || !r2) {
+      for (const [a, b] of lobbySwapCandidates(l1, l2, ratingOf).slice(0, 15)) {
+        const n1 = l1.map((x) => (x.id === a.id ? b : x)), n2 = l2.map((x) => (x.id === b.id ? a : x));
+        const s1 = split(n1), s2 = split(n2);
+        if (s1 && s2) { l1 = n1; l2 = n2; r1 = s1; r2 = s2; break; }
+      }
+    }
+    if (!r1 || !r2) { themedAlert(t("shell.060")); return; }
+    const res1 = { ...r1, lobbyMode }, res2 = { ...r2, lobbyMode };
+    setSwapSel(null);
+    setBalanceResult(res1);
+    setBalanceResult2(res2);
+    const nextSession = { ...session, roster: seated.map((p) => p.id), resetAt: session.resetAt || 0, balance: res1, balance2: res2 };
+    setSession(nextSession);
+    await saveSession(nextSession);
+    await notifyMatchupGaps(res1, null, t("balance.103", { n: 1 }));
+    await notifyMatchupGaps(res2, null, t("balance.103", { n: 2 }));
   };
   // 段階①: 状態(アクティブ優先、調整枠は不足分のみ) → 参加回数(本日)が少ない順に自動選出
   const seating = useMemo(() => {
@@ -5099,6 +5144,220 @@ export default function CustomStats() {
   };
 
   // 接続先が未設定(引継ぎ用HTML)なら初期設定画面を出す
+  // チーム分け結果1試合分の表示(li: 0=第1試合 / 1=第2試合)。2試合同時のときは2回呼ぶ
+  const renderLobby = (res, li) => {
+    const two = !!balanceResult2;
+    const warns = matchupGaps(res, players, matchupThreshold);
+    const mySel = swapSel && swapSel.li === li ? swapSel : null;
+    const liveNgCount = [...res.teamA, ...res.teamB].filter((bp) => {
+      const p = players.find((x) => x.id === bp.id);
+      return !!(p?.ngRoles || []).includes(bp.role);
+    }).length;
+    const lobbyTag = res.lobbyMode === "tier" ? t(li === 0 ? "balance.104" : "balance.105") : "";
+    return (
+      <div style={{ marginBottom: two ? 28 : 0 }}>
+        {two && (
+          <div style={{ fontSize: 18, fontWeight: 800, color: theme.accent, margin: "4px 0 10px", display: "flex", gap: 8, alignItems: "baseline" }}>
+            {t("balance.103", { n: li + 1 })}
+            {lobbyTag && <span style={{ fontSize: 14, fontWeight: 700, color: theme.textSub }}>{lobbyTag}</span>}
+          </div>
+        )}
+        {/* 対面レート格差の警告バナー(試合ごと) */}
+        {warns.length > 0 && (
+          <div className="cs-prose" style={{ border: `${warns.length >= matchupLaneLimit ? 2 : 1}px solid ${theme.teamB}`, background: theme.surfaceAlt, borderRadius: 6, padding: 10, marginBottom: 16, fontSize: 13 }}>
+            <div style={{ color: theme.teamB, fontWeight: 700, marginBottom: 4 }}>
+              {t("balance.077", { n: warns.length, th: matchupThreshold })}
+            </div>
+            {warns.map((g) => (
+              <div key={g.role} style={{ color: theme.text, whiteSpace: "nowrap", overflowX: "auto" }}>
+                {t("balance.074", { role: g.role, hi: g.hiName, lo: g.loName, hiMu: g.hiMu.toFixed(1), loMu: g.loMu.toFixed(1), diff: g.diff.toFixed(1) })}
+              </div>
+            ))}
+            {warns.length >= matchupLaneLimit ? (
+              <div style={{ color: theme.teamB, fontWeight: 700, marginTop: 4 }}>{t("balance.097", { n: warns.length, k: matchupLaneLimit })}</div>
+            ) : (
+              <div style={{ color: theme.textSub, marginTop: 4 }}>{t("balance.076")}</div>
+            )}
+          </div>
+        )}
+        <div style={{ fontSize: 13, color: theme.textSub, marginBottom: 8 }}>
+          {t("balance.029")}
+          {res.manual && <span style={{ color: theme.accent, fontWeight: 700, marginLeft: 6 }}>{t("balance.030")}</span>}
+        </div>
+        {liveNgCount > 0 && (
+          <div style={{ ...cardStyle, borderColor: theme.teamB, marginBottom: 12, color: theme.teamB, fontSize: 13, fontWeight: 700 }}>
+            {t("balance.031")}{liveNgCount}{t("balance.032")}
+          </div>
+        )}
+        {mySel && (
+          <div style={{ marginBottom: 12 }}>
+            <button className="cs-btn" style={{ fontSize: 14, padding: "8px 18px" }} onClick={() => setSubPickerOpen(true)}>
+              {t("balance.059")}
+            </button>
+          </div>
+        )}
+        {mySel && subPickerOpen && (() => {
+          // 交代候補: どちらの試合にも出ていない出席者
+          const inTeamIds = new Set([balanceResult, balanceResult2].filter((r) => r && r.teamA).flatMap((r) => [...r.teamA, ...r.teamB]).map((x) => x.id));
+          const candidates = players.filter((p) => !inTeamIds.has(p.id) && p.status !== "rest");
+          const slot = (mySel.team === "A" ? res.teamA : res.teamB)[mySel.idx];
+          return (
+            <div onClick={() => setSubPickerOpen(false)}
+              style={{ position: "fixed", inset: 0, zIndex: 100, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+              <div onClick={(e) => e.stopPropagation()}
+                style={{ ...cardStyle, background: theme.surface, width: "min(560px, 96vw)", maxHeight: "80vh", overflowY: "auto", padding: 22, boxShadow: "0 8px 40px rgba(0,0,0,.4)" }}>
+                <div style={{ fontSize: 19, fontWeight: 700, color: theme.accent, marginBottom: 4 }}>{t("balance.059")}</div>
+                <div style={{ fontSize: 14, color: theme.textSub, marginBottom: 14 }}>
+                  {slot ? `${slot.role} / ${slot.name}` : ""} → {t("balance.060")}
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                  {candidates.length === 0 ? (
+                    <span style={{ fontSize: 14, color: theme.textFaint }}>-</span>
+                  ) : candidates.map((p) => {
+                    const ng = slot && (p.ngRoles || []).includes(slot.role);
+                    return (
+                      <button key={p.id} className="cs-btn-ghost" disabled={ng}
+                        style={{ padding: "10px 18px", fontSize: 16, fontWeight: 700, opacity: ng ? 0.4 : 1,
+                          borderColor: ng ? theme.borderInput : theme.accent }}
+                        onClick={() => handleSubstitute(p.id)}>
+                        {p.name}{ng ? " (NG)" : ""}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div style={{ marginTop: 18, textAlign: "right" }}>
+                  <button className="cs-btn-ghost" style={{ padding: "8px 20px", fontSize: 14 }} onClick={() => setSubPickerOpen(false)}>
+                    {t("balance.071")}
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+        <div ref={(el) => { lobbyCardRefs.current[li] = el; }} style={{ background: theme.surface, padding: 4 }}>
+        <div className="cs-cols2">
+          {["A", "B"].map((side) => {
+            const color = side === "A" ? theme.accentBright : theme.teamB;
+            const list = side === "A" ? res.teamA : res.teamB;
+            return (
+              <div key={side} style={{ ...cardStyle, borderColor: color }}>
+                <div style={{ color, fontWeight: 700, marginBottom: 10, fontSize: 16 }}>
+                  {sideLabel(side)} <span style={{ fontWeight: 400, color: theme.textFaint, fontSize: 14 }}>{t("balance.033")}{fmtTenths(fxTeamSum10(list, players))}</span>
+                </div>
+                {list.map((bp, idx) => {
+                  const gapWarn = warns.find((w) => w.role === bp.role) || null;
+                  return (
+                    <PlayerSlotCard key={idx} p={players.find((x) => x.id === bp.id)} role={bp.role} name={bp.name} mu={slotLiveMu(bp, players)}
+                      ChampIcon={ChampIcon} onClick={() => handleSlotTap(li, side, idx)}
+                      selected={!!(mySel && mySel.team === side && mySel.idx === idx)} warnLeft={!!gapWarn}
+                      badges={gapWarn && <span title={t("balance.076")} style={{ color: theme.teamB, fontWeight: 700, fontSize: 13, marginLeft: 6 }}>⚠ {t("balance.078", { diff: gapWarn.diff.toFixed(1) })}</span>} />
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* バン保護枠: チーム単位(ブルー/レッド)でチャンピオンを宣言。個々の選手には紐づけない */}
+        <div style={{ ...cardStyle, marginTop: 16 }}>
+          <datalist id={`champListBan${li}`}>
+            {[...(ddChamps ? ddChamps.map((x) => x.name) : CHAMPIONS), ...customChamps].map((ch) => <option key={ch} value={champLabel(ch)} />)}
+          </datalist>
+          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{t("balance.040")}</div>
+          <div style={{ fontSize: 13, color: theme.textFaint, marginBottom: 10 }}>
+            {t("balance.041")}
+            <div>{t("otp.011")}</div>
+          </div>
+          <div className="cs-cols2">
+            {["A", "B"].map((side) => {
+              const color = side === "A" ? theme.accentBright : theme.teamB;
+              const list = banProtectList(li, side);
+              const key = `${li}${side}`;
+              return (
+                <div key={side}>
+                  <div style={{ color, fontWeight: 700, marginBottom: 6, fontSize: 14 }}>{sideLabel(side)}</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8, minHeight: 26 }}>
+                    {list.length === 0 && <span style={{ fontSize: 13, color: theme.textFaint }}>{t("balance.042")}</span>}
+                    {list.map(({ champ, otpOf }) => (
+                      <span key={champ} title={otpOf ? t("otp.010", { name: otpOf }) : undefined}
+                        style={{ display: "inline-flex", alignItems: "center", gap: 4, background: theme.surfaceAlt, border: `1px solid ${otpOf ? theme.accent : theme.borderInput}`, borderRadius: 5, padding: "3px 8px", fontSize: 13 }}>
+                        {otpOf && <span style={{ fontSize: 11, fontWeight: 700, color: theme.accent }}>OTP</span>}
+                        <ChampIcon name={champ} size={16} />{champLabel(champ)}
+                        <X size={13} style={{ cursor: "pointer", color: theme.textFaint }} onClick={() => removeBanProtect(li, side, champ)} />
+                      </span>
+                    ))}
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <input className="cs-input" list={`champListBan${li}`} style={{ flex: 1, minWidth: 0, padding: "5px 8px", fontSize: 13 }}
+                      placeholder={t("balance.043")} value={banInput[key] || ""}
+                      onChange={(e) => setBanInput({ ...banInput, [key]: e.target.value })}
+                      onKeyDown={(e) => { if (e.key === "Enter") { addBanProtect(li, side, banInput[key] || ""); setBanInput({ ...banInput, [key]: "" }); } }} />
+                    <button className="cs-btn-ghost" style={{ padding: "5px 12px", fontSize: 13 }}
+                      onClick={() => { addBanProtect(li, side, banInput[key] || ""); setBanInput({ ...banInput, [key]: "" }); }}>{t("balance.044")}</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        </div>
+
+        <div style={{ fontSize: 13, color: theme.textFaint, marginTop: 8, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+          <span>{t("balance.045")} {fxShownTeamDiff(res, players)} {t("balance.046")} {fxShownLaneDiff(res, players)}</span>
+          <button className="cs-btn-ghost" title={t("balance.084")}
+            style={{ padding: "1px 8px", fontSize: 13, lineHeight: 1.5, fontWeight: 700 }}
+            onClick={() => themedAlert([
+              t("balance.084"), "",
+              t("balance.085"), "",
+              t("balance.086"), "",
+              t("balance.087"),
+              t("balance.088"), "",
+              t("balance.089"), "",
+              t("balance.090"),
+            ].join("\n"))}>
+            ?
+          </button>
+        </div>
+        <button className="cs-btn-ghost" style={{ marginTop: 12, marginRight: 8 }}
+          onClick={async () => {
+            const line = (p) => `${p.role.padEnd(3)} ${p.name}`;
+            const banText = (side) => banProtectList(li, side).map((o) => (o.otpOf ? `${o.champ}(OTP)` : o.champ)).join("、");
+            const banLines = [];
+            if (banText("A")) banLines.push(`ブルー: ${banText("A")}`);
+            if (banText("B")) banLines.push(`レッド: ${banText("B")}`);
+            const txt = [
+              two ? `【チーム分け 第${li + 1}試合】` : "【チーム分け】",
+              `■ ブルーサイド（計${fmtTenths(fxTeamSum10(res.teamA, players))}）`,
+              ...res.teamA.map(line),
+              `■ レッドサイド（計${fmtTenths(fxTeamSum10(res.teamB, players))}）`,
+              ...res.teamB.map(line),
+              `レート差: ${fxShownTeamDiff(res, players)}`,
+              ...(banLines.length ? ["", "── バン保護 ──", ...banLines] : []),
+            ].join("\n");
+            try { await navigator.clipboard.writeText(txt); themedAlert(t("balance.047")); }
+            catch { await themedPrompt(t("balance.048"), { defaultValue: txt }); }
+          }}>
+          {t("balance.049")}
+        </button>
+        <button className="cs-btn-ghost" style={{ marginTop: 12, marginRight: 8 }} disabled={imgCopyBusy}
+          onClick={() => copyBalanceImage(lobbyCardRefs.current[li])}>
+          {imgCopyBusy ? t("balance.050") : t("balance.051")}
+        </button>
+        <button className="cs-btn" style={{ marginTop: 12 }}
+          onClick={() => {
+            setEntries([
+              ...res.teamA.map((p) => ({ playerId: p.id, team: "A", role: p.role, champion: "" })),
+              ...res.teamB.map((p) => ({ playerId: p.id, team: "B", role: p.role, champion: "" })),
+            ]);
+            setKdaInputs({});
+            setTab("report");
+          }}>
+          {t("balance.052")}
+        </button>
+      </div>
+    );
+  };
+
   if (!getDb()) return <SetupScreen />;
 
   if (VIEW_PASS && !gateOk) {
@@ -6195,9 +6454,11 @@ export default function CustomStats() {
       {/* ---------- PERSONAL STATS ---------- */}
       {/* ---------- SCOUT: MULTI SEARCH(ロール別対面比較) ---------- */}
       {tab === "scoutMulti" && (() => {
-        if (!balanceResult || !balanceResult.teamA) {
+        const br = scoutLobby === 1 && balanceResult2 ? balanceResult2 : balanceResult;
+        if (!br || !br.teamA) {
           return <EmptyState text={t("scoutMulti.001")} />;
         }
+        const brWarnRoles = new Set(matchupGaps(br, players, matchupThreshold).map((w) => w.role)); // 表示中の試合の対面格差
         const statFor = (playerId, role) => {
           const p = players.find((x) => x.id === playerId);
           if (!p) return null;
@@ -6267,9 +6528,19 @@ export default function CustomStats() {
             <div style={{ fontSize: 14, color: theme.textSub, marginBottom: 10 }}>
               {t("scoutMulti.008")}
             </div>
-            {balanceResult.teamA.length === 5 && balanceResult.teamB.length === 5 && (() => {
-              const teamAFull = balanceResult.teamA.map((x) => ({ mu: x.mu, sigma: players.find((p) => p.id === x.id)?.roles[x.role]?.sigma ?? SIGMA_RATED }));
-              const teamBFull = balanceResult.teamB.map((x) => ({ mu: x.mu, sigma: players.find((p) => p.id === x.id)?.roles[x.role]?.sigma ?? SIGMA_RATED }));
+            {balanceResult2 && (
+              <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+                {[0, 1].map((li) => (
+                  <button key={li} className="cs-btn-ghost" onClick={() => setScoutLobby(li)}
+                    style={{ padding: "4px 14px", fontSize: 14, borderColor: (scoutLobby === 1 ? 1 : 0) === li ? theme.accent : theme.borderInput, color: (scoutLobby === 1 ? 1 : 0) === li ? theme.accent : theme.textSub, fontWeight: (scoutLobby === 1 ? 1 : 0) === li ? 700 : 400 }}>
+                    {t("balance.103", { n: li + 1 })}
+                  </button>
+                ))}
+              </div>
+            )}
+            {br.teamA.length === 5 && br.teamB.length === 5 && (() => {
+              const teamAFull = br.teamA.map((x) => ({ mu: slotLiveMu(x, players), sigma: players.find((p) => p.id === x.id)?.roles[x.role]?.sigma ?? SIGMA_RATED }));
+              const teamBFull = br.teamB.map((x) => ({ mu: slotLiveMu(x, players), sigma: players.find((p) => p.id === x.id)?.roles[x.role]?.sigma ?? SIGMA_RATED }));
               const pA = teamWinProb(teamAFull, teamBFull);
               const pct = Math.round(pA * 100);
               return (
@@ -6298,12 +6569,12 @@ export default function CustomStats() {
               </thead>
               <tbody>
                 {ROLES.map((role) => {
-                  const a = balanceResult.teamA.find((x) => x.role === role);
-                  const b = balanceResult.teamB.find((x) => x.role === role);
+                  const a = br.teamA.find((x) => x.role === role);
+                  const b = br.teamB.find((x) => x.role === role);
                   const sa = a ? statFor(a.id, role) : null;
                   const sb = b ? statFor(b.id, role) : null;
                   const diff = sa?.roleMu != null && sb?.roleMu != null ? sa.roleMu - sb.roleMu : null;
-                  const gapWarn = warnRoles.has(role);
+                  const gapWarn = brWarnRoles.has(role);
                   return (
                     <tr key={role} style={{ boxShadow: gapWarn ? `inset 0 0 0 2px ${theme.teamB}` : "none" }}>
                       {sideCell(sa, "right")}
@@ -6341,7 +6612,7 @@ export default function CustomStats() {
                 })}
               </tbody>
             </table>
-            {matchupWarnings.length > 0 && (
+            {brWarnRoles.size > 0 && (
               <div style={{ fontSize: 13, color: theme.textSub, marginTop: 8 }}>
                 {t("scoutMulti.022", { th: matchupThreshold })}
               </div>
@@ -6352,7 +6623,9 @@ export default function CustomStats() {
 
       {(tab === "stats" || tab === "scoutStats") && (() => {
         const restricted = tab === "scoutStats";
-        const pool = restricted ? players.filter((p) => seating.seatedIds.includes(p.id)) : players;
+        // 2試合同時のときは両試合の出場者(20人)。それ以外は従来どおり席決めの10人
+        const lobbyIds = balanceResult2 && balanceResult?.teamA ? new Set([balanceResult, balanceResult2].flatMap((r) => [...r.teamA, ...r.teamB]).map((x) => x.id)) : null;
+        const pool = restricted ? players.filter((p) => (lobbyIds ? lobbyIds.has(p.id) : seating.seatedIds.includes(p.id))) : players;
         const curId = restricted ? scoutPlayerId : statsPlayerId;
         const setCurId = restricted ? setScoutPlayerId : setStatsPlayerId;
         return (
@@ -6844,6 +7117,25 @@ export default function CustomStats() {
                   {t("balance.004")}
                 </button>
               </div>
+              {(() => {
+                const activeCount = players.filter((p) => p.status !== "rest").length;
+                const chip = (on) => ({ padding: "4px 12px", fontSize: 13, whiteSpace: "nowrap", borderColor: on ? theme.accent : theme.borderInput, color: on ? theme.accent : theme.textSub, fontWeight: on ? 700 : 400 });
+                return (
+                  <div style={{ flex: "1 1 100%", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", borderTop: `1px solid ${theme.borderTable}`, paddingTop: 10 }}>
+                    <span style={{ fontSize: 13, color: theme.textSub, fontWeight: 700 }}>{t("balance.100")}</span>
+                    {[["tier", "balance.101"], ["mix", "balance.102"]].map(([m, k]) => (
+                      <button key={m} className="cs-btn-ghost" style={chip(lobbyMode === m)} onClick={() => setLobbyMode(m)}>{t(k)}</button>
+                    ))}
+                    <button className="cs-btn" disabled={activeCount < 20} title={activeCount < 20 ? t("balance.099", { n: activeCount }) : undefined}
+                      style={{ padding: "8px 18px", fontSize: 14, marginLeft: "auto", opacity: activeCount < 20 ? 0.5 : 1 }} onClick={autoAssignTwo}>
+                      {t("balance.098")}
+                    </button>
+                    <div style={{ flex: "1 1 100%", fontSize: 12, color: theme.textFaint }}>
+                      {activeCount < 20 ? t("balance.099", { n: activeCount }) : t("balance.106")}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
 
             {balanceSubTab === "pin" && (
@@ -6946,213 +7238,13 @@ export default function CustomStats() {
               </div>
             </div>
 
-            {/* 対面レート格差の警告バナー */}
-            {matchupWarnings.length > 0 && (
-              <div className="cs-prose" style={{ border: `${matchupWarnings.length >= matchupLaneLimit ? 2 : 1}px solid ${theme.teamB}`, background: theme.surfaceAlt, borderRadius: 6, padding: 10, marginBottom: 16, fontSize: 13 }}>
-                <div style={{ color: theme.teamB, fontWeight: 700, marginBottom: 4 }}>
-                  {t("balance.077", { n: matchupWarnings.length, th: matchupThreshold })}
-                </div>
-                {matchupWarnings.map((g) => (
-                  <div key={g.role} style={{ color: theme.text, whiteSpace: "nowrap", overflowX: "auto" }}>
-                    {t("balance.074", { role: g.role, hi: g.hiName, lo: g.loName, hiMu: g.hiMu.toFixed(1), loMu: g.loMu.toFixed(1), diff: g.diff.toFixed(1) })}
-                  </div>
-                ))}
-                {matchupWarnings.length >= matchupLaneLimit ? (
-                  <div style={{ color: theme.teamB, fontWeight: 700, marginTop: 4 }}>{t("balance.097", { n: matchupWarnings.length, k: matchupLaneLimit })}</div>
-                ) : (
-                  <div style={{ color: theme.textSub, marginTop: 4 }}>{t("balance.076")}</div>
-                )}
-              </div>
-            )}
-
-              {/* 右: 結果 */}
+              {/* 右: 結果(2試合同時のときは第1試合・第2試合を縦に並べる) */}
               <div style={{ minWidth: 0 }}>
                 {balanceResult === undefined && <EmptyState text={t("balance.027")} />}
                 {balanceResult === null && (
                   <EmptyState text={t("balance.028")} />
                 )}
-                {balanceResult && (() => {
-                  const liveNgCount = [...balanceResult.teamA, ...balanceResult.teamB].filter((bp) => {
-                    const p = players.find((x) => x.id === bp.id);
-                    return !!(p?.ngRoles || []).includes(bp.role);
-                  }).length;
-                  return (
-                  <>
-                    <div style={{ fontSize: 13, color: theme.textSub, marginBottom: 8 }}>
-                      {t("balance.029")}
-                      {balanceResult.manual && <span style={{ color: theme.accent, fontWeight: 700, marginLeft: 6 }}>{t("balance.030")}</span>}
-                    </div>
-                    {liveNgCount > 0 && (
-                      <div style={{ ...cardStyle, borderColor: theme.teamB, marginBottom: 12, color: theme.teamB, fontSize: 13, fontWeight: 700 }}>
-                        {t("balance.031")}{liveNgCount}{t("balance.032")}
-                      </div>
-                    )}
-                    {swapSel && (
-                      <div style={{ marginBottom: 12 }}>
-                        <button className="cs-btn" style={{ fontSize: 14, padding: "8px 18px" }} onClick={() => setSubPickerOpen(true)}>
-                          {t("balance.059")}
-                        </button>
-                      </div>
-                    )}
-                    {swapSel && subPickerOpen && (() => {
-                      const inTeamIds = new Set([...balanceResult.teamA, ...balanceResult.teamB].map((x) => x.id));
-                      const candidates = players.filter((p) => !inTeamIds.has(p.id) && p.status !== "rest");
-                      const slot = (swapSel.team === "A" ? balanceResult.teamA : balanceResult.teamB)[swapSel.idx];
-                      return (
-                        <div onClick={() => setSubPickerOpen(false)}
-                          style={{ position: "fixed", inset: 0, zIndex: 100, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
-                          <div onClick={(e) => e.stopPropagation()}
-                            style={{ ...cardStyle, background: theme.surface, width: "min(560px, 96vw)", maxHeight: "80vh", overflowY: "auto", padding: 22, boxShadow: "0 8px 40px rgba(0,0,0,.4)" }}>
-                            <div style={{ fontSize: 19, fontWeight: 700, color: theme.accent, marginBottom: 4 }}>{t("balance.059")}</div>
-                            <div style={{ fontSize: 14, color: theme.textSub, marginBottom: 14 }}>
-                              {slot ? `${slot.role} / ${slot.name}` : ""} → {t("balance.060")}
-                            </div>
-                            <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-                              {candidates.length === 0 ? (
-                                <span style={{ fontSize: 14, color: theme.textFaint }}>-</span>
-                              ) : candidates.map((p) => {
-                                const ng = slot && (p.ngRoles || []).includes(slot.role);
-                                return (
-                                  <button key={p.id} className="cs-btn-ghost" disabled={ng}
-                                    style={{ padding: "10px 18px", fontSize: 16, fontWeight: 700, opacity: ng ? 0.4 : 1,
-                                      borderColor: ng ? theme.borderInput : theme.accent }}
-                                    onClick={() => handleSubstitute(p.id)}>
-                                    {p.name}{ng ? " (NG)" : ""}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                            <div style={{ marginTop: 18, textAlign: "right" }}>
-                              <button className="cs-btn-ghost" style={{ padding: "8px 20px", fontSize: 14 }} onClick={() => setSubPickerOpen(false)}>
-                                {t("balance.071")}
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })()}
-                    <div ref={balanceCardRef} style={{ background: theme.surface, padding: 4 }}>
-                    <div className="cs-cols2">
-                      {["A", "B"].map((side) => {
-                        const color = side === "A" ? theme.accentBright : theme.teamB;
-                        const list = side === "A" ? balanceResult.teamA : balanceResult.teamB;
-                        return (
-                          <div key={side} style={{ ...cardStyle, borderColor: color }}>
-                            <div style={{ color, fontWeight: 700, marginBottom: 10, fontSize: 16 }}>
-                              {sideLabel(side)} <span style={{ fontWeight: 400, color: theme.textFaint, fontSize: 14 }}>{t("balance.033")}{fmtTenths(fxTeamSum10(list, players))}</span>
-                            </div>
-                            {list.map((bp, idx) => {
-                              const gapWarn = matchupWarnings.find((w) => w.role === bp.role) || null;
-                              return (
-                                <PlayerSlotCard key={idx} p={players.find((x) => x.id === bp.id)} role={bp.role} name={bp.name} mu={slotLiveMu(bp, players)}
-                                  ChampIcon={ChampIcon} onClick={() => handleSlotTap(side, idx)}
-                                  selected={!!(swapSel && swapSel.team === side && swapSel.idx === idx)} warnLeft={!!gapWarn}
-                                  badges={gapWarn && <span title={t("balance.076")} style={{ color: theme.teamB, fontWeight: 700, fontSize: 13, marginLeft: 6 }}>⚠ {t("balance.078", { diff: gapWarn.diff.toFixed(1) })}</span>} />
-                              );
-                            })}
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    {/* バン保護枠: チーム単位(ブルー/レッド)でチャンピオンを宣言。個々の選手には紐づけない */}
-                    <div style={{ ...cardStyle, marginTop: 16 }}>
-                      <datalist id="champListBan">
-                        {[...(ddChamps ? ddChamps.map((x) => x.name) : CHAMPIONS), ...customChamps].map((ch) => <option key={ch} value={champLabel(ch)} />)}
-                      </datalist>
-                      <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{t("balance.040")}</div>
-                      <div style={{ fontSize: 13, color: theme.textFaint, marginBottom: 10 }}>
-                        {t("balance.041")}
-                        <div>{t("otp.011")}</div>
-                      </div>
-                      <div className="cs-cols2">
-                        {["A", "B"].map((side) => {
-                          const color = side === "A" ? theme.accentBright : theme.teamB;
-                          const list = banProtectList(side);
-                          return (
-                            <div key={side}>
-                              <div style={{ color, fontWeight: 700, marginBottom: 6, fontSize: 14 }}>{sideLabel(side)}</div>
-                              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8, minHeight: 26 }}>
-                                {list.length === 0 && <span style={{ fontSize: 13, color: theme.textFaint }}>{t("balance.042")}</span>}
-                                {list.map(({ champ, otpOf }) => (
-                                  <span key={champ} title={otpOf ? t("otp.010", { name: otpOf }) : undefined}
-                                    style={{ display: "inline-flex", alignItems: "center", gap: 4, background: theme.surfaceAlt, border: `1px solid ${otpOf ? theme.accent : theme.borderInput}`, borderRadius: 5, padding: "3px 8px", fontSize: 13 }}>
-                                    {otpOf && <span style={{ fontSize: 11, fontWeight: 700, color: theme.accent }}>OTP</span>}
-                                    <ChampIcon name={champ} size={16} />{champLabel(champ)}
-                                    <X size={13} style={{ cursor: "pointer", color: theme.textFaint }} onClick={() => removeBanProtect(side, champ)} />
-                                  </span>
-                                ))}
-                              </div>
-                              <div style={{ display: "flex", gap: 6 }}>
-                                <input className="cs-input" list="champListBan" style={{ flex: 1, minWidth: 0, padding: "5px 8px", fontSize: 13 }}
-                                  placeholder={t("balance.043")} value={banInput[side]}
-                                  onChange={(e) => setBanInput({ ...banInput, [side]: e.target.value })}
-                                  onKeyDown={(e) => { if (e.key === "Enter") { addBanProtect(side, banInput[side]); setBanInput({ ...banInput, [side]: "" }); } }} />
-                                <button className="cs-btn-ghost" style={{ padding: "5px 12px", fontSize: 13 }}
-                                  onClick={() => { addBanProtect(side, banInput[side]); setBanInput({ ...banInput, [side]: "" }); }}>{t("balance.044")}</button>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                    </div>
-
-                    <div style={{ fontSize: 13, color: theme.textFaint, marginTop: 8, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                      <span>{t("balance.045")} {fxShownTeamDiff(balanceResult, players)} {t("balance.046")} {fxShownLaneDiff(balanceResult, players)}</span>
-                      <button className="cs-btn-ghost" title={t("balance.084")}
-                        style={{ padding: "1px 8px", fontSize: 13, lineHeight: 1.5, fontWeight: 700 }}
-                        onClick={() => themedAlert([
-                          t("balance.084"), "",
-                          t("balance.085"), "",
-                          t("balance.086"), "",
-                          t("balance.087"),
-                          t("balance.088"), "",
-                          t("balance.089"), "",
-                          t("balance.090"),
-                        ].join("\n"))}>
-                        ?
-                      </button>
-                    </div>
-                    <button className="cs-btn-ghost" style={{ marginTop: 12, marginRight: 8 }}
-                      onClick={async () => {
-                        const line = (p) => `${p.role.padEnd(3)} ${p.name}`;
-                        const banText = (side) => banProtectList(side).map((o) => (o.otpOf ? `${o.champ}(OTP)` : o.champ)).join("、");
-                        const banLines = [];
-                        if (banText("A")) banLines.push(`ブルー: ${banText("A")}`);
-                        if (banText("B")) banLines.push(`レッド: ${banText("B")}`);
-                        const txt = [
-                          "【チーム分け】",
-                          `■ ブルーサイド（計${fmtTenths(fxTeamSum10(balanceResult.teamA, players))}）`,
-                          ...balanceResult.teamA.map(line),
-                          `■ レッドサイド（計${fmtTenths(fxTeamSum10(balanceResult.teamB, players))}）`,
-                          ...balanceResult.teamB.map(line),
-                          `レート差: ${fxShownTeamDiff(balanceResult, players)}`,
-                          ...(banLines.length ? ["", "── バン保護 ──", ...banLines] : []),
-                        ].join("\n");
-                        try { await navigator.clipboard.writeText(txt); themedAlert(t("balance.047")); }
-                        catch { await themedPrompt(t("balance.048"), { defaultValue: txt }); }
-                      }}>
-                      {t("balance.049")}
-                    </button>
-                    <button className="cs-btn-ghost" style={{ marginTop: 12, marginRight: 8 }} disabled={imgCopyBusy}
-                      onClick={() => copyBalanceImage(balanceCardRef.current)}>
-                      {imgCopyBusy ? t("balance.050") : t("balance.051")}
-                    </button>
-                    <button className="cs-btn" style={{ marginTop: 12 }}
-                      onClick={() => {
-                        setEntries([
-                          ...balanceResult.teamA.map((p) => ({ playerId: p.id, team: "A", role: p.role, champion: "" })),
-                          ...balanceResult.teamB.map((p) => ({ playerId: p.id, team: "B", role: p.role, champion: "" })),
-                        ]);
-                        setKdaInputs({});
-                        setTab("report");
-                      }}>
-                      {t("balance.052")}
-                    </button>
-                  </>
-                  );
-                })()}
+                {[balanceResult, balanceResult2].map((res, li) => (res && res.teamA ? <React.Fragment key={li}>{renderLobby(res, li)}</React.Fragment> : null))}
               </div>
             </div>
           )}
