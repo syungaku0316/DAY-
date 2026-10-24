@@ -6,7 +6,7 @@ import { getDatabase, ref, onValue, set as fbSet, update as fbUpdate, remove as 
 import {
   Trophy, Swords, CheckCircle2, History, Users, UserPlus,
   Scale, Trash2, Loader2, X, UserRound, Pencil, Medal, ExternalLink, ListOrdered, Palette, Coins, RefreshCw, TrendingUp, Sparkles,
-  MessageSquare, ThumbsUp, Send, Flag, Shuffle, Crown, Lock
+  MessageSquare, ThumbsUp, Send, Ban, Play, Pause, Volume2, VolumeX, Flag, Shuffle, Crown, Lock
 } from "lucide-react";
 import { computeEfficiency, PERCENT_DISPLAY_KEYS } from "./itemEfficiency.js";
 import { CHAMPSTATS, CHAMPSTATS_PATCH } from "./champStats.js";
@@ -21,11 +21,18 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from "recharts";
 import { t, setLang, getLang, rankLabel, rankShortLang, initialLang, dateLocale } from "./i18n.js";
-import { champLabel, champCanonical } from "./champNames.js";
+import { champLabel, champCanonical, CHAMP_I18N } from "./champNames.js";
+import { PAGE_SOURCE } from "./pageSource.js";
 
 /* 更新履歴。リリースのたびに先頭へ追記(手動管理)。Discordコピー文面と同様、UI言語に関わらず日本語固定 */
 const CHANGELOG = [
-  { date: "2026-10-24", text: "大会タブを追加(フィアレス大会のチーム登録・対戦表・ピック記録・大会成績)" },
+  { date: "2026-10-24", text: "大会タブを追加(フィアレス大会のチーム登録・対戦表・ピック記録・大会成績)。マッチングにチームビルダーを追加し、フィアレスドラフトを大会タブへ移動" },
+  { date: "2026-10-22", text: "フィアレス: 手番が切り替わると音が鳴るように(自チームの番は高い2音、残り5秒からカウントダウン音、端末ごとにON/OFF)" },
+  { date: "2026-10-19", text: "選手登録の入力欄を「ディスコード名」「Riot ID(ゲーム名)」「#タグ」の3つに分割(「名前#タグ」の貼り付けは自動で分割)" },
+  { date: "2026-10-10", text: "フィアレス: ピック後のロール宣言を追加(両チーム確定まで相手には非公開)。「1つ戻す」で持ち時間が延びないように変更(キャプテンは相手が次の手を打つまで自分の手のみ)" },
+  { date: "2026-10-08", text: "引継ぎ機能を追加(全データのバックアップ、引継ぎ用HTML、移転設定)" },
+  { date: "2026-10-06", text: "フィアレスドラフト画面を追加(マッチング→フィアレス。BAN/PICK・使用済みチャンプの制限・30秒タイマー・キャプテン制限)" },
+  { date: "2026-10-04", text: "NGレーンは3つまでに(初心者は除く)。チーム分けを格差の出にくい計算に変更" },
   { date: "2026-09-26", text: "要望掲示板を追加(要望の投稿・賛同と、運営からの回答)" },
   { date: "2026-09-08", text: "チャンピオン基礎ステータス成長タブを追加" },
   { date: "2026-08-22", text: "出欠管理の自分カードから、ランク・熟練度の変更申請ができるように" },
@@ -148,6 +155,22 @@ const clampMatchupWarn = (v) => {
   if (!Number.isFinite(n)) return MATCHUP_WARN_DEFAULT;
   return Math.min(MATCHUP_WARN_MAX, Math.max(MATCHUP_WARN_MIN, Math.round(n * 10) / 10));
 };
+
+// 格差マッチアップのレーン数がこの値以上なら「組み直し推奨」まで強めて警告する(レーン数)。
+// 管理者が設定画面から変更でき、全端末で共有される。
+const MATCHUP_LANES_DEFAULT = 3;
+const MATCHUP_LANES_MIN = 1;
+const MATCHUP_LANES_MAX = 5;
+const clampMatchupLanes = (v) => {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return MATCHUP_LANES_DEFAULT;
+  return Math.min(MATCHUP_LANES_MAX, Math.max(MATCHUP_LANES_MIN, Math.round(n)));
+};
+
+// NGレーンの上限。1ロール以外NGの申告が重なると同ロールが固定され格差マッチが避けられないため、
+// 最低2レーンは担当可能にしてもらう。ランク「初心者」のみ対象外。
+const NG_ROLE_MAX = 3;
+const ngLimited = (p) => p.rank !== "初心者";
 
 // 対面(同ロール)のレート差がしきい値以上のマッチアップを列挙する。
 // μは編成時スナップショット(slot.mu)ではなく現在の選手データを優先する。
@@ -293,7 +316,9 @@ function migratePlayer(p) {
   const status = rawStatus === "adjust" ? "active" : rawStatus; // active/rest の2値
   const adjust = status === "rest" ? false : (rawStatus === "adjust" || !!p.adjust);
   const prefRoles = p.prefRoles || [];
-  const ngRoles = p.ngRoles || [];
+  // 上限導入前にNG超過だった選手はリセットし、選び直してもらう(どれを残すか機械的に決められないため)
+  const ngRaw = p.ngRoles || [];
+  const ngRoles = ngLimited(p) && ngRaw.length > NG_ROLE_MAX ? [] : ngRaw;
   // 出欠ボード用: 自己申告の参加可能時間・ひとことメモ・最終応答時刻(未設定=未回答扱い)
   const availFrom = p.availFrom || "";
   const availTo = p.availTo || "";
@@ -611,7 +636,13 @@ function permutations(arr, k) {
 // 1. 両チーム合計レート差の最小化(最優先)
 // 2. 同ロール対面のレート差合計の最小化
 // 3. 得意ロール配置度(合計μ)の最大化
-// を score = teamDiff + 0.5*laneDiff - 0.05*total で統合し全探索
+// を balanceScore = teamDiff + 0.5*laneDiff - 0.05*total で統合し全探索。
+// 格差対策: 対面μ差が警告しきい値以上のレーンを「格差レーン」とし、
+//   ① 格差レーン数が組み直し推奨ライン(laneLimit)に達する編成は希望ロールより優先して回避
+//   ② それ未満は 格差1レーン=GAP_LANE_COST+しきい値超過分 と 希望1件=PREF_HIT_VALUE を天秤にかける
+// (希望を絶対優先にすると格差が放置されやすく、1ロール申告が重なると格差マッチが常態化したため)
+const GAP_LANE_COST = 10;
+const PREF_HIT_VALUE = 30;
 const ROLE_ORDER = { TOP: 0, JG: 1, MID: 2, ADC: 3, SUP: 4 };
 
 function validPerms(team) {
@@ -679,7 +710,7 @@ function pickSeatsFairly(pool, need, todayCounts, baseline = []) {
   return selected;
 }
 
-function bestBalancedSplit(players) {
+function bestBalancedSplit(players, gapTh = MATCHUP_WARN_DEFAULT, laneLimit = MATCHUP_LANES_DEFAULT) {
   const n = players.length;
   if (n < 2 || n > 10) return null;
   const half = Math.floor(n / 2);
@@ -723,16 +754,22 @@ function bestBalancedSplit(players) {
     for (const a of evA) {
       for (const b of evB) {
         const teamDiff = Math.abs(a.sum - b.sum);
-        let laneDiff = 0;
+        let laneDiff = 0, gapLanes = 0, gapExcess = 0;
         for (let r = 0; r < 5; r++) {
           const x = a.lane[r], y = b.lane[r];
-          if (x === x && y === y) laneDiff += Math.abs(x - y); // NaNチェック
+          if (x !== x || y !== y) continue; // NaNチェック(片側欠員レーン)
+          const g = Math.abs(x - y);
+          laneDiff += g;
+          if (g >= gapTh) { gapLanes++; gapExcess += g - gapTh; }
         }
         const balanceScore = teamDiff + 0.5 * laneDiff - 0.05 * (a.sum + b.sum);
-        // 段階的優先順位: ①NGレーン回避(最小化・最優先) → ②ロール希望充足数(最大化) → ③レートバランス(最小化)
-        const score = (a.ngHits + b.ngHits) * 10000000 - (a.hits + b.hits) * 100000 + balanceScore;
+        const gapOver = Math.max(0, gapLanes - (laneLimit - 1)); // 組み直し推奨ラインに達した分
+        const hits = a.hits + b.hits;
+        // 段階的優先順位: ①NGレーン回避 → ②組み直し推奨ラインの格差回避 → ③希望充足と格差・バランスの加重和
+        const score = (a.ngHits + b.ngHits) * 1e9 + gapOver * 1e7
+          + balanceScore + GAP_LANE_COST * gapLanes + gapExcess - PREF_HIT_VALUE * hits;
         if (!best || score < best.score) {
-          best = { score, diff: teamDiff, laneDiff, prefHits: a.hits + b.hits, ngHits: a.ngHits + b.ngHits, _A: { team: teamA, perm: a.perm }, _B: { team: teamB, perm: b.perm } };
+          best = { score, diff: teamDiff, laneDiff, gapLanes, gapOver, prefHits: hits, ngHits: a.ngHits + b.ngHits, _A: { team: teamA, perm: a.perm }, _B: { team: teamB, perm: b.perm } };
         }
       }
     }
@@ -874,6 +911,90 @@ async function claimApproval(id) {
       (cur) => (cur === "pending" ? "approved" : undefined));
     return res.committed;
   } catch (e) { console.error(e); return false; }
+}
+
+/* --------------------------- 引継ぎ(完全バックアップ / 引継ぎ用HTML) --------------------------- */
+
+// バックアップJSONの形式。version 1(形式名なし)は players / matches / customChamps のみの旧形式。
+const BACKUP_FORMAT = "crl-backup";
+const BACKUP_VERSION = 2;
+
+// 全データを1つのJSONにまとめる。session は当日限りの一時データなので含めない。
+function buildBackup({ players, matches, customChamps, settings, requests, rankRequests }) {
+  return {
+    format: BACKUP_FORMAT, version: BACKUP_VERSION, exportedAt: Date.now(),
+    players, matches, customChamps, settings, requests, rankRequests,
+  };
+}
+
+// バックアップJSONを customstats 配下のノード単位の書き込み内容へ変換する。不正なら null。
+// 旧形式は players / matches / champions だけを返し、他のノードには触れない。
+function backupToNodes(d) {
+  if (!d || !Array.isArray(d.players) || !Array.isArray(d.matches)) return null;
+  const byId = (arr) => Object.fromEntries((Array.isArray(arr) ? arr : []).filter((x) => x && x.id).map((x) => [x.id, x]));
+  const nodes = {
+    players: d.players,
+    matches: byId(d.matches),
+    champions: Array.isArray(d.customChamps) ? d.customChamps : [],
+  };
+  if (d.format === BACKUP_FORMAT && d.version >= 2) {
+    // 移転先は旧サイト固有の値なので持ち込まない(移転後に取ったバックアップで新サイトが移転案内になるのを防ぐ)
+    const { movedTo, ...settings } = d.settings && typeof d.settings === "object" ? d.settings : {};
+    nodes.settings = Object.keys(settings).length ? settings : null;
+    nodes.requests = byId(d.requests);
+    nodes.rankRequests = byId(d.rankRequests);
+  }
+  return nodes;
+}
+
+// 確認画面用の件数サマリ
+function backupSummary(d) {
+  const full = d.format === BACKUP_FORMAT && d.version >= 2;
+  return {
+    full,
+    date: d.exportedAt || d.savedAt ? new Date(d.exportedAt || d.savedAt).toLocaleString(dateLocale()) : "-",
+    players: d.players.length, matches: d.matches.length,
+    requests: full && Array.isArray(d.requests) ? d.requests.length : 0,
+    rankRequests: full && Array.isArray(d.rankRequests) ? d.rankRequests.length : 0,
+  };
+}
+
+// 指定DBの customstats 配下へノードを書き込む。複数パス update なので session 等の他ノードは残る。
+async function writeBackupNodes(db, nodes) {
+  await fbUpdate(ref(db, "customstats"), clean(nodes));
+}
+
+// 起動時のHTML原本の設定ブロックを差し替え、別環境用の1ファイルHTMLを作る。
+// 開発サーバー上など、バンドル済みの1ファイルでない場合は null。
+const FB_CONFIG_RE = /window\.FIREBASE_CONFIG = \{[\s\S]*?\};/;
+const APP_CONFIG_RE = /window\.APP_CONFIG = \{[\s\S]*?\};/;
+function buildConfiguredHtml(fbConfig, appConfig) {
+  const src = PAGE_SOURCE;
+  if (!src || !FB_CONFIG_RE.test(src) || !APP_CONFIG_RE.test(src) || /src="\/src\/main\.jsx"/.test(src)) return null;
+  // "<" をエスケープして、値に "</script>" が含まれてもスクリプトが途切れないようにする
+  const lit = (v) => JSON.stringify(v, null, 2).replace(/</g, "\\u003c");
+  return src
+    .replace(FB_CONFIG_RE, () => `window.FIREBASE_CONFIG = ${lit(fbConfig)};`)
+    .replace(APP_CONFIG_RE, () => `window.APP_CONFIG = ${lit(appConfig)};`);
+}
+
+function downloadText(text, filename, type) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], { type }));
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+// Firebaseコンソールの firebaseConfig 表示(JSオブジェクト形式)またはJSONから設定値を取り出す
+const FB_CONFIG_KEYS = ["apiKey", "authDomain", "databaseURL", "projectId", "storageBucket", "messagingSenderId", "appId", "measurementId"];
+function parseFirebaseConfig(text) {
+  const out = {};
+  FB_CONFIG_KEYS.forEach((k) => {
+    const m = String(text || "").match(new RegExp(`["']?${k}["']?\\s*:\\s*["']([^"']*)["']`));
+    if (m) out[k] = m[1].trim();
+  });
+  return out;
 }
 
 /* --------------------------- UI atoms --------------------------- */
@@ -1671,6 +1792,660 @@ function RequestBoardTab({ requests }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// ---- フィアレスドラフト ----------------------------------------------------
+// ハードフィアレス: 確定済みの試合でピックされたチャンピオンは、以降の試合で両チームとも使用不可。
+// BANは試合ごとにリセット。試合記録・レートとは無関係の一時データ(customstats/fearless)で、リセットで全消去する。
+// 保存形: { games: [[手×20], ...], draft: [手...], starts: {手番: 開始時刻}, timer, roles, rolesLocked, captains }
+//   1手 = チャンピオン正規名(日本語) / BANなしは DRAFT_SKIP
+//   timer = {turnAt}(稼働中: 現手番の時計の開始時刻) | {remain, pausedAt}(一時停止中) | null(未開始)
+//   20手後はロール宣言フェーズ: roles = {A:{ピック枠0-4: ロール}, B:{...}}, rolesLocked = {A, B}
+const DRAFT_SKIP = "-";
+const DRAFT_TURN_MS = 30 * 1000;
+const ROLE_PHASE_MS = 30 * 1000;
+// キャプテン制限: 管理者がサイド別の4桁コードを発行し、コードを入力した端末(端末ID)だけがそのサイドの手番を操作できる。
+// 未設定(null)なら誰でも操作可。PASS同様クライアント側の抑止力であり秘匿性はない
+const normCaptains = (c) => (c && c.A && c.B && c.A.code && c.B.code
+  ? { A: { code: String(c.A.code), device: c.A.device || "" }, B: { code: String(c.B.code), device: c.B.device || "" } } : null);
+// トーナメントドラフト順(A=ブルー / B=レッド)
+const DRAFT_ORDER = [
+  ["A", "ban"], ["B", "ban"], ["A", "ban"], ["B", "ban"], ["A", "ban"], ["B", "ban"],
+  ["A", "pick"], ["B", "pick"], ["B", "pick"], ["A", "pick"], ["A", "pick"], ["B", "pick"],
+  ["B", "ban"], ["A", "ban"], ["B", "ban"], ["A", "ban"],
+  ["B", "pick"], ["A", "pick"], ["A", "pick"], ["B", "pick"],
+];
+const DRAFT_LEN = DRAFT_ORDER.length;
+// 手番(またはロール宣言フェーズ)の持ち時間
+const phaseMs = (step) => (step >= DRAFT_LEN ? ROLE_PHASE_MS : DRAFT_TURN_MS);
+// 指定サイド・種別の枠を手番順で返す: [{idx(手番), champ}]
+const draftSlots = (actions, side, kind) =>
+  DRAFT_ORDER.map(([s, k], i) => (s === side && k === kind ? { idx: i, champ: actions[i] } : null)).filter(Boolean);
+// RTDBは空文字や疎配列を剪定・配列化するため、索引アクセスで読み、未設定の枠は保存しない
+const normRoles = (r) => Object.fromEntries(["A", "B"].map((sd) => [sd, [0, 1, 2, 3, 4].map((i) => (r && r[sd] && r[sd][i]) || "")]));
+const packRoles = (arr) => Object.fromEntries(arr.map((role, i) => [i, role]).filter(([, role]) => role));
+const keepStarts = (starts, maxIdx) =>
+  Object.fromEntries(Object.entries(starts || {}).filter(([k, v]) => Number(k) <= maxIdx && v != null).map(([k, v]) => [k, Number(v)]));
+const normTimer = (tm) => (!tm ? null
+  : tm.turnAt ? { turnAt: Number(tm.turnAt) }
+  : tm.pausedAt ? { remain: Math.max(0, Number(tm.remain) || 0), pausedAt: Number(tm.pausedAt) } : null);
+const normFearless = (v) => ({
+  games: asArray(v && v.games).map(asArray), draft: asArray(v && v.draft),
+  starts: keepStarts(v && v.starts, DRAFT_LEN),
+  timer: normTimer(v && v.timer),
+  roles: normRoles(v && v.roles),
+  rolesLocked: { A: !!(v && v.rolesLocked && v.rolesLocked.A), B: !!(v && v.rolesLocked && v.rolesLocked.B) },
+  captains: normCaptains(v && v.captains),
+});
+// 正規化した盤面を保存形へ。ロール関連はロール宣言フェーズ中だけ保存する
+const packFearless = (st) => {
+  const inRoles = st.draft.length >= DRAFT_LEN;
+  return {
+    games: st.games, draft: st.draft, starts: keepStarts(st.starts, st.draft.length), timer: st.timer, captains: st.captains,
+    roles: inRoles ? { A: packRoles(st.roles.A), B: packRoles(st.roles.B) } : null,
+    rolesLocked: inRoles ? st.rolesLocked : null,
+  };
+};
+// 端末時計のずれを吸収するためサーバー時刻オフセットで補正する
+let _fearlessOffset = 0;
+const fearlessNow = () => Date.now() + _fearlessOffset;
+const timerRunning = (st) => !!(st.timer && st.timer.turnAt);
+// 1手進める: 次の手番(20手後はロール宣言)の時計を開始。一時停止中なら満タンのまま一時停止を維持
+const advance = (st, move) => {
+  const draft = [...st.draft, move];
+  const i = draft.length;
+  const now = fearlessNow();
+  const patch = { draft, starts: { ...keepStarts(st.starts, i - 1), [i]: now } };
+  if (timerRunning(st)) patch.timer = { turnAt: now };
+  else if (st.timer) patch.timer = { remain: phaseMs(i), pausedAt: now };
+  if (i === DRAFT_LEN) { patch.roles = normRoles(null); patch.rolesLocked = { A: false, B: false }; }
+  return patch;
+};
+// 直前の1手を取り消す。fresh=false なら戻した手番の時計はその手番の開始時刻から継続し、持ち時間を延ばさない
+// (管理者の訂正は fresh=true で持ち時間を満タンに戻す)
+const undoMove = (st, fresh) => {
+  const draft = st.draft.slice(0, -1);
+  const i = draft.length;
+  const began = st.starts[i];
+  const starts = keepStarts(st.starts, i - 1);
+  if (timerRunning(st)) {
+    const turnAt = fresh || !began ? fearlessNow() : began;
+    return { draft, starts: { ...starts, [i]: turnAt }, timer: { turnAt } };
+  }
+  if (st.timer) {
+    const begin = fresh || !began ? st.timer.pausedAt : began;
+    return { draft, starts: { ...starts, [i]: begin }, timer: { remain: Math.max(0, phaseMs(i) - (st.timer.pausedAt - begin)), pausedAt: st.timer.pausedAt } };
+  }
+  return { draft, starts };
+};
+const pauseTimer = (st) => (timerRunning(st)
+  ? { timer: { remain: Math.max(0, st.timer.turnAt + phaseMs(st.draft.length) - fearlessNow()), pausedAt: fearlessNow() } } : null);
+// 開始/再開。再開時は止まっていた時間だけ各手番の開始時刻をずらし、戻す時の残り時間計算を保つ
+const resumeTimer = (st) => {
+  const i = st.draft.length;
+  const now = fearlessNow();
+  if (timerRunning(st)) return null;
+  if (!st.timer) return { timer: { turnAt: now }, starts: { [i]: now } };
+  const shift = now - st.timer.pausedAt;
+  const starts = Object.fromEntries(Object.entries(keepStarts(st.starts, i)).map(([k, v]) => [k, v + shift]));
+  return { timer: { turnAt: now - (phaseMs(i) - st.timer.remain) }, starts };
+};
+// 未選択のロールを残りのロールで枠順に埋める(時間切れ時)
+const fillRoles = (arr) => {
+  const rest = ROLES.filter((role) => !arr.includes(role));
+  return arr.map((role) => role || rest.shift());
+};
+// 複数端末が同じ盤面を操作するため、画面で見ていた盤面(手数・試合数)から変わっていたら中止する
+async function updateFearless(expect, mutate) {
+  const db = getDb();
+  if (!db) return "error";
+  try {
+    const res = await runTransaction(ref(db, "customstats/fearless"), (cur) => {
+      const st = normFearless(cur);
+      if (st.draft.length !== expect.draft || st.games.length !== expect.games) return undefined;
+      const patch = mutate(st);
+      if (patch == null) return undefined; // mutate側の中止(サーバー上の最新状態で条件不成立)
+      return clean(packFearless({ ...st, ...patch })); // 変更しないフィールド(captains等)は引き継ぐ
+    });
+    return res.committed ? "ok" : "stale";
+  } catch (e) { console.error("storage error", e); return "error"; }
+}
+// ひらがな入力でもカタカナ名に当たるようにする
+// 手番切替の通知音(Web Audio で合成、音声ファイル不要)。ブラウザの自動再生制限により、
+// その端末で一度クリック/キー操作するまでは鳴らない(操作時に resume する)
+let _fearlessAudio = null;
+const fearlessAudio = () => {
+  try {
+    if (!_fearlessAudio) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      _fearlessAudio = new AC();
+    }
+    return _fearlessAudio;
+  } catch { return null; }
+};
+// freqs を gap 秒間隔で順に鳴らす
+function playTones(freqs, { gap = 0.13, len = 0.2, vol = 0.3, type = "sine" } = {}) {
+  const ctx = fearlessAudio();
+  if (!ctx || ctx.state !== "running") return;
+  freqs.forEach((freq, i) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const at = ctx.currentTime + i * gap;
+    osc.type = type;
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.0001, at);
+    gain.gain.exponentialRampToValueAtTime(vol, at + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, at + len);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(at);
+    osc.stop(at + len + 0.02);
+  });
+}
+// mine=true(自チームの番)は高めの2音、それ以外は短い1音
+const playTurnSound = (mine) => playTones(mine ? [880, 1320] : [660]);
+// 残り5秒からのカウントダウン。残り1秒は高く長めに
+const playCountdownTick = (sec) => playTones([sec === 1 ? 1568 : 1046], { len: sec === 1 ? 0.25 : 0.08, vol: 0.25, type: "square" });
+const toKatakana = (s) => s.replace(/[ぁ-ゖ]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) + 0x60));
+
+function FearlessDraftTab({ champList, ddVer, champImgMap }) {
+  const [state, setState] = useState(() => normFearless(null));
+  const deviceId = getDeviceId();
+  const [isAdmin, setIsAdmin] = useState(() => adminPassCache === ADMIN_PASS);
+  const [nowTs, setNowTs] = useState(() => fearlessNow());
+  const [query, setQuery] = useState("");
+  const [hideUsed, setHideUsed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [soundOn, setSoundOn] = useState(() => { try { return localStorage.getItem("crl-fearless-sound") !== "off"; } catch { return true; } });
+  const toggleSound = () => {
+    const next = !soundOn;
+    setSoundOn(next);
+    try { localStorage.setItem("crl-fearless-sound", next ? "on" : "off"); } catch {}
+    if (next) { const ctx = fearlessAudio(); if (ctx) ctx.resume().then(() => playTurnSound(false)).catch(() => {}); }
+  };
+  // 自動再生制限の解除: この画面での最初の操作で音声を有効化
+  useEffect(() => {
+    const unlock = () => { const ctx = fearlessAudio(); if (ctx && ctx.state !== "running") ctx.resume().catch(() => {}); };
+    window.addEventListener("pointerdown", unlock);
+    window.addEventListener("keydown", unlock);
+    return () => { window.removeEventListener("pointerdown", unlock); window.removeEventListener("keydown", unlock); };
+  }, []);
+  useEffect(() => {
+    const db = getDb();
+    if (!db) return undefined;
+    const un1 = onValue(ref(db, "customstats/fearless"), (snap) => { setState(normFearless(snap.val())); setLoaded(true); }, (e) => console.error(e));
+    const un2 = onValue(ref(db, ".info/serverTimeOffset"), (snap) => { _fearlessOffset = Number(snap.val()) || 0; }, (e) => console.error(e));
+    return () => { un1(); un2(); };
+  }, []);
+
+  const { games, draft, timer, captains, roles, rolesLocked } = state;
+  const gameNo = games.length + 1;
+  const step = draft.length;
+  const done = step >= DRAFT_LEN; // BAN/PICK 20手完了(以降はロール宣言)
+  const complete = done && rolesLocked.A && rolesLocked.B; // ロールも確定
+  const [curSide, curKind] = done ? [null, null] : DRAFT_ORDER[step];
+  // 使用不可: チャンピオン → 使用された試合番号
+  const lockedBy = useMemo(() => {
+    const m = new Map();
+    games.forEach((g, gi) => DRAFT_ORDER.forEach(([, k], i) => {
+      if (k === "pick" && g[i] && g[i] !== DRAFT_SKIP && !m.has(g[i])) m.set(g[i], gi + 1);
+    }));
+    return m;
+  }, [games]);
+  const inDraft = new Set(draft.filter((c) => c !== DRAFT_SKIP));
+  const sideColor = (side) => (side === "A" ? theme.accentBright : theme.teamB);
+  const imgSrc = (name) => (name && ddVer && champImgMap[name]
+    ? `https://ddragon.leagueoflegends.com/cdn/${ddVer}/img/champion/${champImgMap[name]}` : null);
+
+  // silent: 時間切れの自動処理。複数端末が同時に発火し、先着1台以外は stale になるので通知しない
+  const run = async (mutate, silent = false) => {
+    if (busy) return "busy";
+    setBusy(true);
+    const res = await updateFearless({ draft: draft.length, games: games.length }, mutate);
+    setBusy(false);
+    if (res === "stale") { if (!silent) await themedAlert(t("fearless.020")); }
+    else if (res === "error") await themedAlert(t("fearless.021"));
+    return res;
+  };
+  // 操作権限: 制限中は自サイドの手番・ロールはキャプテン端末、開始/再開・試合確定はどちらかのキャプテン。管理者は全て可
+  const restricted = !!captains;
+  const mySide = captains ? ["A", "B"].find((side) => captains[side].device === deviceId) || null : null;
+  const canAct = (side) => !restricted || isAdmin || mySide === side;
+  const canControl = !restricted || isAdmin || !!mySide;
+  const myTurn = !done && canAct(curSide);
+  // 戻す: 管理者以外は「直前の1手が自サイドの手」の間だけ(相手が次の手を打ったら戻せない)。ロール宣言中・試合確定の取り消しは管理者のみ
+  const lastSide = step > 0 && !done ? DRAFT_ORDER[step - 1][0] : null;
+  const canUndo = isAdmin ? (step > 0 || games.length > 0) : !!lastSide && (!restricted || mySide === lastSide);
+  const canPause = !restricted || isAdmin; // 一時停止は持ち時間を止めるため、制限中は管理者のみ
+  const canRedo = !restricted || isAdmin;
+  // ロール宣言は両チーム確定まで相手に非公開。見えるのは自サイドのキャプテンと、キャプテンでない管理者(代理操作用)。
+  // 制限なしでは全員が両サイドを操作できるため非公開にできない
+  const roleVisible = (side) => complete || !restricted || mySide === side || (isAdmin && !mySide);
+  // 手番(ロール宣言開始・完了を含む)が切り替わったら音を鳴らす。初回読み込み時は鳴らさない
+  const turnKey = `${games.length}-${step}-${complete ? 1 : 0}`;
+  const prevTurnRef = useRef(null);
+  useEffect(() => {
+    if (!loaded) return;
+    const prev = prevTurnRef.current;
+    prevTurnRef.current = turnKey;
+    if (prev === null || prev === turnKey || !soundOn) return;
+    playTurnSound(complete ? false : done ? !!mySide : !!mySide && mySide === curSide);
+  }, [loaded, turnKey]);
+  const usable = (name) => !lockedBy.has(name) && !inDraft.has(name);
+  const choose = (name) => {
+    if (!myTurn || !usable(name)) return;
+    setQuery("");
+    run((st) => advance(st, name));
+  };
+  const skipBan = () => { if (curKind === "ban" && myTurn) run((st) => advance(st, DRAFT_SKIP)); };
+  const undo = async () => {
+    if (!canUndo) return;
+    if (draft.length) { run((st) => undoMove(st, isAdmin)); return; }
+    if (!(await themedConfirm(t("fearless.019", { n: games.length })))) return;
+    run((st) => ({ games: st.games.slice(0, -1), draft: st.games[st.games.length - 1], starts: {}, timer: null,
+      rolesLocked: { A: false, B: false }, roles: normRoles(null) })); // ロールは保存していないため宣言し直し
+  };
+  const redoDraft = async () => {
+    if (!(await themedConfirm(t("fearless.018")))) return;
+    run(() => ({ draft: [], starts: {}, timer: null }));
+  };
+  const confirmGame = () => run((st) => ({ games: [...st.games, st.draft], draft: [], starts: {}, timer: null }));
+  const startTimer = () => run(resumeTimer);
+  const stopTimer = () => run(pauseTimer);
+  // ロール宣言: 同じチーム内で既に使われているロールを選ぶと、その枠と入れ替える
+  const setRole = (side, k, role) => run((st) => {
+    if (st.draft.length < DRAFT_LEN || st.rolesLocked[side]) return null;
+    const arr = [...st.roles[side]];
+    const j = arr.indexOf(role);
+    if (role && j >= 0 && j !== k) arr[j] = arr[k];
+    arr[k] = role;
+    return { roles: { ...st.roles, [side]: arr } };
+  });
+  const lockRoles = (side) => run((st) => {
+    if (st.draft.length < DRAFT_LEN || st.rolesLocked[side] || st.roles[side].some((role) => !role)) return null;
+    const rolesLockedNext = { ...st.rolesLocked, [side]: true };
+    return { rolesLocked: rolesLockedNext, timer: rolesLockedNext.A && rolesLockedNext.B ? null : st.timer };
+  });
+
+  const becomeAdmin = async () => { if (await requireAdminPass(t("fearless.040"))) setIsAdmin(true); };
+  const genCode = (avoid) => {
+    let code;
+    do { code = String(crypto.getRandomValues(new Uint32Array(1))[0] % 10000).padStart(4, "0"); } while (code === avoid);
+    return code;
+  };
+  const setupCaptains = async () => {
+    if (!(await requireAdminPass(t("fearless.029")))) return;
+    setIsAdmin(true);
+    const codeA = genCode("");
+    run((st) => ({ ...st, captains: { A: { code: codeA, device: "" }, B: { code: genCode(codeA), device: "" } } }));
+  };
+  const clearCaptains = async () => {
+    if (!(await themedConfirm(t("fearless.031")))) return;
+    if (!(await requireAdminPass(t("fearless.029")))) return;
+    run((st) => ({ ...st, captains: null }));
+  };
+  const joinCaptain = async () => {
+    const input = await themedPrompt(t("fearless.033"));
+    if (input == null) return;
+    const side = ["A", "B"].find((sd) => captains && captains[sd].code === input.trim());
+    if (!side) { await themedAlert(t("fearless.034")); return; }
+    // 乗っ取り禁止: 登録済みサイドは管理者が登録解除するまで他端末から登録できない
+    const taken = (c) => c[side].device && c[side].device !== deviceId;
+    if (taken(captains)) { await themedAlert(t("fearless.044", { side: sideLabel(side) }), [sideLabel(side)]); return; }
+    const res = await run((st) => {
+      if (!st.captains || taken(st.captains)) return null;
+      const next = { A: { ...st.captains.A }, B: { ...st.captains.B } };
+      ["A", "B"].forEach((sd) => { if (next[sd].device === deviceId) next[sd].device = ""; });
+      next[side].device = deviceId;
+      return { captains: next };
+    });
+    if (res === "ok") await themedAlert(t("fearless.035", { side: sideLabel(side) }), [sideLabel(side)]);
+  };
+  const releaseCaptain = async (side) => {
+    if (!(await themedConfirm(t("fearless.046", { side: sideLabel(side) }), [sideLabel(side)]))) return;
+    run((st) => (st.captains ? { captains: { ...st.captains, [side]: { ...st.captains[side], device: "" } } } : null));
+  };
+  // コードはキャプテン本人へ個別に送る想定。文面は日本語固定
+  const copyCode = async (side) => {
+    const txt = `【フィアレス】${side === "A" ? "ブルー" : "レッド"}サイドのキャプテンコード: ${captains[side].code}`;
+    try { await navigator.clipboard.writeText(txt); themedAlert(t("balance.047")); }
+    catch { await themedPrompt(t("balance.048"), { defaultValue: txt }); }
+  };
+
+  // タイマー: 稼働中のみ時計を進め、締切を過ぎたら自動処理(同じ手番では1回だけ)
+  // 手番: BAN→BANなし / PICK→ランダム、ロール宣言: 未選択を自動で埋めて両チーム確定
+  const phaseLen = phaseMs(step);
+  const running = !!(timer && timer.turnAt) && !complete;
+  const paused = !!(timer && !timer.turnAt) && !complete;
+  useEffect(() => {
+    if (!running) return undefined;
+    const id = setInterval(() => setNowTs(fearlessNow()), 250);
+    return () => clearInterval(id);
+  }, [running]);
+  const remainMs = running ? timer.turnAt + phaseLen - nowTs : paused ? timer.remain : null;
+  // カウントダウン音: 稼働中の残り5〜1秒で1秒ごとに1回(同じ手番・同じ秒では1回だけ)
+  const secLeft = running ? Math.ceil(remainMs / 1000) : null;
+  const tickRef = useRef("");
+  useEffect(() => {
+    if (!soundOn || secLeft == null || secLeft < 1 || secLeft > 5) return;
+    const key = `${turnKey}-${timer.turnAt}-${secLeft}`;
+    if (tickRef.current === key) return;
+    tickRef.current = key;
+    playCountdownTick(secLeft);
+  }, [secLeft, soundOn]);
+  const autoKeyRef = useRef("");
+  useEffect(() => {
+    if (!running || remainMs > 0 || busy) return;
+    const key = `${games.length}-${step}-${timer.turnAt}`;
+    if (autoKeyRef.current === key) return;
+    autoKeyRef.current = key;
+    // サーバー上の最新状態でも期限切れの時だけ実行(直前に一時停止・戻すが入った場合は中止)
+    const expired = (st) => timerRunning(st) && st.timer.turnAt + phaseMs(st.draft.length) <= fearlessNow() + 500;
+    if (done) {
+      run((st) => (expired(st) ? { roles: { A: fillRoles(st.roles.A), B: fillRoles(st.roles.B) }, rolesLocked: { A: true, B: true }, timer: null } : null), true);
+      return;
+    }
+    if (curKind === "ban") { run((st) => (expired(st) ? advance(st, DRAFT_SKIP) : null), true); return; }
+    const cands = champList.filter(usable);
+    if (!cands.length) return;
+    const pick = cands[Math.floor(Math.random() * cands.length)];
+    run((st) => (expired(st) ? advance(st, pick) : null), true);
+  });
+  const resetAll = async () => {
+    if (!(await themedConfirm(t("fearless.016")))) return;
+    if (!(await requireAdminPass(t("fearless.017")))) return;
+    const db = getDb();
+    try { await fbRemove(ref(db, "customstats/fearless")); }
+    catch (e) { console.error("storage error", e); await themedAlert(t("fearless.021")); }
+  };
+  // Discord用文面は日本語固定
+  const copyText = async () => {
+    const names = (side, kind) => draftSlots(draft, side, kind).map((s) => (s.champ && s.champ !== DRAFT_SKIP ? s.champ : "なし")).join(" / ");
+    // ピックはロール順(TOP→SUP)に並べてロール名を付ける
+    const picks = (side) => {
+      const ps = draftSlots(draft, side, "pick");
+      return ROLES.map((role) => { const k = roles[side].indexOf(role); return k >= 0 ? `${role} ${ps[k].champ}` : null; }).filter(Boolean).join(" / ");
+    };
+    const used = [...lockedBy.keys()];
+    const txt = [
+      `【フィアレス 第${gameNo}試合】`,
+      `■ ブルー: ${picks("A")}`,
+      `■ レッド: ${picks("B")}`,
+      `BAN ブルー: ${names("A", "ban")}`,
+      `BAN レッド: ${names("B", "ban")}`,
+      ...(used.length ? ["", `── 前試合までの使用不可（${used.length}体）──`, used.join("、")] : []),
+    ].join("\n");
+    try { await navigator.clipboard.writeText(txt); themedAlert(t("balance.047")); }
+    catch { await themedPrompt(t("balance.048"), { defaultValue: txt }); }
+  };
+
+  const q = toKatakana(query.trim().toLowerCase());
+  const lang = getLang();
+  const shown = useMemo(() => champList
+    .filter((name) => !q || [name, champLabel(name), ...(CHAMP_I18N[name] || [])].some((s) => s && toKatakana(s.toLowerCase()).includes(q)))
+    .sort((a, b) => champLabel(a).localeCompare(champLabel(b), lang)),
+  [champList, q, lang]);
+  const visible = hideUsed ? shown.filter(usable) : shown;
+  const onSearchKey = (ev) => {
+    if (ev.key !== "Enter") return;
+    const cands = shown.filter(usable);
+    if (cands.length === 1) choose(cands[0]);
+  };
+
+  const icon = (name, size, gray) => {
+    const src = imgSrc(name);
+    return src
+      ? <img src={src} alt="" width={size} height={size} style={{ borderRadius: 6, display: "block", filter: gray ? "grayscale(1)" : "none" }} />
+      : <div style={{ width: size, height: size, borderRadius: 6, background: theme.borderTable }} />;
+  };
+  const banSlot = (s, side) => {
+    const active = !done && s.idx === step;
+    const skipped = s.champ === DRAFT_SKIP;
+    return (
+      <div key={s.idx} title={s.champ && !skipped ? champLabel(s.champ) : ""}
+        style={{ width: 34, height: 34, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center",
+          border: `2px solid ${active ? sideColor(side) : theme.borderTable}`, background: theme.surfaceAlt, color: theme.textFaint, fontSize: 13 }}>
+        {s.champ ? (skipped ? "—" : icon(s.champ, 28, true)) : null}
+      </div>
+    );
+  };
+  // k = そのサイドのピック枠番号(0-4)。操作できるのは当該サイドのみ、相手には両チーム確定まで「?」
+  const pickSlot = (s, side, k) => {
+    const active = !done && s.idx === step;
+    const hidden = !roleVisible(side);
+    const role = hidden ? "" : roles[side][k];
+    return (
+      <div key={s.idx} style={{ display: "flex", alignItems: "center", gap: 8, padding: 4, borderRadius: 8,
+        border: `2px solid ${active ? sideColor(side) : "transparent"}`, background: active ? theme.surfaceAlt : "transparent" }}>
+        {s.champ ? icon(s.champ, 40) : <div style={{ width: 40, height: 40, borderRadius: 6, border: `1px dashed ${theme.borderInput}` }} />}
+        <span style={{ fontSize: 15, fontWeight: s.champ ? 700 : 400, color: s.champ ? theme.text : theme.textFaint, minWidth: 0, flex: 1 }}>
+          {s.champ ? champLabel(s.champ) : "PICK"}
+        </span>
+        {done && (hidden || rolesLocked[side] || !canAct(side) ? (
+          <span title={hidden ? t("fearless.055") : undefined}
+            style={{ fontSize: 14, fontWeight: 700, minWidth: 44, textAlign: "center", padding: "2px 8px", borderRadius: 6,
+            border: `1px solid ${role ? sideColor(side) : theme.borderInput}`, color: role ? sideColor(side) : theme.textFaint }}>
+            {hidden ? "?" : role || "—"}
+          </span>
+        ) : (
+          <select className="cs-input" value={role} disabled={busy} onChange={(ev) => setRole(side, k, ev.target.value)}
+            style={{ fontSize: 14, padding: "3px 6px" }}>
+            <option value="">{t("fearless.049")}</option>
+            {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+          </select>
+        ))}
+      </div>
+    );
+  };
+  const smallBtn = { padding: "5px 14px", fontSize: 14, display: "inline-flex", alignItems: "center", gap: 6 };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={cardStyle}>
+        <div style={{ fontSize: 13, color: theme.textFaint, marginBottom: 10, lineHeight: 1.6 }}>{t("fearless.002")}</div>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", padding: "8px 12px", background: theme.surfaceAlt, borderRadius: 8, marginBottom: 12, fontSize: 14 }}>
+          <b>{t("fearless.026")}</b>
+          {!restricted ? <span style={{ color: theme.textFaint }}>{t("fearless.027")}</span> : ["A", "B"].map((side) => (
+            <span key={side} style={{ display: "inline-flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+              <span style={{ color: sideColor(side), fontWeight: 700 }}>{sideLabel(side)}</span>
+              <span style={{ color: captains[side].device ? theme.text : theme.textFaint }}>
+                {t(captains[side].device ? "fearless.036" : "fearless.037")}{mySide === side ? ` ${t("fearless.038")}` : ""}
+              </span>
+              {/* 配信・画面共有で漏れないよう、管理者端末でも数字は画面に出さずコピーのみ */}
+              {isAdmin && (
+                <button className="cs-btn-ghost" style={{ padding: "1px 8px", fontSize: 13 }}
+                  title={t("fearless.042")} onClick={() => copyCode(side)}>
+                  {t("fearless.041")}
+                </button>
+              )}
+              {isAdmin && captains[side].device && (
+                <button className="cs-btn-ghost" style={{ padding: "1px 8px", fontSize: 13 }} disabled={busy} onClick={() => releaseCaptain(side)}>
+                  {t("fearless.045")}
+                </button>
+              )}
+            </span>
+          ))}
+          <span style={{ marginLeft: "auto", display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {restricted && !mySide && <button className="cs-btn" style={{ padding: "3px 12px", fontSize: 13 }} disabled={busy} onClick={joinCaptain}>{t("fearless.032")}</button>}
+            {restricted && !isAdmin && <button className="cs-btn-ghost" style={{ padding: "3px 12px", fontSize: 13 }} onClick={becomeAdmin}>{t("fearless.040")}</button>}
+            {!restricted
+              ? <button className="cs-btn-ghost" style={{ padding: "3px 12px", fontSize: 13 }} disabled={busy} onClick={setupCaptains}>{t("fearless.028")}</button>
+              : isAdmin && <button className="cs-btn-ghost" style={{ padding: "3px 12px", fontSize: 13 }} disabled={busy} onClick={clearCaptains}>{t("fearless.030")}</button>}
+          </span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
+          <span style={{ fontSize: 18, fontWeight: 700 }}>{t("fearless.003", { n: gameNo })}</span>
+          {complete ? (
+            <span style={{ fontSize: 15, fontWeight: 700, color: theme.accent }}>{t("fearless.005")}</span>
+          ) : done ? (
+            <span style={{ fontSize: 15, fontWeight: 700, color: "#FFFFFF", background: theme.accent, padding: "3px 12px", borderRadius: 999 }}>
+              {t("fearless.050")}
+            </span>
+          ) : (
+            <span style={{ fontSize: 15, fontWeight: 700, color: "#FFFFFF", background: sideColor(curSide), padding: "3px 12px", borderRadius: 999 }}>
+              {sideLabel(curSide)} {curKind === "ban" ? "BAN" : "PICK"} · {t("fearless.004", { step: step + 1, total: DRAFT_ORDER.length })}
+            </span>
+          )}
+          {(running || paused) && (
+            <span style={{ fontSize: 22, fontWeight: 800, fontVariantNumeric: "tabular-nums", color: paused ? theme.textFaint : remainMs <= 10000 ? theme.teamB : theme.text }}>
+              {t(paused ? "fearless.051" : "fearless.025", { n: Math.min(phaseLen / 1000, Math.max(0, Math.ceil(remainMs / 1000))) })}
+            </span>
+          )}
+          {busy && <Loader2 size={16} className="spin" />}
+          <button className="cs-btn-ghost" title={t("fearless.057")} onClick={toggleSound}
+            style={{ marginLeft: "auto", padding: "3px 10px", fontSize: 13, display: "inline-flex", alignItems: "center", gap: 4,
+              color: soundOn ? theme.accent : theme.textFaint }}>
+            {soundOn ? <Volume2 size={14} /> : <VolumeX size={14} />} {t(soundOn ? "fearless.056" : "fearless.058")}
+          </button>
+        </div>
+        {done && !complete && (
+          <div style={{ fontSize: 13, color: theme.textSub, marginBottom: 10, lineHeight: 1.6 }}>{t("fearless.053")}</div>
+        )}
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+          {["A", "B"].map((side) => (
+            <div key={side} style={{ flex: "1 1 240px", minWidth: 0, borderTop: `3px solid ${sideColor(side)}`, paddingTop: 8 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: sideColor(side), marginBottom: 6 }}>{sideLabel(side)}</div>
+              <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 8 }}>
+                {draftSlots(draft, side, "ban").map((s) => banSlot(s, side))}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                {draftSlots(draft, side, "pick").map((s, k) => pickSlot(s, side, k))}
+              </div>
+              {done && (
+                <div style={{ marginTop: 8 }}>
+                  {rolesLocked[side] ? (
+                    <span style={{ fontSize: 14, fontWeight: 700, color: sideColor(side) }}>✓ {t("fearless.048")}</span>
+                  ) : (
+                    <button className="cs-btn" style={smallBtn} disabled={busy || !canAct(side) || roles[side].some((role) => !role)}
+                      onClick={() => lockRoles(side)}>{t("fearless.047")}</button>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+          {!complete && (running ? (
+            <button className="cs-btn-ghost" style={smallBtn} disabled={busy || !canPause} onClick={stopTimer}><Pause size={14} /> {t("fearless.024")}</button>
+          ) : paused ? (
+            <button className="cs-btn" style={smallBtn} disabled={busy || !canControl} onClick={startTimer}><Play size={14} /> {t("fearless.052")}</button>
+          ) : (
+            <button className="cs-btn" style={smallBtn} disabled={busy || !canControl} onClick={startTimer}><Play size={14} /> {t("fearless.023", { n: DRAFT_TURN_MS / 1000 })}</button>
+          ))}
+          {!done && curKind === "ban" && (
+            <button className="cs-btn-ghost" style={smallBtn} disabled={busy || !myTurn} onClick={skipBan}>{t("fearless.007")}</button>
+          )}
+          {done && (
+            <button className="cs-btn" style={smallBtn} disabled={busy || !(complete ? canControl : isAdmin)} onClick={confirmGame}>{t("fearless.009")}</button>
+          )}
+          {complete && <button className="cs-btn-ghost" style={smallBtn} onClick={copyText}>{t("balance.049")}</button>}
+          <button className="cs-btn-ghost" style={smallBtn} disabled={busy || !canUndo} onClick={undo}>{t("fearless.006")}</button>
+          <button className="cs-btn-ghost" style={smallBtn} disabled={busy || !canRedo || !draft.length} onClick={redoDraft}>{t("fearless.008")}</button>
+        </div>
+        <div style={{ fontSize: 12, color: theme.textFaint, marginTop: 8, lineHeight: 1.6 }}>{t("fearless.054")}</div>
+      </div>
+
+      {!done && (
+        <div style={cardStyle}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
+            <input className="cs-input" value={query} placeholder={t("fearless.012")}
+              onChange={(ev) => setQuery(ev.target.value)} onKeyDown={onSearchKey}
+              style={{ flex: "1 1 200px", minWidth: 0, fontSize: 15, padding: "6px 10px" }} />
+            <label style={{ fontSize: 14, color: theme.textSub, display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+              <input type="checkbox" checked={hideUsed} onChange={(ev) => setHideUsed(ev.target.checked)} /> {t("fearless.013")}
+            </label>
+          </div>
+          {!myTurn && (
+            <div style={{ fontSize: 14, fontWeight: 700, color: theme.textSub, padding: "6px 10px", marginBottom: 10, borderRadius: 6, background: theme.surfaceAlt }}>
+              {mySide ? t("fearless.043", { side: sideLabel(curSide) }) : t("fearless.039")}
+            </div>
+          )}
+          {visible.length === 0 ? <EmptyState text={t("fearless.022")} /> : (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(72px, 1fr))", gap: 6 }}>
+              {visible.map((name) => {
+                const usedIn = lockedBy.get(name);
+                const dis = !usable(name);
+                return (
+                  <button key={name} disabled={dis || busy || !myTurn} onClick={() => choose(name)} title={champLabel(name)}
+                    style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, padding: "6px 2px", minWidth: 0,
+                      border: `1px solid ${theme.borderTable}`, borderRadius: 8, background: theme.surfaceAlt, color: theme.text,
+                      fontFamily: "inherit", opacity: dis ? 0.35 : 1, cursor: dis || !myTurn ? "not-allowed" : "pointer" }}>
+                    {icon(name, 48, dis)}
+                    <span style={{ fontSize: 11, lineHeight: 1.3, maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {champLabel(name)}
+                    </span>
+                    {usedIn && <span style={{ fontSize: 10, color: theme.teamB, fontWeight: 700 }}>{t("fearless.014", { n: usedIn })}</span>}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div style={cardStyle}>
+        <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 10 }}>{t("fearless.010", { n: lockedBy.size })}</div>
+        {!games.length ? <div style={{ fontSize: 14, color: theme.textFaint }}>{t("fearless.011")}</div> : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {games.map((g, gi) => (
+              <div key={gi}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: theme.textSub, marginBottom: 4 }}>{t("fearless.003", { n: gi + 1 })}</div>
+                {["A", "B"].map((side) => (
+                  <div key={side} style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 4 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: sideColor(side), minWidth: 56 }}>{sideLabel(side)}</span>
+                    {draftSlots(g, side, "pick").filter((s) => s.champ && s.champ !== DRAFT_SKIP).map((s) => (
+                      <span key={s.idx} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 13, padding: "2px 8px 2px 2px",
+                        borderRadius: 999, border: `1px solid ${sideColor(side)}`, background: theme.surfaceAlt }}>
+                        {icon(s.champ, 20)} {champLabel(s.champ)}
+                      </span>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        )}
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
+          <button className="cs-btn-ghost" style={smallBtn} disabled={busy || (!games.length && !draft.length)} onClick={resetAll}>
+            <Trash2 size={13} /> {t("fearless.015")}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Riot ID は「ゲーム名#タグ」の1文字列で保存する(既存データ互換)。入力ミス防止のため入力欄はゲーム名とタグに分割し、
+// ゲーム名欄に「名前#タグ」が貼られた場合はタグ欄へ振り分ける
+const splitRiotId = (v) => {
+  const s0 = v || "";
+  const i = s0.lastIndexOf("#");
+  return i < 0 ? [s0, ""] : [s0.slice(0, i), s0.slice(i + 1)];
+};
+const cleanRiotTag = (v) => (v || "").replace(/[#\s]/g, "");
+// どちらか片方だけの入力はミスとして null を返す(両方空なら未登録 "")
+const joinRiotId = (name, tag) => {
+  const n = (name || "").trim();
+  const tg = cleanRiotTag(tag);
+  if (!n && !tg) return "";
+  return n && tg ? `${n}#${tg}` : null;
+};
+function RiotIdInputs({ name, tag, onChange, nameWidth }) {
+  const onName = (v) => {
+    if (!v.includes("#")) { onChange(v, tag); return; }
+    const [n, tg] = splitRiotId(v);
+    onChange(n, cleanRiotTag(tg) || tag);
+  };
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+      <input className="cs-input" style={{ flex: nameWidth ? `0 0 ${nameWidth}px` : "1 1 auto", minWidth: 0, boxSizing: "border-box" }}
+        placeholder={t("players.076")} value={name} onChange={(e) => onName(e.target.value)} />
+      <span style={{ fontWeight: 700, color: theme.textSub }}>#</span>
+      <input className="cs-input" style={{ flex: "0 0 84px", width: 84, boxSizing: "border-box" }}
+        placeholder={t("players.077")} value={tag} onChange={(e) => onChange(name, cleanRiotTag(e.target.value))} />
     </div>
   );
 }
@@ -2874,7 +3649,8 @@ export default function CustomStats() {
 
   // player registration
   const [newPlayerName, setNewPlayerName] = useState("");
-  const [newSummoner, setNewSummoner] = useState("");
+  const [newRiotName, setNewRiotName] = useState("");
+  const [newRiotTag, setNewRiotTag] = useState("");
   const [newProfs, setNewProfs] = useState({ TOP: "△", JG: "△", MID: "△", ADC: "△", SUP: "△" });
   const [newRank, setNewRank] = useState("アンランク");
 
@@ -2900,8 +3676,9 @@ export default function CustomStats() {
 
   const [balanceResult, setBalanceResult] = useState(undefined); // undefined=未実行, null=割当不能
   // 運用設定(全端末共有・管理者PASSで変更)。customstats/settings を購読する。
-  const [settings, setSettings] = useState({ matchupWarnThreshold: MATCHUP_WARN_DEFAULT });
+  const [settings, setSettings] = useState({ matchupWarnThreshold: MATCHUP_WARN_DEFAULT, matchupWarnLanes: MATCHUP_LANES_DEFAULT, movedTo: "" });
   const matchupThreshold = settings.matchupWarnThreshold;
+  const matchupLaneLimit = settings.matchupWarnLanes;
   const [swapSel, setSwapSel] = useState(null); // { team:'A'|'B', idx:number } タップ入替の1人目選択
   const [subPickerOpen, setSubPickerOpen] = useState(false); // 選手交代の交代先選択パネル開閉
   const [champExpanded, setChampExpanded] = useState(false); // 個人成績: チャンピオン別成績の全件表示
@@ -2994,6 +3771,8 @@ export default function CustomStats() {
     try { document.documentElement.lang = lang; } catch {}
   }, [lang]);
   const [gateInput, setGateInput] = useState("");
+  const [movedBypass, setMovedBypass] = useState(false); // 移転済みでも管理者は開ける(バックアップ取得・移転取消のため)
+  const [movedPassInput, setMovedPassInput] = useState("");
 
   // Firebaseリアルタイム購読: 他ユーザーの更新が即時反映される
   useEffect(() => {
@@ -3018,7 +3797,11 @@ export default function CustomStats() {
     const un5 = onValue(ref(db, "customstats/settings"), (snap) => {
       const v = snap.val() || {};
       // RTDBは空オブジェクトを剪定するため、未設定時は既定値にフォールバックする
-      setSettings({ matchupWarnThreshold: clampMatchupWarn(v.matchupWarnThreshold ?? MATCHUP_WARN_DEFAULT) });
+      setSettings({
+        matchupWarnThreshold: clampMatchupWarn(v.matchupWarnThreshold ?? MATCHUP_WARN_DEFAULT),
+        matchupWarnLanes: clampMatchupLanes(v.matchupWarnLanes ?? MATCHUP_LANES_DEFAULT),
+        movedTo: typeof v.movedTo === "string" ? v.movedTo : "", // 移転先URL(設定時はこのサイトを移転案内のみにする)
+      });
     }, onErr);
     // 要望掲示板は付加機能: ルール未設定等で読めなくても本体のDBエラー表示は出さない
     const un6 = onValue(ref(db, "customstats/requests"), (snap) => {
@@ -3085,18 +3868,21 @@ export default function CustomStats() {
 
   const resetNewPlayerForm = () => {
     setNewPlayerName("");
-    setNewSummoner("");
+    setNewRiotName("");
+    setNewRiotTag("");
     setNewProfs({ TOP: "△", JG: "△", MID: "△", ADC: "△", SUP: "△" });
     setNewRank("アンランク");
   };
   const addPlayer = async () => {
     const name = newPlayerName.trim();
     if (!name || players.some((p) => p.name === name)) return;
+    const summonerName = joinRiotId(newRiotName, newRiotTag);
+    if (summonerName === null) { await themedAlert(t("players.078")); return; }
     const baseMu = RANKS.find(([label]) => label === newRank)?.[1] ?? MU0;
     const p = {
       id: crypto.randomUUID(), name,
       rank: newRank,
-      summonerName: newSummoner.trim(),
+      summonerName,
       roles: initRoles(newProfs, baseMu, newRank === "アンランク" || newRank === "初心者"),
       baseMu,
       status: "active",
@@ -3276,7 +4062,7 @@ export default function CustomStats() {
     const profs = {};
     ROLES.forEach((r) => { profs[r] = p.roles[r].prof; });
     setEditId(p.id);
-    setEditForm({ name: p.name, rank: p.rank || "アンランク", summonerName: p.summonerName || "", profs, status: p.status === "rest" ? "rest" : "active", adjust: !!p.adjust, honorRank: p.honorRank || "",
+    setEditForm({ name: p.name, rank: p.rank || "アンランク", riotName: splitRiotId(p.summonerName)[0], riotTag: splitRiotId(p.summonerName)[1], profs, status: p.status === "rest" ? "rest" : "active", adjust: !!p.adjust, honorRank: p.honorRank || "",
       otpRole: p.otp?.role || "", otpChamp: p.otp ? champLabel(p.otp.champion) : "" });
     setEditError("");
   };
@@ -3340,6 +4126,8 @@ export default function CustomStats() {
     const name = editForm.name.trim();
     if (!name) { setEditError(t("shell.022")); return; }
     if (players.some((p) => p.name === name && p.id !== editId)) { setEditError(t("shell.023")); return; }
+    const summonerName = joinRiotId(editForm.riotName, editForm.riotTag);
+    if (summonerName === null) { setEditError(t("players.078")); return; }
     if (!(await requireAdminPass(t("shell.024")))) return;
     const baseMu = RANKS.find(([label]) => label === editForm.rank)?.[1] ?? MU0;
     // 名誉レートは申告ランクより上位のみ許可(格下げ扱いになる下方向指定を防ぐ)
@@ -3359,7 +4147,7 @@ export default function CustomStats() {
       if (p.id !== editId) return p;
       const roles = { ...p.roles };
       ROLES.forEach((r) => { roles[r] = { ...roles[r], prof: editForm.profs[r] }; });
-      const np = { ...p, name, rank: editForm.rank, summonerName: editForm.summonerName.trim(), baseMu, roles, status: editForm.status, adjust: !!editForm.adjust };
+      const np = { ...p, name, rank: editForm.rank, summonerName, baseMu, roles, status: editForm.status, adjust: !!editForm.adjust };
       if (honorRank) np.honorRank = honorRank; else delete np.honorRank;
       if (otp) np.otp = otp; else delete np.otp;
       return np;
@@ -3372,7 +4160,7 @@ export default function CustomStats() {
   };
 
   const exportData = () => {
-    const json = JSON.stringify({ players, matches, customChamps, exportedAt: Date.now() });
+    const json = JSON.stringify(buildBackup({ players, matches, customChamps, settings, requests, rankRequests }));
     setIoText(json);
     try {
       const blob = new Blob([json], { type: "application/json" });
@@ -3453,10 +4241,16 @@ export default function CustomStats() {
   // ロール枠クリックのサイクル: 通常 → 希望(★) → NG(✕、絶対にやりたくないレーン) → 通常
   // 希望とNGは排他(片方を設定するともう片方は自動解除)
   const cyclePrefRole = async (id, role) => {
+    let ngCapped = false;
     const next = players.map((p) => {
       if (p.id !== id) return p;
       const pref = p.prefRoles || [], ng = p.ngRoles || [];
       if (pref.includes(role)) {
+        // NG上限到達時はNGを飛ばして通常へ戻す(希望のまま止めるとサイクルから抜けられないため)
+        if (ngLimited(p) && ng.length >= NG_ROLE_MAX) {
+          ngCapped = true;
+          return { ...p, prefRoles: pref.filter((r) => r !== role), respondedAt: Date.now() };
+        }
         // 希望 → NG
         return { ...p, prefRoles: pref.filter((r) => r !== role), ngRoles: [...ng, role], respondedAt: Date.now() };
       }
@@ -3469,6 +4263,7 @@ export default function CustomStats() {
     });
     setPlayers(next);
     await saveShared("players", next);
+    if (ngCapped) await themedAlert(t("players.073", { n: NG_ROLE_MAX }));
   };
 
   const knownChampSet = () => new Set([...(ddChamps ? ddChamps.map((x) => x.name) : CHAMPIONS), ...customChamps]);
@@ -3640,20 +4435,49 @@ export default function CustomStats() {
   };
 
   const importData = async () => {
+    let d = null, nodes = null;
+    try { d = JSON.parse(ioText); nodes = backupToNodes(d); } catch {}
+    if (!nodes) { setIoMsg(t("shell.054")); return; }
+    if (!(await requireAdminPass(t("shell.052")))) return;
+    // 上書き前に中身を見せる(取り違えたファイルでの全上書きを防ぐ)
+    const sm = backupSummary(d);
+    const lines = [
+      t("handover.001", { date: sm.date }),
+      t("handover.002", { players: sm.players, matches: sm.matches }),
+      sm.full ? t("handover.003", { requests: sm.requests, rankRequests: sm.rankRequests }) : t("handover.004"),
+    ];
+    if (!(await themedConfirm([t("handover.005"), "", ...lines].join("\n")))) return;
     try {
-      const d = JSON.parse(ioText);
-      if (!Array.isArray(d.players) || !Array.isArray(d.matches)) throw new Error();
-      if (!(await requireAdminPass(t("shell.052")))) return;
       setPlayers(d.players.map(migratePlayer));
       setMatches(d.matches);
-      const cc = Array.isArray(d.customChamps) ? d.customChamps : [];
-      setCustomChamps(cc);
-      await persist(d.players, d.matches);
-      await saveShared("champions", cc);
+      setCustomChamps(nodes.champions);
+      await writeBackupNodes(getDb(), nodes);
       setIoMsg(t("shell.053"));
-    } catch {
+    } catch (e) {
+      console.error(e);
       setIoMsg(t("shell.054"));
     }
+  };
+
+  // 引継ぎ用HTML: 接続先とPASSを空にしたコピー。開くと初期設定画面(SetupScreen)になる
+  const downloadHandoverHtml = async () => {
+    if (!(await requireAdminPass(t("handover.013")))) return;
+    const html = buildConfiguredHtml({}, { adminPass: "", viewPass: "" });
+    if (!html) { await themedAlert(t("handover.014")); return; }
+    downloadText(html, "crl-handover.html", "text/html");
+  };
+
+  // 移転先URLの設定/取消(管理者PASS要・全端末共有)。設定するとこのサイトは移転案内だけになる
+  const editMovedTo = async () => {
+    if (!(await requireAdminPass(t("handover.015")))) return;
+    const v = await themedPrompt(t("handover.016"), { defaultValue: settings.movedTo || "https://" });
+    if (v === null) return;
+    const url = v.trim() === "https://" ? "" : v.trim();
+    if (url && !/^https?:\/\/\S+$/.test(url)) { await themedAlert(t("handover.017")); return; }
+    if (url && !(await themedConfirm(t("handover.018", { url })))) return;
+    const next = { ...settings, movedTo: url };
+    setSettings(next);
+    await saveShared("settings", next);
   };
 
   const startEditMatch = (m) => {
@@ -3776,7 +4600,11 @@ export default function CustomStats() {
       hiMu: g.hiMu.toFixed(1), loMu: g.loMu.toFixed(1), diff: g.diff.toFixed(1),
     }));
     const names = gaps.flatMap((g) => [g.role, g.aName, g.bName]);
-    await themedAlert([t("balance.075"), "", ...lines, "", t("balance.076")].join("\n"), names, { nowrap: true });
+    // 格差レーン数が警告ラインに達したら「合意があれば問題ない」ではなく組み直しを推奨する
+    const footer = gaps.length >= matchupLaneLimit
+      ? t("balance.097", { n: gaps.length, k: matchupLaneLimit })
+      : t("balance.076");
+    await themedAlert([t("balance.075"), "", ...lines, "", footer].join("\n"), names, { nowrap: true });
   };
 
   // 対面レート格差の警告しきい値を変更する(管理者PASS要・全端末共有)。
@@ -3792,6 +4620,23 @@ export default function CustomStats() {
       return;
     }
     const next = { ...settings, matchupWarnThreshold: clampMatchupWarn(n) };
+    setSettings(next);
+    await saveShared("settings", next);
+  };
+
+  // 組み直し推奨とする格差レーン数を変更する(管理者PASS要・全端末共有)。
+  const editMatchupLaneLimit = async () => {
+    if (!(await requireAdminPass(t("balance.094")))) return;
+    const v = await themedPrompt(t("balance.095", { min: MATCHUP_LANES_MIN, max: MATCHUP_LANES_MAX }), {
+      defaultValue: String(matchupLaneLimit),
+    });
+    if (v === null) return; // キャンセル
+    const n = Number(String(v).trim());
+    if (!Number.isInteger(n) || n < MATCHUP_LANES_MIN || n > MATCHUP_LANES_MAX) {
+      await themedAlert(t("balance.096", { min: MATCHUP_LANES_MIN, max: MATCHUP_LANES_MAX }));
+      return;
+    }
+    const next = { ...settings, matchupWarnLanes: clampMatchupLanes(n) };
     setSettings(next);
     await saveShared("settings", next);
   };
@@ -3931,7 +4776,8 @@ export default function CustomStats() {
 
     const restPool = pool.filter((p) => !lockedPlayers.some((l) => l.id === p.id));
     let seated = [...lockedPlayers, ...pickSeatsFairly(restPool, 10 - lockedPlayers.length, todayCounts, lockedPlayers)];
-    let result = bestBalancedSplit(toChosen(seated));
+    const split = (ps) => bestBalancedSplit(toChosen(ps), matchupThreshold, matchupLaneLimit);
+    let result = split(seated);
 
     // 選出した10人の組み合わせではNG制約等により割当不能な場合、
     // その10人に固執せず、参加回数の多い人から順に1人ずつ他の候補と入替えて再試行する。
@@ -3945,7 +4791,7 @@ export default function CustomStats() {
       outer: for (const out of outOrder) {
         for (const cand of notSeated) {
           const trial = seated.map((s) => (s.id === out.id ? cand : s));
-          const r = bestBalancedSplit(toChosen(trial));
+          const r = split(trial);
           if (r) { seated = trial; result = r; break outer; }
         }
       }
@@ -3972,9 +4818,10 @@ export default function CustomStats() {
         for (const out of outCandidates) {
           for (const inn of adjustBench) {
             const cand = seated.filter((s) => s.id !== out.id).concat(inn);
-            const r2 = bestBalancedSplit(toChosen(cand));
+            const r2 = split(cand);
             if (!r2) continue;
             if (r2.ngHits > result.ngHits) continue; // NG違反を悪化させる入替は候補から除外
+            if (r2.gapOver > result.gapOver) continue; // 組み直し推奨ラインの格差を生む入替も除外
             // 比較優先順位: ①NG違反数(少ない方) → ②レート差(小さい方)
             if (!bestSwap || r2.ngHits < bestSwap.r.ngHits || (r2.ngHits === bestSwap.r.ngHits && r2.diff < bestSwap.r.diff)) {
               bestSwap = { out, inn, r: r2, cand };
@@ -4198,15 +5045,8 @@ export default function CustomStats() {
     );
   };
 
-  if (!getDb()) {
-    return (
-      <div style={{ fontFamily: "var(--cs-font)", maxWidth: 720, margin: "40px auto", padding: 24, background: theme.surface, border: `1px solid ${theme.border}`, borderRadius: 10, color: theme.text, lineHeight: 1.7 }}>
-        <h2 style={{ color: theme.accent }}>{t("shell.064")}</h2>
-        <p>{t("shell.065")} <b>FIREBASE_CONFIG</b> {t("shell.066")}</p>
-        <p style={{ fontSize: 14, color: theme.textSub }}>{t("shell.067")}</p>
-      </div>
-    );
-  }
+  // 接続先が未設定(引継ぎ用HTML)なら初期設定画面を出す
+  if (!getDb()) return <SetupScreen />;
 
   if (VIEW_PASS && !gateOk) {
     return (
@@ -4239,6 +5079,34 @@ export default function CustomStats() {
     return (
       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 300, color: theme.textSub }}>
         <Loader2 className="spin" size={22} style={{ marginRight: 8 }} /> {t("shell.071")}
+      </div>
+    );
+  }
+
+  // 移転済み: 旧サイトへの書き込みを防ぐため、案内だけを表示する(管理者はPASSで開ける)
+  if (settings.movedTo && !movedBypass) {
+    const openAsAdmin = () => {
+      if (movedPassInput !== ADMIN_PASS) return;
+      adminPassCache = movedPassInput;
+      setMovedBypass(true);
+    };
+    return (
+      <div style={{ fontFamily: "var(--cs-font)", maxWidth: 520, margin: "80px auto", padding: 28, background: theme.surface, border: `1px solid ${theme.border}`, borderRadius: 10, color: theme.text, textAlign: "center", lineHeight: 1.7 }}>
+        <h2 style={{ color: theme.accent, marginTop: 0 }}>{t("handover.019")}</h2>
+        <p style={{ fontSize: 15 }}>{t("handover.020")}</p>
+        <p style={{ fontSize: 16, fontWeight: 700, wordBreak: "break-all" }}>
+          <a href={settings.movedTo} style={{ color: theme.accent }}>{settings.movedTo}</a>
+        </p>
+        <div style={{ marginTop: 28, fontSize: 13, color: theme.textSub }}>
+          <input type="password" value={movedPassInput} placeholder={t("handover.022")}
+            onChange={(e) => setMovedPassInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") openAsAdmin(); }}
+            style={{ padding: "6px 10px", fontSize: 14, border: `1px solid ${theme.borderInput}`, borderRadius: 6, width: 160, marginRight: 8 }} />
+          <button onClick={openAsAdmin}
+            style={{ background: "transparent", color: theme.textSub, border: `1px solid ${theme.borderInput}`, borderRadius: 6, padding: "6px 12px", fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>
+            {t("handover.021")}
+          </button>
+        </div>
       </div>
     );
   }
@@ -4470,6 +5338,7 @@ export default function CustomStats() {
           { key: "cup", label: t("cup.001"), icon: Flag, tabs: [
             { id: "fxTeams", icon: Users, label: t("cup.002") },
             { id: "fxBracket", icon: Swords, label: t("cup.003") },
+            { id: "fearless", icon: Ban, label: t("fearless.001") },
             { id: "fxPicks", icon: Lock, label: t("cup.004") },
             { id: "fxStats", icon: Medal, label: t("cup.005") },
           ] },
@@ -5265,6 +6134,9 @@ export default function CustomStats() {
           selTid={fxTid} setSelTid={setFxTid} seriesKey={fxSeriesKey} setSeriesKey={setFxSeriesKey} setTab={setTab}
           onOpenPlayer={(id) => { setStatsPlayerId(id); setTab("stats"); }} />
       )}
+      {tab === "fearless" && (
+        <FearlessDraftTab champList={ddChamps ? ddChamps.map((x) => x.name) : CHAMPIONS} ddVer={ddVer} champImgMap={champImgMap} />
+      )}
 
       {/* ---------- PERSONAL STATS ---------- */}
       {/* ---------- SCOUT: MULTI SEARCH(ロール別対面比較) ---------- */}
@@ -6005,16 +6877,24 @@ export default function CustomStats() {
 
             {/* 対面レート格差の警告しきい値(全端末共有・管理者PASSで変更): 事前固定タブ限定の設定ではなく
                 下の警告バナーの発火ラインなので、どちらのサブタブでも見えるようにここに置く */}
-            <div style={{ ...cardStyle, marginBottom: 16, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-              <span style={{ fontSize: 13, color: theme.textSub }}>{t("balance.079", { v: matchupThreshold })}</span>
-              <button className="cs-btn-ghost" style={{ padding: "3px 10px", fontSize: 13 }} onClick={editMatchupThreshold}>
-                {t("balance.083")}
-              </button>
+            <div style={{ ...cardStyle, marginBottom: 16, display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 13, color: theme.textSub }}>{t("balance.079", { v: matchupThreshold })}</span>
+                <button className="cs-btn-ghost" style={{ padding: "3px 10px", fontSize: 13 }} onClick={editMatchupThreshold}>
+                  {t("balance.083")}
+                </button>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 13, color: theme.textSub }}>{t("balance.093", { v: matchupLaneLimit })}</span>
+                <button className="cs-btn-ghost" style={{ padding: "3px 10px", fontSize: 13 }} onClick={editMatchupLaneLimit}>
+                  {t("balance.083")}
+                </button>
+              </div>
             </div>
 
             {/* 対面レート格差の警告バナー */}
             {matchupWarnings.length > 0 && (
-              <div className="cs-prose" style={{ border: `1px solid ${theme.teamB}`, background: theme.surfaceAlt, borderRadius: 6, padding: 10, marginBottom: 16, fontSize: 13 }}>
+              <div className="cs-prose" style={{ border: `${matchupWarnings.length >= matchupLaneLimit ? 2 : 1}px solid ${theme.teamB}`, background: theme.surfaceAlt, borderRadius: 6, padding: 10, marginBottom: 16, fontSize: 13 }}>
                 <div style={{ color: theme.teamB, fontWeight: 700, marginBottom: 4 }}>
                   {t("balance.077", { n: matchupWarnings.length, th: matchupThreshold })}
                 </div>
@@ -6023,7 +6903,11 @@ export default function CustomStats() {
                     {t("balance.074", { role: g.role, hi: g.hiName, lo: g.loName, hiMu: g.hiMu.toFixed(1), loMu: g.loMu.toFixed(1), diff: g.diff.toFixed(1) })}
                   </div>
                 ))}
-                <div style={{ color: theme.textSub, marginTop: 4 }}>{t("balance.076")}</div>
+                {matchupWarnings.length >= matchupLaneLimit ? (
+                  <div style={{ color: theme.teamB, fontWeight: 700, marginTop: 4 }}>{t("balance.097", { n: matchupWarnings.length, k: matchupLaneLimit })}</div>
+                ) : (
+                  <div style={{ color: theme.textSub, marginTop: 4 }}>{t("balance.076")}</div>
+                )}
               </div>
             )}
 
@@ -6353,6 +7237,9 @@ export default function CustomStats() {
                   })}
                 </div>
                 <div style={{ fontSize: 11.5, color: theme.textFaint, marginBottom: 6 }}>{t("attend.026")}</div>
+                {ngLimited(myPlayer) && (
+                  <div style={{ fontSize: 11.5, color: theme.textFaint, marginBottom: 6 }}>{t("players.074", { n: NG_ROLE_MAX })}</div>
+                )}
 
                 {(() => {
                   const otpRoleSel = otpInput.role || myPlayer.otp?.role || (myPlayer.prefRoles || [])[0] || ROLES[0];
@@ -6597,15 +7484,14 @@ export default function CustomStats() {
             <div style={{ padding: 20 }}>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 420px))", gap: 16, marginBottom: 16 }}>
                 <div>
-                  <label style={{ ...labelStyle, fontSize: 14 }}>{t("players.002")}</label>
-                  <input className="cs-input" style={{ width: "100%", boxSizing: "border-box" }} placeholder={t("players.070")}
+                  <label style={{ ...labelStyle, fontSize: 14 }}>{t("players.075")}</label>
+                  <input className="cs-input" style={{ width: "100%", boxSizing: "border-box" }} placeholder={t("players.075")}
                     value={newPlayerName} onChange={(e) => setNewPlayerName(e.target.value)} />
                 </div>
                 <div>
                   <label style={{ ...labelStyle, fontSize: 14 }}>{t("players.003")}</label>
-                  <input className="cs-input" style={{ width: "100%", boxSizing: "border-box" }} placeholder={t("players.003")}
-                    value={newSummoner} onChange={(e) => setNewSummoner(e.target.value)} />
-                  <div style={{ fontSize: 11.5, color: theme.textFaint, marginTop: 4 }}>{t("players.004")}</div>
+                  <RiotIdInputs name={newRiotName} tag={newRiotTag} onChange={(n, tg) => { setNewRiotName(n); setNewRiotTag(tg); }} />
+                  <div style={{ fontSize: 11.5, color: theme.textFaint, marginTop: 4 }}>{t("players.079")} {t("players.004")}</div>
                 </div>
               </div>
 
@@ -6681,6 +7567,23 @@ export default function CustomStats() {
             <textarea className="cs-input" style={{ width: "100%", height: 80, boxSizing: "border-box", fontSize: 12 }}
               placeholder={t("players.016")}
               value={ioText} onChange={(e) => setIoText(e.target.value)} />
+          </div>
+
+          {/* 引継ぎ: 後任者には「エクスポート」のJSONと引継ぎ用HTMLの2つを渡す(手順は 引継ぎ手順書.md) */}
+          <div style={{ ...cardStyle, marginBottom: 16 }}>
+            <label style={labelStyle}>{t("handover.006")}</label>
+            <div style={{ fontSize: 13, color: theme.textFaint, marginBottom: 8, lineHeight: 1.6 }}>
+              <div>{t("handover.007")}</div>
+              <div>{t("handover.008")}</div>
+              <div>{t("handover.009")}</div>
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <button className="cs-btn-ghost" onClick={downloadHandoverHtml}>{t("handover.010")}</button>
+              <button className="cs-btn-ghost" onClick={editMovedTo}>{t("handover.011")}</button>
+              {settings.movedTo && (
+                <span style={{ fontSize: 13, color: theme.teamB, wordBreak: "break-all" }}>{t("handover.012", { url: settings.movedTo })}</span>
+              )}
+            </div>
           </div>
 
           {customChamps.length > 0 && (
@@ -6929,8 +7832,8 @@ export default function CustomStats() {
                                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
                                     <input className="cs-input" style={{ width: 140 }} value={editForm.name}
                                       onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} placeholder={t("players.042")} />
-                                    <input className="cs-input" style={{ width: 180 }} value={editForm.summonerName}
-                                      onChange={(e) => setEditForm({ ...editForm, summonerName: e.target.value })} placeholder={t("players.003")} />
+                                    <RiotIdInputs name={editForm.riotName} tag={editForm.riotTag} nameWidth={150}
+                                      onChange={(n, tg) => setEditForm({ ...editForm, riotName: n, riotTag: tg })} />
                                     <select className="cs-input" value={editForm.rank}
                                       onChange={(e) => setEditForm({ ...editForm, rank: e.target.value })}>
                                       {RANKS.map(([label, mu]) => <option key={label} value={label}>{rankLabel(label)} ({mu}pt)</option>)}
@@ -7084,6 +7987,159 @@ function MatchTeams({ m, nameOf }) {
     <div style={{ display: "flex", gap: 16, fontSize: 15 }}>
       {side("A", theme.accentBright)}
       {side("B", theme.teamB)}
+    </div>
+  );
+}
+
+// 初期設定画面: 接続先が未設定のHTML(引継ぎ用HTML)を開いたときに表示する。
+// Firebase設定とPASSを入力して設定済みHTMLを書き出し、任意でバックアップJSONを新DBへ書き込む。
+const SETUP_WRITE_TIMEOUT_MS = 20000;
+// 新しいDBに設定するルール(運用中の本番ルールと同一)。CRLはログイン機能を使わないため customstats 配下のみ読み書き可。
+// 注: .validate は削除時には評価されないため、players の削除防止としては機能しない(エミュレーターで確認済み)
+const SETUP_RULES_JSON = JSON.stringify({
+  rules: {
+    ".read": false,
+    ".write": false,
+    customstats: {
+      ".read": true,
+      ".write": true,
+      ".validate": "newData.exists()",
+      players: { ".validate": "newData.exists()" },
+      matches: { ".validate": true },
+      champions: { ".validate": true },
+    },
+  },
+}, null, 2);
+function SetupScreen() {
+  const [cfgText, setCfgText] = useState("");
+  const [dbUrl, setDbUrl] = useState("");
+  const [adminPass, setAdminPass] = useState("");
+  const [viewPass, setViewPass] = useState("");
+  const [backup, setBackup] = useState(null); // { d, nodes, name }
+  const [msg, setMsg] = useState(null); // { ok, text }
+  const [busy, setBusy] = useState(false);
+  const parsed = useMemo(() => parseFirebaseConfig(cfgText), [cfgText]);
+  const cfg = dbUrl.trim() ? { ...parsed, databaseURL: dbUrl.trim() } : parsed;
+  const missing = [
+    !cfg.apiKey && "apiKey", !cfg.projectId && "projectId", !cfg.databaseURL && "databaseURL",
+  ].filter(Boolean);
+
+  const loadFile = async (file) => {
+    setMsg(null);
+    try {
+      const d = JSON.parse(await file.text());
+      const nodes = backupToNodes(d);
+      if (!nodes) throw new Error("invalid");
+      setBackup({ d, nodes, name: file.name });
+    } catch {
+      setBackup(null);
+      setMsg({ ok: false, text: t("handover.037") });
+    }
+  };
+
+  const writeData = async () => {
+    if (missing.length) { setMsg({ ok: false, text: t("handover.041", { items: missing.join(" / ") }) }); return; }
+    setBusy(true); setMsg(null);
+    try {
+      const db = getDatabase(initializeApp(cfg, `crl-setup-${Date.now()}`));
+      // URL誤りなどで応答が返らない場合に待ち続けないよう、一定時間で打ち切る
+      await Promise.race([
+        writeBackupNodes(db, backup.nodes),
+        new Promise((_, reject) => setTimeout(() => reject(new Error(t("handover.042"))), SETUP_WRITE_TIMEOUT_MS)),
+      ]);
+      const sm = backupSummary(backup.d);
+      setMsg({ ok: true, text: t("handover.035", { summary: t("handover.002", { players: sm.players, matches: sm.matches }) }) });
+    } catch (e) {
+      setMsg({ ok: false, text: t("handover.036", { err: e?.message || String(e) }) });
+    }
+    setBusy(false);
+  };
+
+  const download = () => {
+    const lack = [...missing, !adminPass.trim() && t("handover.030")].filter(Boolean);
+    if (lack.length) { setMsg({ ok: false, text: t("handover.041", { items: lack.join(" / ") }) }); return; }
+    const html = buildConfiguredHtml(cfg, { adminPass: adminPass.trim(), viewPass: viewPass.trim() });
+    if (!html) { setMsg({ ok: false, text: t("handover.014") }); return; }
+    downloadText(html, "index.html", "text/html");
+  };
+
+  const inputStyle = { width: "100%", boxSizing: "border-box", padding: "8px 10px", fontSize: 14, border: `1px solid ${theme.borderInput}`, borderRadius: 6, fontFamily: "inherit" };
+  const stepStyle = { ...cardStyle, marginBottom: 12 };
+  const headStyle = { fontWeight: 700, fontSize: 16, marginBottom: 6, color: theme.accent };
+  const noteStyle = { fontSize: 13, color: theme.textSub, marginBottom: 8, lineHeight: 1.6 };
+  // 本体の共通スタイル(.cs-btn 等)は本体描画時にしか入らないため、閲覧PASS画面と同じくインラインで指定する
+  const btnStyle = { background: "linear-gradient(135deg,var(--cs-btnFrom),var(--cs-btnTo))", color: "#FFFFFF", border: "none", borderRadius: 6, padding: "9px 18px", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" };
+  return (
+    <div style={{ fontFamily: "var(--cs-font)", maxWidth: 720, margin: "24px auto", padding: "0 16px", color: theme.text, lineHeight: 1.6 }}>
+      <h2 style={{ color: theme.accent, marginBottom: 4 }}>{t("handover.023")}</h2>
+      <p style={noteStyle}>{t("handover.024")}</p>
+
+      <div style={stepStyle}>
+        <div style={headStyle}>{t("handover.025")}</div>
+        {/* Firebase未作成の後任者向け。このHTMLだけで引継ぎが完結するよう、作り方を画面に載せる */}
+        <details style={{ fontSize: 13, marginBottom: 10 }}>
+          <summary style={{ cursor: "pointer", color: theme.accent, fontWeight: 700 }}>{t("handover.043")}</summary>
+          <div style={{ color: theme.textSub, lineHeight: 1.7, marginTop: 6 }}>
+            <div>{t("handover.044")}</div>
+            <div>{t("handover.045")}</div>
+            <div>{t("handover.046")}</div>
+            <pre style={{ background: theme.surfaceAlt, padding: 8, borderRadius: 6, margin: "4px 0", fontSize: 12, overflowX: "auto" }}>{SETUP_RULES_JSON}</pre>
+            <div>{t("handover.047")}</div>
+          </div>
+        </details>
+        <div style={noteStyle}>{t("handover.026")}</div>
+        <textarea value={cfgText} onChange={(e) => setCfgText(e.target.value)} rows={7}
+          placeholder={'const firebaseConfig = {\n  apiKey: "...",\n  ...\n};'}
+          style={{ ...inputStyle, fontFamily: "monospace", fontSize: 12.5 }} />
+        <div style={{ fontSize: 13, marginTop: 6, color: theme.textSub }}>
+          {t("handover.027", { project: cfg.projectId || "-", db: cfg.databaseURL || "-" })}
+        </div>
+        {!parsed.databaseURL && (
+          <div style={{ marginTop: 8 }}>
+            <label style={{ fontSize: 13, color: theme.textSub }}>{t("handover.028")}</label>
+            <input value={dbUrl} onChange={(e) => setDbUrl(e.target.value)} placeholder="https://xxxx-default-rtdb.asia-southeast1.firebasedatabase.app" style={inputStyle} />
+          </div>
+        )}
+      </div>
+
+      <div style={stepStyle}>
+        <div style={headStyle}>{t("handover.029")}</div>
+        <label style={{ fontSize: 13, color: theme.textSub }}>{t("handover.030")}</label>
+        <input value={adminPass} onChange={(e) => setAdminPass(e.target.value)} style={{ ...inputStyle, marginBottom: 8 }} />
+        <label style={{ fontSize: 13, color: theme.textSub }}>{t("handover.031")}</label>
+        <input value={viewPass} onChange={(e) => setViewPass(e.target.value)} style={inputStyle} />
+      </div>
+
+      <div style={stepStyle}>
+        <div style={headStyle}>{t("handover.032")}</div>
+        <div style={noteStyle}>{t("handover.033")}</div>
+        <input type="file" accept="application/json,.json" onChange={(e) => e.target.files?.[0] && loadFile(e.target.files[0])} />
+        {backup && (() => {
+          const sm = backupSummary(backup.d);
+          return (
+            <div style={{ fontSize: 13, marginTop: 8 }}>
+              <div>{backup.name}</div>
+              <div style={{ color: theme.textSub }}>{t("handover.001", { date: sm.date })} ・ {t("handover.002", { players: sm.players, matches: sm.matches })}</div>
+              {!sm.full && <div style={{ color: theme.textSub }}>{t("handover.004")}</div>}
+              <button style={{ ...btnStyle, marginTop: 8, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={writeData}>
+                {busy ? <Loader2 className="spin" size={14} /> : t("handover.034")}
+              </button>
+            </div>
+          );
+        })()}
+      </div>
+
+      <div style={stepStyle}>
+        <div style={headStyle}>{t("handover.038")}</div>
+        <div style={noteStyle}>{t("handover.039")}</div>
+        <button style={btnStyle} onClick={download}>{t("handover.040")}</button>
+      </div>
+
+      {msg && (
+        <div style={{ ...cardStyle, borderColor: msg.ok ? theme.accent : theme.teamB, color: msg.ok ? theme.text : theme.teamB, fontSize: 14 }}>
+          {msg.text}
+        </div>
+      )}
     </div>
   );
 }
