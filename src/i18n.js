@@ -1,6 +1,10 @@
 // 自動生成: 多言語辞書 (ja/ko/en)
 export const DICT = {
   "ja": {
+    "report.040": "{side}が{n}人です(5対5で報告してください)",
+    "report.041": "{side}で{role}が重複しています(ロールを確認してください)",
+    "report.042": "{name}が2回登録されています",
+    "report.043": "出場メンバーに問題があるため承認できません。「編集」で直してから承認してください。",
     "cup.167": "この選手の最も高いロール",
     "attend.041": "Riot ID(サモナーネーム)",
     "attend.042": "未登録",
@@ -853,6 +857,10 @@ export const DICT = {
     "fearless.058": "手番の音: OFF"
   },
   "en": {
+    "report.040": "{side} has {n} players (report 5 vs 5)",
+    "report.041": "{role} is duplicated on {side} (check the roles)",
+    "report.042": "{name} is entered twice",
+    "report.043": "This game cannot be approved because of a lineup problem. Fix it with Edit, then approve.",
     "cup.167": "This player's highest-rated role",
     "attend.041": "Riot ID (summoner name)",
     "attend.042": "Not set",
@@ -1705,6 +1713,10 @@ export const DICT = {
     "fearless.058": "Turn sound: OFF"
   },
   "ko": {
+    "report.040": "{side}이(가) {n}명입니다 (5대5로 보고하세요)",
+    "report.041": "{side}에서 {role}이(가) 중복됩니다 (라인을 확인하세요)",
+    "report.042": "{name}이(가) 두 번 등록되어 있습니다",
+    "report.043": "출전 멤버에 문제가 있어 승인할 수 없습니다. 「편집」에서 수정한 뒤 승인하세요.",
     "cup.167": "이 선수의 가장 높은 라인",
     "attend.041": "Riot ID (소환사명)",
     "attend.042": "미등록",

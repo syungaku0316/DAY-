@@ -31,6 +31,8 @@ node check_i18n.mjs
 # 4. 単体テスト(該当ファイルを触った場合のみ)
 node src/itemEfficiency.test.mjs
 node src/fearless.test.mjs
+node src/rating.test.mjs
+node src/backup.test.mjs
 
 # 5. ビルド
 npx vite build   # → dist/index.html(単一ファイル 約1.0MB)
@@ -63,6 +65,9 @@ Python等で一括置換した後は、必ず 1 → 5 の順で確認するこ�
 |---|---|---|
 | `src/CustomStats.jsx` | ~8150 | メイン(全UI・ロジック) |
 | `src/i18n.js` | ~2530 | 3言語辞書 **825キー**完全一致 |
+| `src/rating.js` | - | レート計算(純関数): initRoles / computeLaneUpdate / applyMatchToPlayers / recomputeAll(承認済みのみ適用)/ validateMatchEntries / patchPlayerById |
+| `src/rating.test.mjs` | - | 上記の単体テスト(現行の計算式の固定を含む) |
+| `src/backup.js` / `src/backup.test.mjs` | - | バックアップJSON(大会記録 cup を含む)と復元用ノード変換 |
 | `src/fearless.js` | 328 | フィアレス大会の純粋計算(ポイント検証・対戦表・ロック判定・成績)。i18n非依存、エラーはcodeで返す |
 | `src/fearless.test.mjs` | 154 | 上記のNode単体テスト |
 | `src/champNames.js` | - | チャンピオン名対訳 + champLabel/champCanonical |
@@ -77,6 +82,9 @@ Python等で一括置換した後は、必ず 1 → 5 の順で確認するこ�
 **PASSはクライアント側の抑止力**であり秘匿性はない。実質的な防御はURLの非公開性とFirebaseルール。
 
 ## データモデル(`customstats/` 配下)
+
+- **選手データ(players)の書き込みは必ず `updatePlayer` / `updateAllPlayers`(内部で `txPlayers` トランザクション)を使う**。手元の配列で全員分を `saveShared("players")` すると、同時に操作した他人の変更(出欠回答など)が消える
+- 試合は報告・承認・編集の各時点で `validateMatchEntries`(5対5・チーム内ロール重複なし・同一選手重複なし)を通す
 
 - **players**: `{id, name, summonerName, rank(日本語), baseMu, honorRank, status, adjust, prefRoles, ngRoles, roles:{TOP:{mu,sigma,prof,streak}...}, wins, losses, kdaHistory:[...], otp:{role, champion}}`
   - `ngRoles`: **最大3つ**(ランク「初心者」は無制限)。超過データは読み込み時にリセット(`migratePlayer`)
