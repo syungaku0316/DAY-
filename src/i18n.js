@@ -1,6 +1,8 @@
 // 自動生成: 多言語辞書 (ja/ko/en)
 export const DICT = {
   "ja": {
+    "balance.113": "{team}に{n}人固定されています(1チーム5人まで)",
+    "balance.114": "{role}に{n}人固定されています(1試合に2人まで)",
     "balance.111": "固定する試合",
     "balance.112": "新しく固定する選手は選んだ試合に入ります。第2試合に固定した選手は第1試合に入らず、上の「残りのメンバーで第2試合を編成」で固定どおりに組まれます。「2試合同時に編成」でも、それぞれの試合に固定どおりに入ります。",
     "balance.107": "残りのメンバーで第2試合を編成",
@@ -872,6 +874,8 @@ export const DICT = {
     "fearless.058": "手番の音: OFF"
   },
   "en": {
+    "balance.113": "{n} players are locked to {team} (max 5 per team)",
+    "balance.114": "{n} players are locked to {role} (max 2 per game)",
     "balance.111": "Lock for",
     "balance.112": "Newly locked players go to the selected game. Players locked to game 2 are kept out of game 1 and placed as locked by \"Build game 2 from the rest\" above. \"Build 2 games at once\" also places locked players in their game.",
     "balance.107": "Build game 2 from the rest",
@@ -1743,6 +1747,8 @@ export const DICT = {
     "fearless.058": "Turn sound: OFF"
   },
   "ko": {
+    "balance.113": "{team}에 {n}명이 고정되어 있습니다 (팀당 5명까지)",
+    "balance.114": "{role}에 {n}명이 고정되어 있습니다 (경기당 2명까지)",
     "balance.111": "고정할 경기",
     "balance.112": "새로 고정하는 선수는 선택한 경기에 들어갑니다. 2경기에 고정한 선수는 1경기에 들어가지 않고, 위의 「남은 멤버로 2경기 편성」에서 고정대로 편성됩니다. 「2경기 동시 편성」에서도 각 경기에 고정대로 들어갑니다.",
     "balance.107": "남은 멤버로 2경기 편성",

@@ -12,7 +12,7 @@ import { computeEfficiency, PERCENT_DISPLAY_KEYS } from "./itemEfficiency.js";
 import { CHAMPSTATS, CHAMPSTATS_PATCH } from "./champStats.js";
 import { computeAt, STAT_ROWS, COMPARE_LEVELS, MAX_LEVEL } from "./champGrowth.js";
 import { BACKUP_FORMAT, buildBackup, backupToNodes } from "./backup.js";
-import { splitIntoLobbies, lobbySwapCandidates, remainingPool, pinMatchOf, isPinnedFor, poolForMatch, splitWithPins, pinChangeClears } from "./lobby.js";
+import { splitIntoLobbies, lobbySwapCandidates, remainingPool, pinMatchOf, isPinnedFor, poolForMatch, splitWithPins, pinChangeClears, pinIssues } from "./lobby.js";
 import {
   MU0, SIGMA_RATED, SIGMA_UNRANKED, SIGMA_FLOOR, BETA, TAU, K_SCALE, STREAK_STEP, STREAK_MAX_MULT, STREAK_MIN_MULT,
   RATING_FLOOR, RATING_CEIL, clampRating, ROLES, RANKS, PROF_RATE, PROF_SIGMA_MULT,
@@ -4646,9 +4646,11 @@ export default function CustomStats() {
   // ハイライト対象(初期候補10人): 実際の自動選出(pickSeatsFairly)と同一ロジックで算出。
   // 参加回数が同数の場合は登録順ではなく希望ロールのカバレッジを優先するため、表示順(上記)とは一致しないことがある
   const initialSeatIds = useMemo(() => {
-    const pool = players.filter((p) => p.status !== "rest");
-    return new Set(pickSeatsFairly(pool, 10, todayCounts).map((p) => p.id));
-  }, [players, todayCounts]);
+    const pool = poolForMatch(players, session.prefs, 1, []);
+    const locked = pool.filter((p) => isPinnedFor((session.prefs || {})[p.id], 1)).slice(0, 10);
+    const rest = pool.filter((p) => !locked.includes(p));
+    return new Set([...locked, ...pickSeatsFairly(rest, 10 - locked.length, todayCounts, locked)].map((p) => p.id));
+  }, [players, todayCounts, session.prefs]);
 
   const resetTodayCount = async () => {
     if (!(await themedConfirm(t("shell.058")))) return;
@@ -4820,17 +4822,7 @@ export default function CustomStats() {
     const prefOf = (id) => (session.prefs || {})[id] || { team: "AUTO" };
     const isLocked = (p) => isPinnedFor(prefOf(p.id), 1);
     const lockedPlayers = pool.filter(isLocked);
-    if (lockedPlayers.length > 10) { themedAlert(t("balance.062")); return; }
-
-    // 同一チーム内で同じレーンが複数人固定されていないか事前チェック
-    const seenLock = {};
-    for (const p of lockedPlayers) {
-      const pref = prefOf(p.id);
-      if (!pref.team || pref.team === "AUTO" || !pref.role || pref.role === "AUTO") continue;
-      const key = `${pref.team}_${pref.role}`;
-      if (seenLock[key]) { themedAlert(t("balance.061", { team: sideLabel(pref.team), role: pref.role }), [pref.role]); return; }
-      seenLock[key] = p.name;
-    }
+    if (!(await checkPins(pool, [1]))) return;
 
     const toChosen = (ps) => ps.map((p) => {
       const pref = isLocked(p) ? prefOf(p.id) : {};
@@ -4911,6 +4903,19 @@ export default function CustomStats() {
     await saveSession(nextSession);
     await notifyMatchupGaps(result);
   };
+  // 試合 matchList の固定に組めない指定があれば原因を表示して false(汎用の「割当不能」にしないため)
+  const checkPins = async (pool, matchList) => {
+    const prefOf = (p) => (session.prefs || {})[p.id] || {};
+    const errs = matchList.flatMap((m) => pinIssues(pool, prefOf, m));
+    if (!errs.length) return true;
+    const text = (e) => (e.code === "tooMany" ? t("balance.062")
+      : e.code === "laneDup" ? t("balance.061", { team: sideLabel(e.team), role: e.role })
+        : e.code === "teamOver" ? t("balance.113", { team: sideLabel(e.team), n: e.n })
+          : t("balance.114", { role: e.role, n: e.n }));
+    const withMatch = matchList.length > 1 || matchList[0] === 2;
+    await themedAlert(errs.map((e) => (withMatch ? `${t("balance.103", { n: e.match })}: ` : "") + text(e)).join("\n"));
+    return false;
+  };
   // 2試合同時の自動編成: 参加回数の少ない順に20人を選び、卓の分け方(実力順/混ぜる)で10人ずつに分けてから、
   // 各卓を1試合のときと同じ方法でチーム分けする。レーン固定・対面指定(事前固定)は使わない
   const autoAssignTwo = async () => {
@@ -4921,18 +4926,7 @@ export default function CustomStats() {
     const prefOf = (id) => (session.prefs || {})[id] || {};
     const pinOf = (p) => (isPinnedFor(prefOf(p.id), 1) ? 1 : isPinnedFor(prefOf(p.id), 2) ? 2 : null);
     const pinned = pool.filter(pinOf);
-    for (const m of [1, 2]) {
-      const list = pinned.filter((p) => pinOf(p) === m);
-      if (list.length > 10) { themedAlert(t("balance.062")); return; }
-      const seen = {};
-      for (const p of list) {
-        const pref = prefOf(p.id);
-        if (!pref.team || pref.team === "AUTO" || !pref.role || pref.role === "AUTO") continue;
-        const key = `${pref.team}_${pref.role}`;
-        if (seen[key]) { themedAlert(t("balance.061", { team: sideLabel(pref.team), role: pref.role }), [pref.role]); return; }
-        seen[key] = true;
-      }
-    }
+    if (!(await checkPins(pool, [1, 2]))) return;
     const toChosen = (ps) => ps.map((p) => {
       const pref = pinOf(p) ? prefOf(p.id) : {};
       return {
@@ -4977,15 +4971,7 @@ export default function CustomStats() {
     if (pool.length < 10) { themedAlert(t("balance.108", { n: pool.length })); return; }
     const prefOf = (id) => (session.prefs || {})[id] || {};
     const locked = pool.filter((p) => isPinnedFor(prefOf(p.id), 2));
-    if (locked.length > 10) { themedAlert(t("balance.062")); return; }
-    const seenLock = {};
-    for (const p of locked) {
-      const pref = prefOf(p.id);
-      if (!pref.team || pref.team === "AUTO" || !pref.role || pref.role === "AUTO") continue;
-      const key = `${pref.team}_${pref.role}`;
-      if (seenLock[key]) { themedAlert(t("balance.061", { team: sideLabel(pref.team), role: pref.role }), [pref.role]); return; }
-      seenLock[key] = true;
-    }
+    if (!(await checkPins(pool, [2]))) return;
     const isLocked = (p) => locked.some((l) => l.id === p.id);
     const toChosen = (ps) => ps.map((p) => {
       const pref = isLocked(p) ? prefOf(p.id) : {};
@@ -5233,7 +5219,13 @@ export default function CustomStats() {
       const p = players.find((x) => x.id === bp.id);
       return !!(p?.ngRoles || []).includes(bp.role);
     }).length;
-    const lobbyTag = res.lobbyMode === "tier" ? t(li === 0 ? "balance.104" : "balance.105") : "";
+    const lobbyTag = (() => {
+      const other = li === 0 ? balanceResult2 : balanceResult;
+      if (res.lobbyMode !== "tier" || !other || !other.teamA) return "";
+      const sum10 = (r) => fxTeamSum10([...r.teamA, ...r.teamB], players);
+      const mine = sum10(res), theirs = sum10(other);
+      return mine === theirs ? "" : t(mine > theirs ? "balance.104" : "balance.105");
+    })();
     return (
       <div style={{ marginBottom: two ? 28 : 0 }}>
         {two && (

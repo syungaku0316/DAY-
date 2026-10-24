@@ -1,5 +1,5 @@
 // Node単体テスト（実行: node src/lobby.test.mjs）
-import { splitIntoLobbies, lobbySwapCandidates, LOBBY_MODES, remainingPool, pinMatchOf, isPinnedFor, poolForMatch, splitWithPins, pinChangeClears } from "./lobby.js";
+import { splitIntoLobbies, lobbySwapCandidates, LOBBY_MODES, remainingPool, pinMatchOf, isPinnedFor, poolForMatch, splitWithPins, pinChangeClears, pinIssues } from "./lobby.js";
 
 let failed = 0;
 function assert(cond, label) {
@@ -94,6 +94,24 @@ assert(pinChangeClears(before, { ...before, a: { team: "B", role: "TOP", match: 
 assert(JSON.stringify(pinChangeClears(before, { ...before, a: { team: "A", role: "TOP", match: 2 } })) === JSON.stringify({ match1: true, match2: true }), "第1試合→第2試合への付け替えは両方");
 assert(JSON.stringify(pinChangeClears(before, { ...before, c: { team: "AUTO", role: "AUTO" } })) === JSON.stringify({ match1: false, match2: false }), "固定でない設定の追加はどちらも消さない");
 assert(pinChangeClears(before, { b: before.b }).match1, "第1試合の固定の解除は第1試合を作り直す");
+
+
+// ---- 組めない固定の指定を、編成前に原因つきで検出する ----
+const P = (id, pref) => ({ id, pref });
+const issues = (list, match) => pinIssues(list.map((x) => ({ id: x.id })), (p) => list.find((x) => x.id === p.id).pref, match);
+const sixA = ["a", "b", "c", "d", "e", "f"].map((id) => P(id, { team: "A" }));
+assert(issues(sixA, 1).some((e) => e.code === "teamOver" && e.team === "A" && e.n === 6), "同じ試合で同じチームに6人固定は組めない");
+assert(!issues(sixA.slice(0, 5), 1).length, "同じチームに5人までは組める");
+const threeTop = ["a", "b", "c"].map((id) => P(id, { role: "TOP" }));
+assert(issues(threeTop, 1).some((e) => e.code === "roleOver" && e.role === "TOP" && e.n === 3), "同じ試合でTOPに3人固定は組めない");
+const twoTopA = [P("a", { team: "A", role: "TOP" }), P("b", { team: "A", role: "TOP" })];
+assert(issues(twoTopA, 1).some((e) => e.code === "laneDup" && e.team === "A" && e.role === "TOP"), "同じチームの同じレーンに2人は組めない");
+const topAndAuto = [P("a", { team: "A", role: "TOP" }), P("b", { role: "TOP" }), P("c", { team: "B", role: "TOP" })];
+assert(issues(topAndAuto, 1).some((e) => e.code === "roleOver"), "チーム指定なしのTOPを含めて3人ならTOP超過");
+const eleven = Array.from({ length: 11 }, (_, i) => P(`x${i}`, { team: i % 2 ? "A" : "B" }));
+assert(issues(eleven, 1).some((e) => e.code === "tooMany" && e.n === 11), "1試合に11人固定は組めない");
+const other = [...sixA.map((x) => ({ ...x, pref: { ...x.pref, match: 2 } }))];
+assert(!issues(other, 1).length && issues(other, 2).length, "固定の検査は試合ごと");
 
 console.log(failed === 0 ? "\nすべて成功" : `\n${failed}件失敗`);
 process.exit(failed === 0 ? 0 : 1);

@@ -42,6 +42,22 @@ export function poolForMatch(players, prefs, match, results) {
   return remainingPool(players, results).filter((p) => !isPinnedFor((prefs || {})[p.id], other));
 }
 
+// 試合 match の固定で、物理的に組めない指定を原因つきで返す(編成前に止めて、汎用の「割当不能」にしないため)。
+// tooMany: 固定が10人超 / teamOver: 同じチームに6人以上 / roleOver: 同じレーンに3人以上 / laneDup: 同じチームの同じレーンに2人
+export function pinIssues(players, prefOf, match) {
+  const list = players.filter((p) => isPinnedFor(prefOf(p), match)).map((p) => prefOf(p));
+  const out = [];
+  if (list.length > 10) out.push({ code: "tooMany", match, n: list.length });
+  const count = (fn) => list.reduce((m, pf) => { const k = fn(pf); if (k) m[k] = (m[k] || 0) + 1; return m; }, {});
+  const fixed = (v) => (v && v !== "AUTO" ? v : null);
+  Object.entries(count((pf) => fixed(pf.team))).forEach(([team, n]) => { if (n > 5) out.push({ code: "teamOver", match, team, n }); });
+  Object.entries(count((pf) => fixed(pf.role))).forEach(([role, n]) => { if (n > 2) out.push({ code: "roleOver", match, role, n }); });
+  Object.entries(count((pf) => (fixed(pf.team) && fixed(pf.role) ? `${pf.team}_${pf.role}` : null))).forEach(([k, n]) => {
+    if (n > 1) { const [team, role] = k.split("_"); out.push({ code: "laneDup", match, team, role, n }); }
+  });
+  return out;
+}
+
 // 2試合同時の卓分け(固定あり)。まず通常どおり分け、固定した試合と違う卓に入った人を移す。
 // 移す相手は、固定違いどうし → 相手卓の固定していない人のうちレートの近い人、の順(卓分けの方針をなるべく崩さない)。
 // pinnedMatch(p): その人を固定した試合(1/2)。固定なしは null。各試合の固定は10人以下である前提
