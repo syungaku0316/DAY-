@@ -28,8 +28,9 @@ node check_shadowing.mjs
 # 3. i18n総合検証
 node check_i18n.mjs
 
-# 4. 単体テスト(itemEfficiency.js を触った場合のみ)
+# 4. 単体テスト(該当ファイルを触った場合のみ)
 node src/itemEfficiency.test.mjs
+node src/fearless.test.mjs
 
 # 5. ビルド
 npx vite build   # → dist/index.html(単一ファイル 約1.0MB)
@@ -60,8 +61,10 @@ Python等で一括置換した後は、必ず 1 → 5 の順で確認するこ�
 
 | ファイル | 行数 | 内容 |
 |---|---|---|
-| `src/CustomStats.jsx` | ~4367 | メイン(全UI・ロジック) |
-| `src/i18n.js` | ~1330 | 3言語辞書 **424キー**完全一致 |
+| `src/CustomStats.jsx` | ~7030 | メイン(全UI・ロジック) |
+| `src/i18n.js` | ~2190 | 3言語辞書 **710キー**完全一致 |
+| `src/fearless.js` | 328 | フィアレス大会の純粋計算(ポイント検証・対戦表・ロック判定・成績)。i18n非依存、エラーはcodeで返す |
+| `src/fearless.test.mjs` | 154 | 上記のNode単体テスト |
 | `src/champNames.js` | - | チャンピオン名対訳 + champLabel/champCanonical |
 | `src/itemEfficiency.js` | 275 | アイテム金銭効率の純粋計算 |
 | `src/itemEfficiency.test.mjs` | 247 | 上記のNode単体テスト29件 |
@@ -82,6 +85,11 @@ Python等で一括置換した後は、必ず 1 → 5 の順で確認するこ�
 - **settings**: `{matchupWarnThreshold}` — 運用設定。session と分離
 - **rankRequests** / **champions**
 - **requests**: 要望掲示板。`{id, text, author, authorId(端末ID), ts, status: open|considering|planned|done|declined, reply, repliedAt, votes:{端末ID:true}}`。投稿・賛同はPASS不要、回答・削除は管理者PASS。done/declined は `repliedAt` から30日で閲覧端末が自動削除
+- **cup**: フィアレス大会(チーム登録・対戦表・大会成績)。`{activeId, tournaments/<tid>: {meta:{id,name,createdAt,status:entry|running|finished}, rules:{pointCap,maxMasterPlus,maxSubs,bestOf}, teams/<id>:{name, members:{ROLE:{playerId,name,pts}}, subs:{pid:{playerId,name,pts:{ROLE}}}, mplus:{pid:true}, eliminated}, seedOrder:[], series/<key>/games/g<n>:{no,blue,red,winner,lineup,picks,bans,kda}}}`
+  - `pts` は登録時μのスナップショット(固定)。合計判定は0.1pt単位の整数で行う
+  - 対戦表は保存せず teams+rules+seedOrder から導出(2チーム=scrim/main、4チーム=sf1/sf2/final/third、奇数等=抽選)
+  - 大会の試合は `matches`・レート・戦績に**一切書き込まない**。閲覧・ビルダーはPASS不要、保存系は管理者PASS
+  - UIは `CustomStats.jsx` 内(検証スクリプトの走査対象のため)。選手カードは `PlayerSlotCard` でマッチング結果と共用
 
 ## レーティング
 

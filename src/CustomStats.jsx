@@ -6,11 +6,17 @@ import { getDatabase, ref, onValue, set as fbSet, update as fbUpdate, remove as 
 import {
   Trophy, Swords, CheckCircle2, History, Users, UserPlus,
   Scale, Trash2, Loader2, X, UserRound, Pencil, Medal, ExternalLink, ListOrdered, Palette, Coins, RefreshCw, TrendingUp, Sparkles,
-  MessageSquare, ThumbsUp, Send
+  MessageSquare, ThumbsUp, Send, Flag, Shuffle, Crown, Lock
 } from "lucide-react";
 import { computeEfficiency, PERCENT_DISPLAY_KEYS } from "./itemEfficiency.js";
 import { CHAMPSTATS, CHAMPSTATS_PATCH } from "./champStats.js";
 import { computeAt, STAT_ROWS, COMPARE_LEVELS, MAX_LEVEL } from "./champGrowth.js";
+import {
+  FX_ROLES, DEFAULT_RULES, STAGE_JA, toTenths, fmtTenths, normalizeRules, isMasterPlusAuto, snapshotMember, snapshotSub,
+  teamSubs, teamPlayerIds, playerNameIn, starterLineup, validateTeam, validateLineup, orderTeams, buildSchedule, gameList,
+  resolveBracket, hasAnyResult, finalPlacements, fearlessLocked, fearlessConflicts, sideChooser, subRoleUsage,
+  tournamentStats, drawSeeds, drawSurvivors,
+} from "./fearless.js";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from "recharts";
@@ -19,6 +25,7 @@ import { champLabel, champCanonical } from "./champNames.js";
 
 /* 更新履歴。リリースのたびに先頭へ追記(手動管理)。Discordコピー文面と同様、UI言語に関わらず日本語固定 */
 const CHANGELOG = [
+  { date: "2026-10-24", text: "大会タブを追加(フィアレス大会のチーム登録・対戦表・ピック記録・大会成績)" },
   { date: "2026-09-26", text: "要望掲示板を追加(要望の投稿・賛同と、運営からの回答)" },
   { date: "2026-09-08", text: "チャンピオン基礎ステータス成長タブを追加" },
   { date: "2026-08-22", text: "出欠管理の自分カードから、ランク・熟練度の変更申請ができるように" },
@@ -1668,6 +1675,1154 @@ function RequestBoardTab({ requests }) {
   );
 }
 
+// 選手スロットカード(ロール・名前・レート・★/NG・OTP・Riot IDコピー・勝率・OP.GG・ロール別得意チャンピオン)。
+// マッチング結果と大会タブで共用する(重複実装による乖離を避けるため)。
+// 希望/NG/OTP は保存済みスナップショットではなく現在の選手データからライブ計算する
+// (編成後に本人が設定を変更した場合、古い判定のまま表示され続けるのを防ぐため)。
+function PlayerSlotCard({ p, role, name, mu, muNote = null, ChampIcon, onClick, selected = false, warnLeft = false, badges = null }) {
+  const [copied, setCopied] = useState(false);
+  const total = p ? p.wins + p.losses : 0;
+  const wr = total ? Math.round((p.wins / total) * 100) : null;
+
+  // このロールでのチャンピオン別勝率を集計し、最高勝率(同率は試合数が多い方)を採用
+  const roleHist = (p?.kdaHistory || []).filter((h) => h.role === role && h.champion);
+  const byChamp = {};
+  roleHist.forEach((h) => {
+    if (!byChamp[h.champion]) byChamp[h.champion] = { games: 0, wins: 0, k: 0, d: 0, a: 0, kn: 0 };
+    const b = byChamp[h.champion];
+    b.games++; if (h.won) b.wins++;
+    if (h.k != null || h.d != null || h.a != null) { b.k += h.k || 0; b.d += h.d || 0; b.a += h.a || 0; b.kn++; }
+  });
+  const bestChamp = Object.entries(byChamp)
+    .sort((x, y) => (y[1].wins / y[1].games) - (x[1].wins / x[1].games) || y[1].games - x[1].games)[0];
+
+  const link = opggUrl(p?.summonerName);
+  const liveWanted = !!(p?.prefRoles || []).includes(role);
+  const liveNg = !!(p?.ngRoles || []).includes(role);
+  const liveOtp = otpChampFor(p, role);
+  return (
+    <div onClick={onClick} style={{
+      padding: "8px 8px", borderBottom: `1px solid ${theme.borderTable}`, cursor: onClick ? "pointer" : "default", borderRadius: 6,
+      background: selected ? theme.surfaceAlt : "transparent",
+      outline: selected ? `2px solid ${theme.accent}` : liveNg ? `1px solid ${theme.teamB}` : "none",
+      borderLeft: warnLeft ? `3px solid ${theme.teamB}` : "3px solid transparent",
+    }}>
+      <div>
+        <b style={{ color: theme.accent }}>{role}</b> <b style={{ color: theme.text }}>{name}</b>
+        <span style={{ color: theme.textFaint, fontSize: 14 }}> ({Number(mu).toFixed(1)})</span>
+        {muNote}
+        {liveWanted && <span title={t("balance.034")} style={{ color: theme.accent, marginLeft: 4 }}>★</span>}
+        {liveNg && <span title={t("balance.035")} style={{ color: theme.teamB, marginLeft: 4, fontWeight: 700 }}>⚠ NG</span>}
+        {liveOtp && (
+          <span title={t("otp.009")} style={{ display: "inline-flex", alignItems: "center", gap: 3, verticalAlign: "middle", marginLeft: 6, fontSize: 12, fontWeight: 700, color: theme.accent, border: `1px solid ${theme.accent}`, borderRadius: 10, padding: "0 6px" }}>
+            OTP <ChampIcon name={liveOtp} size={14} />{champLabel(liveOtp)}
+          </span>
+        )}
+        {badges}
+        {p?.summonerName && (
+          // カスタム招待でそのまま貼れるよう、Riot IDをタップでクリップボードにコピーできるようにする
+          <span onClick={(ev) => {
+            ev.stopPropagation();
+            try {
+              navigator.clipboard.writeText(p.summonerName);
+              setCopied(true);
+              setTimeout(() => setCopied(false), 1500);
+            } catch { /* クリップボード非対応環境では何もしない */ }
+          }}
+            title={p.summonerName}
+            style={{ color: theme.textSub, fontSize: 13, marginLeft: 8, cursor: "pointer", textDecoration: "underline dotted", fontWeight: 400 }}>
+            {p.summonerName}
+          </span>
+        )}
+        {copied && (
+          <span style={{ color: theme.accentBright, fontSize: 12, marginLeft: 6, fontWeight: 700 }}>{t("scoutMulti.020")}</span>
+        )}
+      </div>
+      <div style={{ fontSize: 14, color: theme.text, marginTop: 3, fontWeight: 700 }}>
+        {t("balance.036")} <b style={{ color: wr == null ? theme.textFaint : wr >= 50 ? theme.accentBright : theme.teamB }}>
+          {wr == null ? t("stats.015") : `${wr}%`}
+        </b>
+        {total > 0 && <span style={{ color: theme.textSub, fontWeight: 400 }}>{t("balance.054", { total, w: p.wins, l: p.losses })}</span>}
+        {link && (
+          <a href={link} target="_blank" rel="noopener noreferrer" onClick={(ev) => ev.stopPropagation()} style={{ display: "inline-flex", alignItems: "center", gap: 3, color: theme.accentBright, marginLeft: 10, fontWeight: 700 }}>
+            <ExternalLink size={14} />{t("scoutMulti.002")}
+          </a>
+        )}
+      </div>
+      <div style={{ fontSize: 14, color: theme.text, marginTop: 3, fontWeight: 700 }}>
+        {role}{t("balance.038")}{" "}
+        {bestChamp ? (
+          <>
+            <ChampIcon name={bestChamp[0]} size={16} />
+            <b style={{ color: theme.text }}>{champLabel(bestChamp[0])}</b>
+            <span style={{ color: theme.textSub, fontWeight: 400 }}>
+              {t("balance.039")}{" "}
+              <b style={{ color: theme.accentBright, fontWeight: 700 }}>{Math.round((bestChamp[1].wins / bestChamp[1].games) * 100)}%</b>
+              {bestChamp[1].kn > 0 && ` KDA: ${(bestChamp[1].k / bestChamp[1].kn).toFixed(1)}/${(bestChamp[1].d / bestChamp[1].kn).toFixed(1)}/${(bestChamp[1].a / bestChamp[1].kn).toFixed(1)}`}）
+            </span>
+          </>
+        ) : <span style={{ color: theme.textFaint, fontWeight: 400 }}>{t("stats.015")}</span>}
+      </div>
+    </div>
+  );
+}
+
+/* --------------------------- フィアレス大会 --------------------------- */
+// customstats/cup 配下(フィアレスドラフトの customstats/fearless とは別ノード。向こうのリセットで消えないように)。session / settings とは別ノード(session クリアで消さないため)。
+// 大会の試合は customstats/matches や選手のレート・戦績には一切書き込まない。
+async function fxSet(path, value) {
+  const db = getDb();
+  if (!db) return false;
+  try { await fbSet(ref(db, "customstats/cup/" + path), clean(value)); return true; }
+  catch (e) { console.error("storage error", e); return false; }
+}
+// 複数パスの同時更新(キーは customstats/cup からの相対パス。値 null は削除)
+async function fxUpdate(fields) {
+  const db = getDb();
+  if (!db) return false;
+  try { await fbUpdate(ref(db, "customstats/cup"), clean(fields)); return true; }
+  catch (e) { console.error("storage error", e); return false; }
+}
+async function fxRemove(path) {
+  const db = getDb();
+  if (!db) return false;
+  try { await fbRemove(ref(db, "customstats/cup/" + path)); return true; }
+  catch (e) { console.error("storage error", e); return false; }
+}
+async function fxCopy(txt) {
+  try { await navigator.clipboard.writeText(txt); themedAlert(t("balance.047")); }
+  catch { await themedPrompt(t("balance.048"), { defaultValue: txt }); }
+}
+const fxRng = () => crypto.getRandomValues(new Uint32Array(1))[0] / 4294967296;
+
+// fearless.js が返すエラーコード → 表示文言
+const FX_ISSUE_KEYS = {
+  slotEmpty: "cup.040", overCap: "cup.041", mplusOver: "cup.042", dupInTeam: "cup.043",
+  dupOtherTeam: "cup.044", tooManySubs: "cup.045", dupInLineup: "cup.046", notInTeam: "cup.047",
+  subRoleLocked: "cup.048", subOverRisk: "cup.049", subMplusRisk: "cup.050",
+};
+const FX_STAGE_KEYS = { scrim: "cup.083", main: "cup.084", sf1: "cup.085", sf2: "cup.086", final: "cup.087", third: "cup.088" };
+const fxIssueText = (e, nameOf, teamNameOf) => t(FX_ISSUE_KEYS[e.code], {
+  role: e.role || "", name: e.playerId ? nameOf(e.playerId) : "", team: e.teamId ? teamNameOf(e.teamId) : "",
+  total: e.total10 != null ? fmtTenths(e.total10) : "", cap: e.cap10 != null ? fmtTenths(e.cap10) : "",
+  count: e.count ?? "", max: e.max ?? "", roles: (e.roles || []).join("/"), locked: e.lockedRole || "",
+});
+const fxSignedTenths = (n) => (n > 0 ? "+" : n < 0 ? "−" : "±") + fmtTenths(Math.abs(n));
+const fxChip = (color, filled = false) => ({
+  display: "inline-block", fontSize: 12, fontWeight: 700, padding: "1px 8px", borderRadius: 999, whiteSpace: "nowrap",
+  border: `1px solid ${color}`, color: filled ? "#FFFFFF" : color, background: filled ? color : "transparent",
+});
+const fxSmallBtn = { padding: "3px 12px", fontSize: 13 };
+
+function FearlessTab({ view, data, players, champOptions, ChampIcon, selTid, setSelTid, seriesKey, setSeriesKey, setTab, onOpenPlayer }) {
+  const tours = Object.values(data?.tournaments || {}).filter((x) => x && x.meta && x.meta.id)
+    .sort((a, b) => (b.meta.createdAt || 0) - (a.meta.createdAt || 0));
+  const activeId = data?.activeId || null;
+  const tour = tours.find((x) => x.meta.id === selTid) || tours.find((x) => x.meta.id === activeId) || tours[0] || null;
+  const tid = tour ? tour.meta.id : null;
+  const readOnly = !tour || tour.meta.status === "finished";
+  const rules = normalizeRules(tour?.rules);
+  const teamsObj = tour?.teams || {};
+  const teamList = Object.values(teamsObj).filter((x) => x && x.id).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+  const ordered = orderTeams(teamsObj, tour?.seedOrder);
+  const sched = buildSchedule(ordered, rules);
+  const seriesMap = tour?.series || {};
+  const resolved = resolveBracket(sched.series, seriesMap);
+  const ctx = {
+    tours, activeId, tour, tid, readOnly, rules, teamsObj, teamList, ordered, sched, seriesMap, resolved,
+    locked: hasAnyResult(seriesMap), teamName: (id) => teamsObj[id]?.name || t("cup.091"),
+    players, champOptions, ChampIcon, setSelTid, seriesKey, setSeriesKey, setTab, onOpenPlayer,
+  };
+  const statusKey = !tour ? null : tour.meta.status === "finished" ? "cup.006" : tour.meta.status === "running" ? "cup.008" : "cup.009";
+
+  return (
+    <div>
+      <div style={{ ...cardStyle, marginBottom: 12, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <Flag size={16} color={theme.accent} />
+        {tours.length ? (
+          <select className="cs-input" value={tid || ""} onChange={(e) => setSelTid(e.target.value)} style={{ fontSize: 15, padding: "4px 8px", maxWidth: "100%" }}>
+            {tours.map((x) => (
+              <option key={x.meta.id} value={x.meta.id}>{x.meta.name}{x.meta.status === "finished" ? ` (${t("cup.006")})` : ""}</option>
+            ))}
+          </select>
+        ) : <span style={{ color: theme.textFaint }}>{t("cup.007")}</span>}
+        {statusKey && <span style={fxChip(tour.meta.status === "finished" ? theme.textSub : theme.accentBright)}>{t(statusKey)}</span>}
+      </div>
+      {view === "fxTeams" && <FxTeamsView ctx={ctx} />}
+      {view === "fxBracket" && (tour ? <FxBracketView ctx={ctx} /> : <EmptyState text={t("cup.007")} />)}
+      {view === "fxPicks" && (tour ? <FxPicksView ctx={ctx} /> : <EmptyState text={t("cup.007")} />)}
+      {view === "fxStats" && (tour ? <FxStatsView ctx={ctx} /> : <EmptyState text={t("cup.007")} />)}
+    </div>
+  );
+}
+
+const FX_EMPTY_DRAFT = { editingId: null, name: "", members: {}, subs: [], mplus: {} };
+
+// 登録時ポイントと現在のレートの差(差が無ければ何も出さない)
+function fxLiveDiffNote(p, role, pts) {
+  if (!p) return null;
+  const diff = toTenths(p.roles[role].mu) - toTenths(pts);
+  if (diff === 0) return null;
+  return <span title={t("cup.052")} style={{ color: theme.textFaint, fontSize: 12, marginLeft: 4 }}>{t("cup.144", { diff: fxSignedTenths(diff) })}</span>;
+}
+
+// チームビルダー本体。大会タブ(onSave あり=登録可)と単独のチームビルダータブ(onSave なし=お試しのみ)で共用する。
+// draft は親が持つ(大会タブでは登録済みチームの「編集」から流し込むため)。
+function TeamBuilderCard({ players, ChampIcon, rules, teamsObj = {}, others = [], draft, setDraft, onSave = null, teamNameOf, title, note, copyTitle, headerExtra = null }) {
+  const [slot, setSlot] = useState("TOP"); // FX_ROLES のいずれか | "SUB"
+  const [search, setSearch] = useState("");
+  useEffect(() => { setSlot("TOP"); }, [draft.editingId]);
+  const pById = (id) => players.find((p) => p.id === id);
+  const orig = draft.editingId ? teamsObj[draft.editingId] : null;
+  const mplusOf = (pid) => (pid in draft.mplus ? draft.mplus[pid] : isMasterPlusAuto(pById(pid)));
+
+  // 編集中は既存メンバーのスナップショット(登録時ポイント)を維持し、新しく入れた選手だけ現在値で取る
+  const buildTeam = () => {
+    const members = {};
+    FX_ROLES.forEach((r) => {
+      const pid = draft.members[r];
+      if (!pid) return;
+      if (orig?.members?.[r]?.playerId === pid) { members[r] = orig.members[r]; return; }
+      const p = pById(pid);
+      if (p) members[r] = snapshotMember(p, r);
+    });
+    const subs = {};
+    draft.subs.forEach((pid) => {
+      const prev = teamSubs(orig).find((s) => s.playerId === pid);
+      const p = pById(pid);
+      if (prev) subs[pid] = prev; else if (p) subs[pid] = snapshotSub(p);
+    });
+    const mplus = {};
+    [...Object.values(members).map((m) => m.playerId), ...Object.keys(subs)].forEach((pid) => { if (mplusOf(pid)) mplus[pid] = true; });
+    return { id: draft.editingId || "draft", name: draft.name.trim(), createdAt: orig?.createdAt || Date.now(), members, subs, mplus };
+  };
+  const team = buildTeam();
+  const v = validateTeam(team, rules, others);
+  const otherTeamOf = (pid) => others.find((x) => !x.eliminated && teamPlayerIds(x).includes(pid));
+  const nameOf = (pid) => pById(pid)?.name || playerNameIn(team, pid) || "?";
+
+  const assign = (pid) => {
+    if (slot === "SUB" && !draft.subs.includes(pid) && draft.subs.length >= rules.maxSubs) return;
+    setDraft((d) => {
+      const members = { ...d.members };
+      FX_ROLES.forEach((r) => { if (members[r] === pid) delete members[r]; });
+      let subs = d.subs.filter((x) => x !== pid);
+      if (slot === "SUB") subs = [...subs, pid];
+      else members[slot] = pid;
+      return { ...d, members, subs };
+    });
+    // 次の空きロールへ自動で進める
+    if (slot !== "SUB") {
+      const next = FX_ROLES.find((r) => r !== slot && !draft.members[r]);
+      if (next) setSlot(next);
+    }
+  };
+  const unassign = (pid) => setDraft((d) => ({
+    ...d,
+    members: Object.fromEntries(Object.entries(d.members).filter(([, id]) => id !== pid)),
+    subs: d.subs.filter((x) => x !== pid),
+  }));
+  const toggleMplus = (pid) => setDraft((d) => ({ ...d, mplus: { ...d.mplus, [pid]: !mplusOf(pid) } }));
+
+  const copyTeam = () => {
+    const lines = [`【${copyTitle}】${team.name || "(未定)"}`];
+    FX_ROLES.forEach((r) => {
+      const m = team.members[r];
+      lines.push(`${r.padEnd(4)} ${m ? `${m.name}（${Number(m.pts).toFixed(1)}）` : "未定"}`);
+    });
+    const subs = teamSubs(team);
+    if (subs.length) lines.push(`補欠: ${subs.map((s) => s.name).join("、")}`);
+    lines.push(`合計 ${fmtTenths(v.total10)} / ${rules.pointCap}pt（マスター以上 ${v.mplusCount}名）`);
+    fxCopy(lines.join("\n"));
+  };
+  const save = async () => {
+    if (!team.name) { await themedAlert(t("cup.030")); return; }
+    if (!v.ok) {
+      await themedAlert([t("cup.031"), ...v.errors.map((e) => "・" + fxIssueText(e, nameOf, teamNameOf))].join("\n"));
+      return;
+    }
+    await onSave(team);
+  };
+
+  // 候補一覧: 選択中ロールのμ降順。ロール枠では「枠内/超過」を残りポイントで判定する
+  const curSlotTenths = slot !== "SUB" && team.members[slot] ? toTenths(team.members[slot].pts) : 0;
+  const room10 = v.cap10 - (v.total10 - curSlotTenths);
+  const q = search.trim().toLowerCase();
+  const cands = players
+    .filter((p) => !q || p.name.toLowerCase().includes(q) || (p.summonerName || "").toLowerCase().includes(q))
+    .map((p) => ({ p, val: slot === "SUB" ? Math.max(...FX_ROLES.map((r) => toTenths(p.roles[r].mu))) : toTenths(p.roles[slot].mu) }))
+    .sort((a, b) => b.val - a.val);
+  const inDraft = new Set([...Object.values(draft.members), ...draft.subs]);
+  const slotIssues = v.errors.filter((e) => e.code !== "slotEmpty");
+  const emptyRoles = v.errors.filter((e) => e.code === "slotEmpty").map((e) => e.role);
+  const pct = Math.min(100, (v.total10 / Math.max(v.cap10, 1)) * 100);
+
+  const mplusBadge = (pid) => (
+    <span onClick={(ev) => { ev.stopPropagation(); toggleMplus(pid); }} title={t("cup.051")}
+      style={{ ...fxChip(theme.teamB, mplusOf(pid)), marginLeft: 6, cursor: "pointer", opacity: mplusOf(pid) ? 1 : 0.45 }}>M+</span>
+  );
+  // 外すボタン: 選手名の横で埋もれないよう、枠付きの丸ボタンにする
+  const removeBtn = (pid) => (
+    <button type="button" onClick={(ev) => { ev.stopPropagation(); unassign(pid); }} title={t("cup.146")} aria-label={t("cup.146")}
+      style={{
+        marginLeft: 8, width: 24, height: 24, padding: 0, borderRadius: 999, cursor: "pointer", verticalAlign: "middle",
+        display: "inline-flex", alignItems: "center", justifyContent: "center",
+        border: `1.5px solid ${theme.teamB}`, background: theme.surfaceWhite, color: theme.teamB,
+      }}><X size={15} strokeWidth={3} /></button>
+  );
+
+  return (
+    <div style={cardStyle}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <div style={{ fontWeight: 700, fontSize: 16, color: theme.accent }}>{title}</div>
+        {headerExtra}
+      </div>
+      <div style={{ fontSize: 13, color: theme.textFaint, margin: "4px 0 10px", lineHeight: 1.6 }}>{note}</div>
+      <input className="cs-input" value={draft.name} maxLength={30} placeholder={t("cup.012")}
+        onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+        style={{ width: "100%", boxSizing: "border-box", fontSize: 15, marginBottom: 10 }} />
+
+      <div style={{ marginBottom: 10 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 6, fontSize: 15, fontWeight: 700 }}>
+          <span style={{ color: v.total10 > v.cap10 ? theme.teamB : theme.text }}>
+            {t("cup.016", { total: fmtTenths(v.total10), cap: rules.pointCap, remain: fmtTenths(v.remain10) })}
+          </span>
+          <span style={{ color: v.mplusCount > rules.maxMasterPlus ? theme.teamB : theme.textSub }}>
+            {t("cup.017", { n: v.mplusCount, max: rules.maxMasterPlus })}
+          </span>
+        </div>
+        <div style={{ height: 8, borderRadius: 4, background: theme.surfaceAlt, marginTop: 6, overflow: "hidden" }}>
+          <div style={{ width: `${pct}%`, height: "100%", background: v.total10 > v.cap10 ? theme.teamB : theme.accentBright }} />
+        </div>
+      </div>
+
+      <div className="cs-cols2" style={{ alignItems: "start" }}>
+        <div>
+          {FX_ROLES.map((r) => {
+            const m = team.members[r];
+            if (!m) {
+              return (
+                <div key={r} onClick={() => setSlot(r)} style={{
+                  padding: "10px 8px", borderRadius: 6, cursor: "pointer", marginBottom: 4, color: theme.textFaint,
+                  border: `1px dashed ${slot === r ? theme.accent : theme.borderInput}`, background: slot === r ? theme.surfaceAlt : "transparent",
+                }}>
+                  <b style={{ color: theme.accent }}>{r}</b> {t("cup.013")}
+                </div>
+              );
+            }
+            return (
+              <PlayerSlotCard key={r} p={pById(m.playerId)} role={r} name={m.name} mu={m.pts} ChampIcon={ChampIcon}
+                muNote={fxLiveDiffNote(pById(m.playerId), r, m.pts)} onClick={() => setSlot(r)} selected={slot === r}
+                badges={<>{mplusBadge(m.playerId)}{removeBtn(m.playerId)}</>} />
+            );
+          })}
+          <div style={{ marginTop: 8, fontSize: 14, fontWeight: 700, color: theme.textSub }}>{t("cup.014")} ({teamSubs(team).length}/{rules.maxSubs})</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
+            {teamSubs(team).map((s) => (
+              <span key={s.playerId} style={{ ...fxChip(theme.accent), fontSize: 13, padding: "3px 4px 3px 10px", display: "inline-flex", alignItems: "center" }}>
+                {s.name}{mplusBadge(s.playerId)}{removeBtn(s.playerId)}
+              </span>
+            ))}
+            {teamSubs(team).length < rules.maxSubs && (
+              <button className="cs-btn-ghost" style={{ ...fxSmallBtn, borderColor: slot === "SUB" ? theme.accent : theme.borderInput }} onClick={() => setSlot("SUB")}>
+                + {t("cup.015")}
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>
+            {t("cup.019", { role: slot === "SUB" ? t("cup.014") : slot })}
+            {slot !== "SUB" && <span style={{ color: theme.textFaint, fontWeight: 400, marginLeft: 8 }}>{t("cup.145", { room: fmtTenths(room10) })}</span>}
+          </div>
+          <input className="cs-input" value={search} placeholder={t("cup.020")} onChange={(e) => setSearch(e.target.value)}
+            style={{ width: "100%", boxSizing: "border-box", fontSize: 14, marginBottom: 6 }} />
+          <div className="cs-scroll" style={{ maxHeight: 360, overflowY: "auto", display: "flex", flexDirection: "column", gap: 4 }}>
+            {cands.map(({ p, val }) => {
+              const other = otherTeamOf(p.id);
+              const mine = inDraft.has(p.id);
+              const fits = val <= room10;
+              return (
+                <div key={p.id} onClick={() => { if (!other) assign(p.id); }} style={{
+                  display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", borderRadius: 6,
+                  border: `1px solid ${mine ? theme.accent : theme.borderInput}`, background: theme.surfaceWhite,
+                  cursor: other ? "not-allowed" : "pointer", opacity: other ? 0.45 : 1,
+                }}>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontWeight: 700, fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {p.name}
+                      {isMasterPlusAuto(p) && <span style={{ ...fxChip(theme.teamB), marginLeft: 6 }}>M+</span>}
+                    </div>
+                    <div style={{ fontSize: 12, color: theme.textFaint }}>
+                      {rankLabel(p.rank)}
+                      {other ? ` ・ ${t("cup.023", { team: other.name })}` : mine ? ` ・ ${t("cup.024")}` : ""}
+                    </div>
+                  </div>
+                  <div style={{ fontWeight: 700, fontSize: 15, fontVariantNumeric: "tabular-nums" }}>{fmtTenths(val)}</div>
+                  {slot !== "SUB" && !other && (
+                    <span style={fxChip(fits ? theme.accentBright : theme.teamB)}>{t(fits ? "cup.021" : "cup.022")}</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {(emptyRoles.length > 0 || slotIssues.length > 0 || v.warnings.length > 0) && (
+        <div style={{ marginTop: 10, fontSize: 13, lineHeight: 1.7 }}>
+          {emptyRoles.length > 0 && <div style={{ color: theme.textSub }}>{t("cup.018", { roles: emptyRoles.join(" / ") })}</div>}
+          {slotIssues.map((e, i) => <div key={"e" + i} style={{ color: theme.teamB, fontWeight: 700 }}>⚠ {fxIssueText(e, nameOf, teamNameOf)}</div>)}
+          {v.warnings.map((e, i) => <div key={"w" + i} style={{ color: theme.accent }}>△ {fxIssueText(e, nameOf, teamNameOf)}</div>)}
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+        <button className="cs-btn-ghost" style={{ padding: "6px 14px" }} onClick={copyTeam}>{t("cup.025")}</button>
+        {onSave && <button className="cs-btn" style={{ padding: "6px 16px" }} onClick={save}>{t(draft.editingId ? "cup.027" : "cup.026")}</button>}
+        <button className="cs-btn-ghost" style={{ padding: "6px 14px", marginLeft: "auto" }} onClick={() => { setDraft(FX_EMPTY_DRAFT); setSlot("TOP"); }}>
+          {t(draft.editingId ? "cup.029" : "cup.028")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// 大会と関係なく遊べる単独のチームビルダー。保存はせず、組んだ内容はこの端末にだけ残す
+const TB_STORE_KEY = "crl-team-builder";
+function TeamBuilderTab({ players, ChampIcon }) {
+  const [state, setState] = useState(() => {
+    try {
+      const v = JSON.parse(localStorage.getItem(TB_STORE_KEY) || "null");
+      if (v && v.draft) return { draft: { ...FX_EMPTY_DRAFT, ...v.draft, editingId: null }, pointCap: v.pointCap ?? DEFAULT_RULES.pointCap, maxMasterPlus: v.maxMasterPlus ?? DEFAULT_RULES.maxMasterPlus };
+    } catch {}
+    return { draft: FX_EMPTY_DRAFT, pointCap: DEFAULT_RULES.pointCap, maxMasterPlus: DEFAULT_RULES.maxMasterPlus };
+  });
+  useEffect(() => {
+    try { localStorage.setItem(TB_STORE_KEY, JSON.stringify(state)); } catch {}
+  }, [state]);
+  const setDraft = (upd) => setState((s) => ({ ...s, draft: typeof upd === "function" ? upd(s.draft) : upd }));
+  const rules = normalizeRules({ pointCap: state.pointCap, maxMasterPlus: state.maxMasterPlus });
+  const numInput = (key, width) => (
+    <input className="cs-input" type="number" value={state[key]} onChange={(e) => setState((s) => ({ ...s, [key]: e.target.value }))}
+      style={{ width, fontSize: 13, padding: "3px 6px" }} />
+  );
+  return (
+    <TeamBuilderCard players={players} ChampIcon={ChampIcon} rules={rules} draft={state.draft} setDraft={setDraft}
+      teamNameOf={() => ""} title={t("cup.010")} note={t("cup.147")} copyTitle="チームビルダー"
+      headerExtra={(
+        <span style={{ marginLeft: "auto", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", fontSize: 13, color: theme.textSub }}>
+          <label>{t("cup.062")} {numInput("pointCap", 72)}</label>
+          <label>{t("cup.063")} {numInput("maxMasterPlus", 52)}</label>
+        </span>
+      )} />
+  );
+}
+
+function FxTeamsView({ ctx }) {
+  const { tid, tour, readOnly, rules, teamsObj, teamList, players, ChampIcon, locked, teamName } = ctx;
+  const [draft, setDraft] = useState(FX_EMPTY_DRAFT);
+  const pById = (id) => players.find((p) => p.id === id);
+  const orig = draft.editingId ? teamsObj[draft.editingId] : null;
+
+  const saveTeam = async (team) => {
+    if (readOnly) return;
+    const activeCount = teamList.filter((x) => !x.eliminated).length;
+    if (!draft.editingId && activeCount >= 4 && !(await themedConfirm(t("cup.033")))) return;
+    if (draft.editingId && locked && !(await themedConfirm(t("cup.034")))) return;
+    if (!(await requireAdminPass(t("cup.032")))) return;
+    const id = draft.editingId || crypto.randomUUID();
+    const ok = await fxSet(`tournaments/${tid}/teams/${id}`, { ...team, id, ...(orig?.eliminated ? { eliminated: true } : {}) });
+    if (!ok) { await themedAlert(t("shell.001")); return; }
+    setDraft(FX_EMPTY_DRAFT);
+  };
+
+  const editTeam = (tm) => {
+    setDraft({
+      editingId: tm.id, name: tm.name || "",
+      members: Object.fromEntries(FX_ROLES.filter((r) => tm.members?.[r]).map((r) => [r, tm.members[r].playerId])),
+      subs: teamSubs(tm).map((s) => s.playerId),
+      mplus: Object.fromEntries(teamPlayerIds(tm).map((pid) => [pid, !!tm.mplus?.[pid]])),
+    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+  const refreshTeam = async (tm) => {
+    const members = {};
+    FX_ROLES.forEach((r) => {
+      const m = tm.members?.[r];
+      if (!m) return;
+      const p = pById(m.playerId);
+      members[r] = p ? snapshotMember(p, r) : m;
+    });
+    const subs = {};
+    teamSubs(tm).forEach((s) => { const p = pById(s.playerId); subs[s.playerId] = p ? snapshotSub(p) : s; });
+    const next = { ...tm, members, subs };
+    const before = validateTeam(tm, rules, []).total10;
+    const after = validateTeam(next, rules, []);
+    const msg = [t("cup.053", { name: tm.name, before: fmtTenths(before), after: fmtTenths(after.total10) })];
+    if (after.total10 > after.cap10) msg.push(t("cup.054"));
+    if (!(await themedConfirm(msg.join("\n")))) return;
+    if (!(await requireAdminPass(t("cup.038")))) return;
+    await fxSet(`tournaments/${tid}/teams/${tm.id}`, next);
+  };
+  const deleteTeam = async (tm) => {
+    if (locked) { await themedAlert(t("cup.055")); return; }
+    if (!(await themedConfirm(t("cup.056", { name: tm.name }), [tm.name]))) return;
+    if (!(await requireAdminPass(t("cup.039")))) return;
+    await fxRemove(`tournaments/${tid}/teams/${tm.id}`);
+    if (draft.editingId === tm.id) setDraft(FX_EMPTY_DRAFT);
+  };
+  const liveDiffNote = (pid, role, pts) => fxLiveDiffNote(pById(pid), role, pts);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {tour && !readOnly && (
+        <TeamBuilderCard players={players} ChampIcon={ChampIcon} rules={rules} teamsObj={teamsObj}
+          others={teamList.filter((x) => x.id !== draft.editingId)} draft={draft} setDraft={setDraft} onSave={saveTeam}
+          teamNameOf={teamName} title={draft.editingId ? t("cup.027") : t("cup.010")} note={t("cup.011")} copyTitle="Fearless チーム" />
+      )}
+
+      {tour && (
+        <div>
+          <div style={{ fontWeight: 700, fontSize: 16, margin: "4px 0 8px" }}>{t("cup.035", { n: teamList.length })}</div>
+          {teamList.length === 0 ? <EmptyState text={t("cup.036")} /> : (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
+              {teamList.map((tm) => {
+                const tv = validateTeam(tm, rules, teamList.filter((x) => x.id !== tm.id));
+                return (
+                  <div key={tm.id} style={{ ...cardStyle, opacity: tm.eliminated ? 0.55 : 1, borderColor: draft.editingId === tm.id ? theme.accent : theme.borderTable }}>
+                    <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
+                      <b style={{ fontSize: 16 }}>{tm.name}</b>
+                      {tm.eliminated && <span style={fxChip(theme.textSub)}>{t("cup.057")}</span>}
+                      <span style={{ marginLeft: "auto", fontWeight: 700, color: tv.total10 > tv.cap10 ? theme.teamB : theme.textSub }}>
+                        {fmtTenths(tv.total10)} / {rules.pointCap}pt
+                      </span>
+                    </div>
+                    {FX_ROLES.map((r) => {
+                      const m = tm.members?.[r];
+                      return (
+                        <div key={r} style={{ fontSize: 14, padding: "2px 0" }}>
+                          <b style={{ color: theme.accent, display: "inline-block", width: 40 }}>{r}</b>
+                          {m ? (
+                            <>
+                              <span style={{ cursor: pById(m.playerId) ? "pointer" : "default" }} onClick={() => pById(m.playerId) && ctx.onOpenPlayer(m.playerId)}>{m.name}</span>
+                              <span style={{ color: theme.textFaint }}> ({Number(m.pts).toFixed(1)})</span>
+                              {liveDiffNote(m.playerId, r, m.pts)}
+                              {tm.mplus?.[m.playerId] && <span style={{ ...fxChip(theme.teamB, true), marginLeft: 6 }}>M+</span>}
+                            </>
+                          ) : <span style={{ color: theme.textFaint }}>-</span>}
+                        </div>
+                      );
+                    })}
+                    {teamSubs(tm).length > 0 && (
+                      <div style={{ fontSize: 13, color: theme.textSub, marginTop: 4 }}>
+                        {t("cup.014")}: {teamSubs(tm).map((s) => s.name + (tm.mplus?.[s.playerId] ? "(M+)" : "")).join("、")}
+                      </div>
+                    )}
+                    {tv.errors.filter((e) => e.code !== "slotEmpty").map((e, i) => (
+                      <div key={i} style={{ fontSize: 12, color: theme.teamB, fontWeight: 700, marginTop: 2 }}>⚠ {fxIssueText(e, (pid) => playerNameIn(tm, pid) || "?", teamName)}</div>
+                    ))}
+                    {!readOnly && (
+                      <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", flexWrap: "wrap", marginTop: 8 }}>
+                        <button className="cs-btn-ghost" style={fxSmallBtn} onClick={() => editTeam(tm)}><Pencil size={12} /> {t("cup.037")}</button>
+                        <button className="cs-btn-ghost" style={fxSmallBtn} onClick={() => refreshTeam(tm)}><RefreshCw size={12} /> {t("cup.038")}</button>
+                        <button className="cs-btn-ghost" style={fxSmallBtn} onClick={() => deleteTeam(tm)}><Trash2 size={12} /> {t("cup.039")}</button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      <FxAdminPanel ctx={ctx} />
+    </div>
+  );
+}
+
+function FxAdminPanel({ ctx }) {
+  const { tours, activeId, tour, tid, setSelTid } = ctx;
+  const [form, setForm] = useState(null); // 設定編集中の値
+  const cur = tour ? normalizeRules(tour.rules) : null;
+  const f = form && form.tid === tid ? form : (tour ? {
+    tid, name: tour.meta.name, pointCap: cur.pointCap, maxMasterPlus: cur.maxMasterPlus, maxSubs: cur.maxSubs, bestOf: { ...cur.bestOf },
+  } : null);
+  const setF = (patch) => setForm({ ...f, ...patch });
+
+  const create = async () => {
+    const name = await themedPrompt(t("cup.060"), { defaultValue: `第${tours.length + 1}回 Fearless.G` });
+    if (name === null || !name.trim()) return;
+    const active = tours.find((x) => x.meta.id === activeId && x.meta.status !== "finished");
+    if (active && !(await themedConfirm(t("cup.061", { name: active.meta.name }), [active.meta.name]))) return;
+    if (!(await requireAdminPass(t("cup.059")))) return;
+    const id = crypto.randomUUID();
+    const ok = await fxUpdate({
+      [`tournaments/${id}`]: { meta: { id, name: name.trim().slice(0, 40), createdAt: Date.now(), status: "entry" }, rules: DEFAULT_RULES },
+      activeId: id,
+    });
+    if (!ok) { await themedAlert(t("shell.001")); return; }
+    setSelTid(id);
+  };
+  const saveRules = async () => {
+    if (!(await requireAdminPass(t("cup.066")))) return;
+    const rl = normalizeRules({ pointCap: f.pointCap, maxMasterPlus: f.maxMasterPlus, maxSubs: f.maxSubs, bestOf: f.bestOf });
+    await fxUpdate({
+      [`tournaments/${tid}/rules`]: rl,
+      [`tournaments/${tid}/meta/name`]: (f.name || "").trim().slice(0, 40) || tour.meta.name,
+    });
+    setForm(null);
+  };
+  const finish = async () => {
+    if (!(await themedConfirm(t("cup.068", { name: tour.meta.name }), [tour.meta.name]))) return;
+    if (!(await requireAdminPass(t("cup.067")))) return;
+    await fxUpdate({
+      [`tournaments/${tid}/meta/status`]: "finished", [`tournaments/${tid}/meta/finishedAt`]: Date.now(),
+      ...(activeId === tid ? { activeId: null } : {}),
+    });
+  };
+  const reopen = async () => {
+    if (!(await requireAdminPass(t("cup.069")))) return;
+    await fxUpdate({ [`tournaments/${tid}/meta/status`]: tour.series ? "running" : "entry", [`tournaments/${tid}/meta/finishedAt`]: null, activeId: tid });
+  };
+  const remove = async () => {
+    if (!(await themedConfirm(t("cup.071", { name: tour.meta.name }), [tour.meta.name]))) return;
+    if (!(await themedConfirm(t("cup.072")))) return;
+    if (!(await requireAdminPass(t("cup.070")))) return;
+    await fxUpdate({ [`tournaments/${tid}`]: null, ...(activeId === tid ? { activeId: null } : {}) });
+    setSelTid(null);
+  };
+
+  const num = (val, onChange, width = 70) => (
+    <input className="cs-input" type="number" value={val} onChange={(e) => onChange(e.target.value)}
+      style={{ width, fontSize: 14, padding: "4px 6px" }} />
+  );
+  const boKeys = ["scrim", "main", "sf", "final", "third"];
+  return (
+    <details style={cardStyle}>
+      <summary style={{ cursor: "pointer", fontWeight: 700, color: theme.textSub }}>{t("cup.058")}</summary>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
+        <div><button className="cs-btn" style={{ padding: "6px 14px" }} onClick={create}>+ {t("cup.059")}</button></div>
+        {tour && tour.meta.status !== "finished" && f && (
+          <>
+            <label style={{ fontSize: 14 }}>{t("cup.060")}<br />
+              <input className="cs-input" value={f.name} maxLength={40} onChange={(e) => setF({ name: e.target.value })} style={{ width: "100%", maxWidth: 360, boxSizing: "border-box", fontSize: 14 }} />
+            </label>
+            <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 14 }}>
+              <label>{t("cup.062")}<br />{num(f.pointCap, (x) => setF({ pointCap: x }), 80)}</label>
+              <label>{t("cup.063")}<br />{num(f.maxMasterPlus, (x) => setF({ maxMasterPlus: x }))}</label>
+              <label>{t("cup.064")}<br />{num(f.maxSubs, (x) => setF({ maxSubs: x }))}</label>
+            </div>
+            <div style={{ fontSize: 14 }}>{t("cup.065")}
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
+                {boKeys.map((k) => (
+                  <select key={k} className="cs-input" value={f.bestOf[k]} onChange={(e) => setF({ bestOf: { ...f.bestOf, [k]: Number(e.target.value) } })}
+                    style={{ fontSize: 14, padding: "4px 6px" }}>
+                    {[1, 3, 5].map((n) => <option key={n} value={n}>BO{n}</option>)}
+                  </select>
+                ))}
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button className="cs-btn-ghost" style={{ padding: "6px 14px" }} onClick={saveRules}>{t("cup.066")}</button>
+              <button className="cs-btn-ghost" style={{ padding: "6px 14px" }} onClick={finish}>{t("cup.067")}</button>
+            </div>
+          </>
+        )}
+        {tour && (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {tour.meta.status === "finished" && <button className="cs-btn-ghost" style={{ padding: "6px 14px" }} onClick={reopen}>{t("cup.069")}</button>}
+            <button className="cs-btn-ghost" style={{ padding: "6px 14px", color: theme.teamB, borderColor: theme.teamB }} onClick={remove}>
+              <Trash2 size={13} /> {t("cup.070")}
+            </button>
+          </div>
+        )}
+      </div>
+    </details>
+  );
+}
+
+// シリーズ表示名(未定チームは「準決勝1の勝者」等)
+function fxSlotName(ctx, s, side) {
+  const id = s[side];
+  if (id) return ctx.teamName(id);
+  const src = s.from?.[side];
+  if (!src) return t("cup.091");
+  return t(src.take === "winner" ? "cup.089" : "cup.090", { from: t(FX_STAGE_KEYS[src.key]) });
+}
+// 試合記録のチームと対戦カードが一致しているか(準決勝の結果を後から修正した場合に崩れる)
+function fxSeriesMismatch(s, gamesObj) {
+  return gameList(gamesObj).some((g) => {
+    const ids = [g.blue, g.red].sort().join();
+    return ids !== [s.a, s.b].sort().join();
+  });
+}
+
+function FxBracketView({ ctx }) {
+  const { tid, readOnly, sched, resolved, ordered, teamList, teamName, locked, seriesMap, setSeriesKey, setTab, tour } = ctx;
+  const placements = finalPlacements(sched.mode, resolved);
+  const eliminated = teamList.filter((x) => x.eliminated);
+
+  const doDraw = async () => {
+    if (!(await requireAdminPass(t("cup.075")))) return;
+    const keep = new Set(drawSurvivors(ordered.map((x) => x.id), sched.drawTo, fxRng));
+    const fields = {};
+    ordered.forEach((x) => { fields[`tournaments/${tid}/teams/${x.id}/eliminated`] = keep.has(x.id) ? null : true; });
+    await fxUpdate(fields);
+  };
+  const undoDraw = async () => {
+    if (locked) { await themedAlert(t("cup.080")); return; }
+    if (!(await requireAdminPass(t("cup.076")))) return;
+    const fields = {};
+    eliminated.forEach((x) => { fields[`tournaments/${tid}/teams/${x.id}/eliminated`] = null; });
+    await fxUpdate(fields);
+  };
+  const doSeed = async () => {
+    if (locked) { await themedAlert(t("cup.080")); return; }
+    if (tour.seedOrder && !(await themedConfirm(t("cup.079")))) return;
+    if (!(await requireAdminPass(t("cup.078")))) return;
+    await fxSet(`tournaments/${tid}/seedOrder`, drawSeeds(ordered.map((x) => x.id), fxRng));
+  };
+
+  const card = (s) => {
+    const ready = !!(s.a && s.b);
+    const st = s.state;
+    const chooser = ready && st.nextNo ? sideChooser(seriesMap[s.key]?.games, st.nextNo) : null;
+    const status = st.done ? ["cup.006", theme.textSub] : st.games.length ? ["cup.093", theme.accentBright] : ["cup.092", theme.textFaint];
+    const nameStyle = (id) => ({ fontWeight: st.winner === id ? 800 : 600, color: st.done && st.winner !== id ? theme.textFaint : theme.text });
+    return (
+      <div key={s.key} onClick={() => { if (ready) { setSeriesKey(s.key); setTab("fxPicks"); } }}
+        style={{ ...cardStyle, cursor: ready ? "pointer" : "default", borderColor: st.games.length && !st.done ? theme.accentBright : theme.borderTable }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
+          <b style={{ color: theme.accent }}>{t(FX_STAGE_KEYS[s.key])}</b>
+          <span style={{ fontSize: 13, color: theme.textFaint }}>BO{s.bestOf}</span>
+          {s.key === "scrim" && <span style={{ fontSize: 12, color: theme.textFaint }}>{t("cup.094")}</span>}
+          <span style={{ ...fxChip(status[1]), marginLeft: "auto" }}>{t(status[0])}</span>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 4, fontSize: 16 }}>
+          <span style={nameStyle(s.a)}>{fxSlotName(ctx, s, "a")}</span><b style={{ fontVariantNumeric: "tabular-nums" }}>{ready ? st.winsA : "-"}</b>
+          <span style={nameStyle(s.b)}>{fxSlotName(ctx, s, "b")}</span><b style={{ fontVariantNumeric: "tabular-nums" }}>{ready ? st.winsB : "-"}</b>
+        </div>
+        {ready && st.nextNo && (
+          <div style={{ fontSize: 13, color: theme.textSub, marginTop: 6 }}>
+            {st.nextNo === 1 ? t("cup.096") : chooser ? t("cup.095", { n: st.nextNo, team: teamName(chooser) }) : t("cup.101", { n: st.nextNo })}
+          </div>
+        )}
+        {ready && fxSeriesMismatch(s, seriesMap[s.key]?.games) && (
+          <div style={{ fontSize: 12, color: theme.teamB, fontWeight: 700, marginTop: 6 }}>⚠ {t("cup.097")}</div>
+        )}
+      </div>
+    );
+  };
+
+  const placed = Object.entries(placements).sort((a, b) => a[1] - b[1]);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {sched.mode === "none" && <EmptyState text={t("cup.073", { n: ordered.length })} />}
+      {sched.mode === "draw" && (
+        <div style={{ ...cardStyle, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <Shuffle size={18} color={theme.accent} />
+          <span style={{ fontWeight: 700 }}>{t("cup.074", { n: ordered.length, m: sched.drawTo })}</span>
+          {!readOnly && <button className="cs-btn" style={{ padding: "6px 14px", marginLeft: "auto" }} onClick={doDraw}>{t("cup.075")}</button>}
+        </div>
+      )}
+      {eliminated.length > 0 && (
+        <div style={{ ...cardStyle, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontSize: 14 }}>
+          <span style={fxChip(theme.textSub)}>{t("cup.057")}</span>
+          {eliminated.map((x) => x.name).join("、")}
+          {!readOnly && !locked && <button className="cs-btn-ghost" style={{ ...fxSmallBtn, marginLeft: "auto" }} onClick={undoDraw}>{t("cup.076")}</button>}
+        </div>
+      )}
+      {sched.mode === "se4" && (
+        <div style={{ ...cardStyle, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontSize: 14 }}>
+          <b>{t("cup.077")}</b>
+          {ordered.map((x, i) => <span key={x.id}>{i + 1}. {x.name}</span>)}
+          {!readOnly && !locked && <button className="cs-btn-ghost" style={{ ...fxSmallBtn, marginLeft: "auto" }} onClick={doSeed}><Shuffle size={12} /> {t("cup.078")}</button>}
+        </div>
+      )}
+      {placed.length > 0 && (
+        <div style={{ ...cardStyle, borderColor: theme.accent }}>
+          <div style={{ fontWeight: 700, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}><Crown size={16} color={theme.accent} />{t("cup.081")}</div>
+          <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 15 }}>
+            {placed.map(([id, rank]) => (
+              <span key={id}><b style={{ color: rank === 1 ? theme.accent : theme.textSub }}>{rank === 1 ? t("cup.139") : t("cup.138", { n: rank })}</b> {teamName(id)}</span>
+            ))}
+          </div>
+        </div>
+      )}
+      {[1, 2].map((day) => {
+        const list = resolved.filter((s) => s.day === day);
+        if (!list.length) return null;
+        return (
+          <div key={day}>
+            <div style={{ fontWeight: 700, color: theme.textSub, margin: "4px 0 6px" }}>{t("cup.082", { n: day })}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 12 }}>{list.map(card)}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function FxPicksView({ ctx }) {
+  const { tid, tour, readOnly, resolved, seriesMap, teamsObj, teamName, rules, champOptions, ChampIcon, seriesKey, setSeriesKey } = ctx;
+  const [form, setForm] = useState(null); // 入力中の試合
+  const playable = resolved.filter((s) => s.a && s.b);
+  const cur = playable.find((s) => s.key === seriesKey) || playable.find((s) => !s.state.done) || playable[0] || null;
+  if (!cur) return <EmptyState text={t("cup.098")} />;
+
+  const gamesObj = seriesMap[cur.key]?.games || {};
+  const games = cur.state.games;
+  const nextNo = cur.state.nextNo;
+  const lockedNow = fearlessLocked(gamesObj, nextNo ?? Infinity);
+  const conflicts = fearlessConflicts(gamesObj);
+  const chooser = nextNo ? sideChooser(gamesObj, nextNo) : null;
+  const champSet = new Set(champOptions);
+  const formLocked = form ? fearlessLocked(gamesObj, form.no) : new Set();
+  const lastNo = games.reduce((m, g) => Math.max(m, g.no || 0), 0);
+
+  const openForm = (g) => {
+    const ids = [cur.a, cur.b];
+    if (g) {
+      setForm({
+        no: g.no, editing: true, blue: g.blue, red: g.red, winner: g.winner || null,
+        lineup: Object.fromEntries(ids.map((id) => [id, { ...(g.lineup?.[id] || starterLineup(teamsObj[id])) }])),
+        picks: Object.fromEntries(ids.map((id) => [id, Object.fromEntries(FX_ROLES.map((r) => [r, g.picks?.[id]?.[r] ? champLabel(g.picks[id][r]) : ""]))])),
+        bans: Object.fromEntries(ids.map((id) => [id, (g.bans?.[id] ? Object.values(g.bans[id]) : []).map(champLabel).join("、")])),
+        kda: Object.fromEntries(Object.entries(g.kda || {}).map(([pid, x]) => [pid, { k: String(x.k ?? ""), d: String(x.d ?? ""), a: String(x.a ?? "") }])),
+        showKda: !!g.kda,
+      });
+    } else {
+      setForm({
+        no: nextNo, editing: false, blue: cur.a, red: cur.b, winner: null,
+        lineup: Object.fromEntries(ids.map((id) => [id, starterLineup(teamsObj[id])])),
+        picks: Object.fromEntries(ids.map((id) => [id, {}])), bans: Object.fromEntries(ids.map((id) => [id, ""])), kda: {}, showKda: false,
+      });
+    }
+  };
+  const lineupCheck = (id) => validateLineup(teamsObj[id], form.lineup[id], rules,
+    subRoleUsage(teamsObj[id], resolved, seriesMap, cur.day, { key: cur.key, no: form.no }));
+
+  const save = async () => {
+    const ids = [cur.a, cur.b];
+    const picks = {};
+    const all = [];
+    let missing = false;
+    ids.forEach((id) => {
+      picks[id] = {};
+      FX_ROLES.forEach((r) => {
+        const raw = (form.picks[id]?.[r] || "").trim();
+        if (!raw) { missing = true; return; }
+        picks[id][r] = champCanonical(raw);
+        all.push(picks[id][r]);
+      });
+    });
+    if (missing) { await themedAlert(t("cup.114")); return; }
+    const unknown = all.filter((c) => !champSet.has(c));
+    if (unknown.length) { await themedAlert(t("cup.115", { names: unknown.join("、") })); return; }
+    const used = all.filter((c) => formLocked.has(c));
+    if (used.length) { await themedAlert(t("cup.116", { names: used.map(champLabel).join("、") })); return; }
+    const dups = all.filter((c, i) => all.indexOf(c) !== i);
+    if (dups.length) { await themedAlert(t("cup.117", { names: [...new Set(dups)].map(champLabel).join("、") })); return; }
+    const lineErrs = ids.flatMap((id) => lineupCheck(id).errors.map((e) => `${teamName(id)}: ${fxIssueText(e, (pid) => playerNameIn(teamsObj[id], pid) || "?", teamName)}`));
+    if (lineErrs.length) { await themedAlert(lineErrs.join("\n")); return; }
+    if (!(await requireAdminPass(t("cup.118")))) return;
+    const bans = {};
+    ids.forEach((id) => {
+      const list = (form.bans[id] || "").split(/[、,，\s]+/).map((x) => x.trim()).filter(Boolean).map(champCanonical);
+      if (list.length) bans[id] = list;
+    });
+    const kda = {};
+    if (form.showKda) {
+      Object.entries(form.kda).forEach(([pid, x]) => {
+        if (x.k === "" && x.d === "" && x.a === "") return;
+        kda[pid] = { k: Number(x.k) || 0, d: Number(x.d) || 0, a: Number(x.a) || 0 };
+      });
+    }
+    const game = { no: form.no, blue: form.blue, red: form.red, winner: form.winner || null, lineup: form.lineup, picks, bans, kda, ts: Date.now() };
+    const ok = await fxSet(`tournaments/${tid}/series/${cur.key}/games/g${form.no}`, game);
+    if (!ok) { await themedAlert(t("shell.001")); return; }
+    if (tour.meta.status === "entry") await fxSet(`tournaments/${tid}/meta/status`, "running");
+    setForm(null);
+  };
+  const removeGame = async (g) => {
+    if (!(await themedConfirm(t("cup.119", { n: g.no })))) return;
+    if (!(await requireAdminPass(t("cup.039")))) return;
+    await fxRemove(`tournaments/${tid}/series/${cur.key}/games/g${g.no}`);
+  };
+  const copyPicks = () => {
+    const n = (id) => teamsObj[id]?.name || "未定";
+    const lines = [`【ピック記録】${STAGE_JA[cur.key]} ${n(cur.a)} vs ${n(cur.b)}（BO${cur.bestOf}）`];
+    games.forEach((g) => {
+      lines.push(`第${g.no}試合 ブルー:${n(g.blue)} / レッド:${n(g.red)}${g.winner ? ` → 勝者:${n(g.winner)}` : ""}`);
+      [g.blue, g.red].forEach((id) => lines.push(` ${n(id)}: ${FX_ROLES.map((r) => g.picks?.[id]?.[r]).filter(Boolean).join("、")}`));
+    });
+    lines.push(`使用不可（${lockedNow.size}体）: ${[...lockedNow].join("、")}`);
+    if (nextNo) lines.push(chooser ? `次の試合: ${n(chooser)} がサイド選択` : nextNo === 1 ? "次の試合: サイドはダイスBOTで決定" : `次の試合: 第${nextNo}試合`);
+    else lines.push(`シリーズ終了: 勝者 ${n(cur.state.winner)}`);
+    fxCopy(lines.join("\n"));
+  };
+
+  const champCell = (c, size = 22) => (
+    <span style={{ display: "inline-flex", alignItems: "center", fontSize: 13, whiteSpace: "nowrap" }}>
+      <ChampIcon name={c} size={size} />{champLabel(c)}
+    </span>
+  );
+  const sideColor = (id, g) => (id === g.blue ? theme.accentBright : theme.teamB);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div className="cs-scroll" style={{ display: "flex", gap: 6, overflowX: "auto" }}>
+        {playable.map((s) => (
+          <button key={s.key} className="cs-btn-ghost" onClick={() => { setSeriesKey(s.key); setForm(null); }}
+            style={{ padding: "5px 12px", fontSize: 14, whiteSpace: "nowrap", borderColor: s.key === cur.key ? theme.accent : theme.borderInput, color: s.key === cur.key ? theme.accent : theme.textSub, fontWeight: s.key === cur.key ? 700 : 400 }}>
+            {t(FX_STAGE_KEYS[s.key])} {s.state.winsA}-{s.state.winsB}
+          </button>
+        ))}
+      </div>
+
+      <div style={cardStyle}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <b style={{ color: theme.accent, fontSize: 16 }}>{t(FX_STAGE_KEYS[cur.key])}</b>
+          <span style={{ color: theme.textFaint }}>BO{cur.bestOf}</span>
+          <b style={{ fontSize: 17 }}>{teamName(cur.a)} {cur.state.winsA} - {cur.state.winsB} {teamName(cur.b)}</b>
+          <button className="cs-btn-ghost" style={{ ...fxSmallBtn, marginLeft: "auto" }} onClick={copyPicks}>{t("cup.122")}</button>
+        </div>
+        <div style={{ fontSize: 14, color: theme.textSub, marginTop: 6 }}>
+          {nextNo ? (nextNo === 1 ? t("cup.096") : chooser ? t("cup.095", { n: nextNo, team: teamName(chooser) }) : t("cup.101", { n: nextNo }))
+            : <b style={{ color: theme.accent }}>{t("cup.102")}: {teamName(cur.state.winner)}</b>}
+        </div>
+      </div>
+
+      <div style={cardStyle}>
+        <div style={{ fontWeight: 700, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+          <Lock size={15} color={theme.teamB} />{nextNo ? t("cup.099", { n: lockedNow.size }) : t("cup.100")}
+        </div>
+        {lockedNow.size === 0 ? <div style={{ color: theme.textFaint, fontSize: 14 }}>-</div> : (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(64px, 1fr))", gap: 8 }}>
+            {[...lockedNow].map((c) => (
+              <div key={c} style={{ textAlign: "center", fontSize: 11, color: theme.textSub, filter: nextNo ? "grayscale(0.85)" : "none" }}>
+                <ChampIcon name={c} size={40} /><div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{champLabel(c)}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {games.map((g) => {
+        const gConf = conflicts.filter((x) => x.no === g.no);
+        return (
+          <div key={g.no} style={{ ...cardStyle, borderColor: gConf.length ? theme.teamB : theme.borderTable }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
+              <b>{t("cup.101", { n: g.no })}</b>
+              {g.winner && <span style={fxChip(theme.accent, true)}>{t("cup.102")}: {teamName(g.winner)}</span>}
+              {!readOnly && (
+                <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+                  <button className="cs-btn-ghost" style={fxSmallBtn} onClick={() => openForm(g)}><Pencil size={12} /> {t("cup.037")}</button>
+                  {g.no === lastNo && <button className="cs-btn-ghost" style={fxSmallBtn} onClick={() => removeGame(g)}><Trash2 size={12} /> {t("cup.039")}</button>}
+                </span>
+              )}
+            </div>
+            {[g.blue, g.red].map((id) => (
+              <div key={id} style={{ marginBottom: 6 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: sideColor(id, g) }}>
+                  {sideLabel(id === g.blue ? "A" : "B")} ・ {teamName(id)}
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px", marginTop: 2 }}>
+                  {FX_ROLES.map((r) => {
+                    const c = g.picks?.[id]?.[r];
+                    const pid = g.lineup?.[id]?.[r];
+                    return c ? (
+                      <span key={r} title={`${r} ${playerNameIn(teamsObj[id], pid) || ""}`} style={{ outline: gConf.some((x) => x.teamId === id && x.role === r) ? `2px solid ${theme.teamB}` : "none", borderRadius: 4 }}>
+                        {champCell(c)}
+                      </span>
+                    ) : null;
+                  })}
+                </div>
+                {g.bans?.[id] && (
+                  <div style={{ fontSize: 12, color: theme.textFaint, marginTop: 2 }}>{t("cup.103")}: {Object.values(g.bans[id]).map(champLabel).join("、")}</div>
+                )}
+              </div>
+            ))}
+            {gConf.map((x, i) => (
+              <div key={i} style={{ fontSize: 12, color: theme.teamB, fontWeight: 700 }}>⚠ {t("cup.121", { n: x.no, name: champLabel(x.champ) })}</div>
+            ))}
+          </div>
+        );
+      })}
+
+      {!readOnly && !form && nextNo && (
+        <div><button className="cs-btn" style={{ padding: "8px 18px" }} onClick={() => openForm(null)}>+ {t("cup.104", { n: nextNo })}</button></div>
+      )}
+
+      {form && (
+        <div style={{ ...cardStyle, borderColor: theme.accent, borderWidth: 2 }}>
+          <datalist id="champListFx">
+            {champOptions.filter((c) => !formLocked.has(c)).map((c) => <option key={c} value={champLabel(c)} />)}
+          </datalist>
+          <div style={{ fontWeight: 700, fontSize: 16, color: theme.accent, marginBottom: 10 }}>
+            {t(form.editing ? "cup.105" : "cup.104", { n: form.no })}
+          </div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+            {[cur.a, cur.b].map((id) => (
+              <button key={id} className="cs-btn-ghost" onClick={() => setForm({ ...form, blue: id, red: id === cur.a ? cur.b : cur.a })}
+                style={{ padding: "5px 12px", fontSize: 14, borderColor: form.blue === id ? theme.accentBright : theme.borderInput, color: form.blue === id ? theme.accentBright : theme.textSub, fontWeight: form.blue === id ? 700 : 400 }}>
+                {t("cup.106", { team: teamName(id) })}
+              </button>
+            ))}
+          </div>
+          <div className="cs-cols2" style={{ alignItems: "start" }}>
+            {[form.blue, form.red].map((id) => {
+              const tm = teamsObj[id];
+              const lc = lineupCheck(id);
+              const options = [...FX_ROLES.map((r) => tm.members?.[r]).filter(Boolean), ...teamSubs(tm)];
+              return (
+                <div key={id} style={{ border: `1px solid ${id === form.blue ? theme.accentBright : theme.teamB}`, borderRadius: 8, padding: 10 }}>
+                  <div style={{ fontWeight: 700, color: id === form.blue ? theme.accentBright : theme.teamB, marginBottom: 6 }}>
+                    {sideLabel(id === form.blue ? "A" : "B")} ・ {tm.name}
+                    <span style={{ fontWeight: 400, color: lc.total10 > lc.cap10 ? theme.teamB : theme.textFaint, fontSize: 13, marginLeft: 8 }}>{fmtTenths(lc.total10)} / {rules.pointCap}pt</span>
+                  </div>
+                  {FX_ROLES.map((r) => {
+                    const raw = form.picks[id]?.[r] || "";
+                    const canon = raw.trim() ? champCanonical(raw) : "";
+                    const bad = canon && (formLocked.has(canon) || !champSet.has(canon));
+                    const pid = form.lineup[id]?.[r];
+                    return (
+                      <div key={r} style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginBottom: 6 }}>
+                        <b style={{ width: 36, color: theme.accent, fontSize: 13 }}>{r}</b>
+                        <select className="cs-input" value={pid || ""} style={{ fontSize: 13, padding: "4px 6px", maxWidth: 130 }}
+                          onChange={(e) => setForm({ ...form, lineup: { ...form.lineup, [id]: { ...form.lineup[id], [r]: e.target.value } } })}>
+                          {options.map((o) => <option key={o.playerId} value={o.playerId}>{o.name}</option>)}
+                        </select>
+                        <input className="cs-input" list="champListFx" value={raw} placeholder={t("cup.108")}
+                          onChange={(e) => setForm({ ...form, picks: { ...form.picks, [id]: { ...form.picks[id], [r]: e.target.value } } })}
+                          style={{ flex: "1 1 110px", minWidth: 0, fontSize: 14, padding: "4px 6px", borderColor: bad ? theme.teamB : undefined }} />
+                        {canon && formLocked.has(canon) && <span style={{ color: theme.teamB, fontSize: 12, fontWeight: 700 }}>{t("cup.120")}</span>}
+                        {form.showKda && pid && ["k", "d", "a"].map((kk) => (
+                          <input key={kk} className="cs-input" type="number" min="0" placeholder={kk.toUpperCase()} value={form.kda[pid]?.[kk] ?? ""}
+                            onChange={(e) => setForm({ ...form, kda: { ...form.kda, [pid]: { k: "", d: "", a: "", ...form.kda[pid], [kk]: e.target.value } } })}
+                            style={{ width: 46, fontSize: 13, padding: "4px 4px" }} />
+                        ))}
+                      </div>
+                    );
+                  })}
+                  <input className="cs-input" value={form.bans[id] || ""} placeholder={t("cup.109")}
+                    onChange={(e) => setForm({ ...form, bans: { ...form.bans, [id]: e.target.value } })}
+                    style={{ width: "100%", boxSizing: "border-box", fontSize: 13, padding: "4px 6px", marginTop: 4 }} />
+                  {lc.errors.map((e, i) => (
+                    <div key={i} style={{ fontSize: 12, color: theme.teamB, fontWeight: 700, marginTop: 4 }}>⚠ {fxIssueText(e, (x) => playerNameIn(tm, x) || "?", teamName)}</div>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ marginTop: 12, fontSize: 14 }}>
+            <div style={{ fontWeight: 700, marginBottom: 4 }}>{t("cup.110")}</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {[cur.a, cur.b, null].map((id) => (
+                <button key={id || "none"} className="cs-btn-ghost" onClick={() => setForm({ ...form, winner: id })}
+                  style={{ padding: "5px 12px", fontSize: 14, borderColor: form.winner === id ? theme.accent : theme.borderInput, color: form.winner === id ? theme.accent : theme.textSub, fontWeight: form.winner === id ? 700 : 400 }}>
+                  {id ? teamName(id) : t("cup.091")}
+                </button>
+              ))}
+            </div>
+          </div>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 10, fontSize: 14, cursor: "pointer" }}>
+            <input type="checkbox" checked={form.showKda} onChange={(e) => setForm({ ...form, showKda: e.target.checked })} /> {t("cup.111")}
+          </label>
+          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+            <button className="cs-btn" style={{ padding: "6px 18px" }} onClick={save}>{t("cup.112")}</button>
+            <button className="cs-btn-ghost" style={{ padding: "6px 14px" }} onClick={() => setForm(null)}>{t("cup.113")}</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FxStatsView({ ctx }) {
+  const { teamsObj, resolved, seriesMap, sched, ChampIcon, players, onOpenPlayer, teamName } = ctx;
+  const st = tournamentStats(teamsObj, resolved, seriesMap);
+  const placements = finalPlacements(sched.mode, resolved);
+  if (!st.players.length) return <EmptyState text={t("cup.123")} />;
+
+  const champCount = (row) => Object.keys(row.champs).length;
+  const deepest = [...st.players].sort((a, b) => champCount(b) - champCount(a))[0];
+  const mostBanned = [...st.champs].sort((a, b) => b.bans - a.bans)[0];
+  const unbeaten = st.champs.filter((c) => c.picks >= 2 && c.wins === c.picks).map((c) => champLabel(c.champ));
+  const wl = (w, l) => t("cup.143", { w, l });
+  const teamsSorted = [...st.teams].filter((x) => x.gw + x.gl > 0)
+    .sort((a, b) => (placements[a.teamId] || 9) - (placements[b.teamId] || 9) || b.sw - a.sw || (b.gw - b.gl) - (a.gw - a.gl));
+  const wrap = { overflowX: "auto" };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ fontSize: 13, color: theme.textFaint }}>{t("cup.140")}</div>
+      <div style={{ ...cardStyle, fontSize: 14, lineHeight: 1.8 }}>
+        {deepest && <div>🎯 {t("cup.135", { name: deepest.name, n: champCount(deepest) })}</div>}
+        {mostBanned && mostBanned.bans > 0 && <div>🚫 {t("cup.136", { champ: champLabel(mostBanned.champ), n: mostBanned.bans })}</div>}
+        {unbeaten.length > 0 && <div>🏅 {t("cup.137", { champs: unbeaten.join("、") })}</div>}
+      </div>
+
+      <div style={wrap}>
+        <table className="cs-table">
+          <thead><tr><th>{t("cup.127")}</th><th>{t("cup.124")}</th><th>{t("cup.125")}</th><th>{t("cup.126")}</th></tr></thead>
+          <tbody>
+            {teamsSorted.map((x) => (
+              <tr key={x.teamId}>
+                <td style={{ fontWeight: 700 }}>{placements[x.teamId] ? (placements[x.teamId] === 1 ? t("cup.139") : t("cup.138", { n: placements[x.teamId] })) : "-"}</td>
+                <td style={{ fontWeight: 700 }}>{x.name}</td>
+                <td>{wl(x.sw, x.sl)}</td>
+                <td>{wl(x.gw, x.gl)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div style={wrap}>
+        <table className="cs-table">
+          <thead><tr><th>{t("cup.128")}</th><th>{t("cup.124")}</th><th>{t("cup.129")}</th><th>{t("cup.130")}</th><th>KDA</th><th>{t("cup.131")}</th><th>{t("cup.132")}</th></tr></thead>
+          <tbody>
+            {st.players.map((row) => {
+              const exists = players.some((p) => p.id === row.playerId);
+              return (
+                <tr key={row.playerId}>
+                  <td style={{ fontWeight: 700, cursor: exists ? "pointer" : "default", whiteSpace: "nowrap" }} onClick={() => exists && onOpenPlayer(row.playerId)}>{row.name}</td>
+                  <td style={{ whiteSpace: "nowrap" }}>{teamName(row.teamId)}</td>
+                  <td>{row.games}</td>
+                  <td style={{ whiteSpace: "nowrap" }}>{wl(row.wins, row.games - row.wins)}</td>
+                  <td style={{ whiteSpace: "nowrap" }}>{row.kdaGames ? `${(row.k / row.kdaGames).toFixed(1)}/${(row.d / row.kdaGames).toFixed(1)}/${(row.a / row.kdaGames).toFixed(1)}` : "-"}</td>
+                  <td>{champCount(row)}</td>
+                  <td>{Object.keys(row.champs).map((c) => <span key={c} title={champLabel(c)}><ChampIcon name={c} size={20} /></span>)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <div style={wrap}>
+        <table className="cs-table">
+          <thead><tr><th>{t("cup.132")}</th><th>{t("cup.133")}</th><th>{t("cup.134")}</th><th>{t("cup.103")}</th></tr></thead>
+          <tbody>
+            {st.champs.map((c) => (
+              <tr key={c.champ}>
+                <td style={{ whiteSpace: "nowrap" }}><ChampIcon name={c.champ} size={20} />{champLabel(c.champ)}</td>
+                <td>{c.picks}</td>
+                <td>{c.picks ? `${Math.round((c.wins / c.picks) * 100)}%` : "-"}</td>
+                <td>{c.bans}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function Badge({ count }) {
   if (!count) return null;
   return (
@@ -1712,6 +2867,9 @@ export default function CustomStats() {
   const [matches, setMatches] = useState([]);
   const [rankRequests, setRankRequests] = useState([]); // ランク変更申請(承認待ち)
   const [requests, setRequests] = useState([]); // 要望掲示板の投稿
+  const [fearlessData, setFearlessData] = useState(null); // フィアレス大会(customstats/cup)
+  const [fxTid, setFxTid] = useState(null); // 大会タブで表示中の大会(未選択=開催中)
+  const [fxSeriesKey, setFxSeriesKey] = useState(null); // ピック記録で表示中のシリーズ
   const [loading, setLoading] = useState(true);
 
   // player registration
@@ -1746,7 +2904,6 @@ export default function CustomStats() {
   const matchupThreshold = settings.matchupWarnThreshold;
   const [swapSel, setSwapSel] = useState(null); // { team:'A'|'B', idx:number } タップ入替の1人目選択
   const [subPickerOpen, setSubPickerOpen] = useState(false); // 選手交代の交代先選択パネル開閉
-  const [copiedRiotId, setCopiedRiotId] = useState(null); // Riot IDコピー時の一時フィードバック表示
   const [champExpanded, setChampExpanded] = useState(false); // 個人成績: チャンピオン別成績の全件表示
   const [champHist, setChampHist] = useState(null); // 個人成績: チャンピオン別試合履歴ポップアップの対象チャンピオン
   const [champHistMatch, setChampHistMatch] = useState(null); // 上記ポップアップ内で展開中の試合ID
@@ -1868,7 +3025,9 @@ export default function CustomStats() {
       const v = snap.val() || {};
       setRequests(Object.entries(v).map(([key, r]) => ({ ...(r || {}), id: key })));
     }, (e) => console.error(e));
-    return () => { un1(); un2(); un2b(); un3(); un4(); un5(); un6(); };
+    // フィアレス大会も付加機能: 読めなくても本体のDBエラー表示は出さない
+    const un7 = onValue(ref(db, "customstats/cup"), (snap) => setFearlessData(snap.val() || null), (e) => console.error(e));
+    return () => { un1(); un2(); un2b(); un3(); un4(); un5(); un6(); un7(); };
   }, []);
 
   // 要望掲示板の掃除: 期限切れ(回答から30日)と残骸ノードを削除。削除は冪等なので複数端末が同時に走っても問題ない
@@ -3288,6 +4447,7 @@ export default function CustomStats() {
           ] },
           { key: "matching", label: t("header.012"), icon: Scale, tabs: [
             { id: "balance", icon: Scale, label: t("header.013") },
+            { id: "teamBuilder", icon: Users, label: t("cup.010") },
           ] },
           { key: "scouting", label: t("header.014"), icon: UserRound, tabs: [
             { id: "scoutStats", icon: UserRound, label: t("header.015") },
@@ -3306,6 +4466,12 @@ export default function CustomStats() {
             { id: "rateTable", icon: ListOrdered, label: t("board.014") },
             { id: "itemEfficiency", icon: Coins, label: t("items.001") },
             { id: "champGrowth", icon: TrendingUp, label: t("growth.001") },
+          ] },
+          { key: "cup", label: t("cup.001"), icon: Flag, tabs: [
+            { id: "fxTeams", icon: Users, label: t("cup.002") },
+            { id: "fxBracket", icon: Swords, label: t("cup.003") },
+            { id: "fxPicks", icon: Lock, label: t("cup.004") },
+            { id: "fxStats", icon: Medal, label: t("cup.005") },
           ] },
           { key: "requests", label: t("reqBoard.001"), icon: MessageSquare, tabs: [
             { id: "requestBoard", icon: MessageSquare, label: t("reqBoard.002"), badge: openRequestCount },
@@ -4089,6 +5255,16 @@ export default function CustomStats() {
 
       {/* ---------- REQUEST BOARD(要望掲示板) ---------- */}
       {tab === "requestBoard" && <RequestBoardTab requests={requests} />}
+
+      {tab === "teamBuilder" && <TeamBuilderTab players={players} ChampIcon={ChampIcon} />}
+
+      {/* ---------- FEARLESS(フィアレス大会) ---------- */}
+      {["fxTeams", "fxBracket", "fxPicks", "fxStats"].includes(tab) && (
+        <FearlessTab view={tab} data={fearlessData} players={players} ChampIcon={ChampIcon}
+          champOptions={[...(ddChamps ? ddChamps.map((x) => x.name) : CHAMPIONS), ...customChamps]}
+          selTid={fxTid} setSelTid={setFxTid} seriesKey={fxSeriesKey} setSeriesKey={setFxSeriesKey} setTab={setTab}
+          onOpenPlayer={(id) => { setStatsPlayerId(id); setTab("stats"); }} />
+      )}
 
       {/* ---------- PERSONAL STATS ---------- */}
       {/* ---------- SCOUT: MULTI SEARCH(ロール別対面比較) ---------- */}
@@ -4928,94 +6104,12 @@ export default function CustomStats() {
                               {sideLabel(side)} <span style={{ fontWeight: 400, color: theme.textFaint, fontSize: 14 }}>{t("balance.033")}{list.reduce((s, x) => s + x.mu, 0).toFixed(1)}</span>
                             </div>
                             {list.map((bp, idx) => {
-                              const p = players.find((x) => x.id === bp.id);
-                              const total = p ? p.wins + p.losses : 0;
-                              const wr = total ? Math.round((p.wins / total) * 100) : null;
-                              const selected = swapSel && swapSel.team === side && swapSel.idx === idx;
-
-                              // このロールでのチャンピオン別勝率を集計し、最高勝率(同率は試合数が多い方)を採用
-                              const roleHist = (p?.kdaHistory || []).filter((h) => h.role === bp.role && h.champion);
-                              const byChamp = {};
-                              roleHist.forEach((h) => {
-                                if (!byChamp[h.champion]) byChamp[h.champion] = { games: 0, wins: 0, k: 0, d: 0, a: 0, kn: 0 };
-                                const b = byChamp[h.champion];
-                                b.games++; if (h.won) b.wins++;
-                                if (h.k != null || h.d != null || h.a != null) { b.k += h.k || 0; b.d += h.d || 0; b.a += h.a || 0; b.kn++; }
-                              });
-                              const bestChamp = Object.entries(byChamp)
-                                .sort((x, y) => (y[1].wins / y[1].games) - (x[1].wins / x[1].games) || y[1].games - x[1].games)[0];
-
-                              const link = opggUrl(p?.summonerName);
-                              // 表示は保存済みスナップショット(bp.wanted/bp.isNg、編成生成時点の値)ではなく、
-                              // 現在の選手データから毎回ライブ計算する。編成後に本人が希望/NG設定を変更した場合、
-                              // 古い判定のまま表示され続けるのを防ぐため。
-                              const liveWanted = !!(p?.prefRoles || []).includes(bp.role);
-                              const liveNg = !!(p?.ngRoles || []).includes(bp.role);
-                              const liveOtp = otpChampFor(p, bp.role);
                               const gapWarn = matchupWarnings.find((w) => w.role === bp.role) || null;
                               return (
-                                <div key={idx} onClick={() => handleSlotTap(side, idx)} style={{
-                                  padding: "8px 8px", borderBottom: `1px solid ${theme.borderTable}`, cursor: "pointer", borderRadius: 6,
-                                  background: selected ? theme.surfaceAlt : "transparent",
-                                  outline: selected ? `2px solid ${theme.accent}` : liveNg ? `1px solid ${theme.teamB}` : "none",
-                                  borderLeft: gapWarn ? `3px solid ${theme.teamB}` : "3px solid transparent",
-                                }}>
-                                  <div>
-                                    <b style={{ color: theme.accent }}>{bp.role}</b> <b style={{ color: theme.text }}>{bp.name}</b>
-                                    <span style={{ color: theme.textFaint, fontSize: 14 }}> ({bp.mu.toFixed(1)})</span>
-                                    {liveWanted && <span title={t("balance.034")} style={{ color: theme.accent, marginLeft: 4 }}>★</span>}
-                                    {liveNg && <span title={t("balance.035")} style={{ color: theme.teamB, marginLeft: 4, fontWeight: 700 }}>⚠ NG</span>}
-                                    {liveOtp && (
-                                      <span title={t("otp.009")} style={{ display: "inline-flex", alignItems: "center", gap: 3, verticalAlign: "middle", marginLeft: 6, fontSize: 12, fontWeight: 700, color: theme.accent, border: `1px solid ${theme.accent}`, borderRadius: 10, padding: "0 6px" }}>
-                                        OTP <ChampIcon name={liveOtp} size={14} />{champLabel(liveOtp)}
-                                      </span>
-                                    )}
-                                    {gapWarn && <span title={t("balance.076")} style={{ color: theme.teamB, fontWeight: 700, fontSize: 13, marginLeft: 6 }}>⚠ {t("balance.078", { diff: gapWarn.diff.toFixed(1) })}</span>}
-                                    {p?.summonerName && (
-                                      // カスタム招待でそのまま貼れるよう、Riot IDをタップでクリップボードにコピーできるようにする
-                                      <span onClick={(ev) => {
-                                        ev.stopPropagation();
-                                        try {
-                                          navigator.clipboard.writeText(p.summonerName);
-                                          setCopiedRiotId(p.id);
-                                          setTimeout(() => setCopiedRiotId((cur) => (cur === p.id ? null : cur)), 1500);
-                                        } catch { /* クリップボード非対応環境では何もしない */ }
-                                      }}
-                                        title={p.summonerName}
-                                        style={{ color: theme.textSub, fontSize: 13, marginLeft: 8, cursor: "pointer", textDecoration: "underline dotted", fontWeight: 400 }}>
-                                        {p.summonerName}
-                                      </span>
-                                    )}
-                                    {copiedRiotId === p?.id && (
-                                      <span style={{ color: theme.accentBright, fontSize: 12, marginLeft: 6, fontWeight: 700 }}>{t("scoutMulti.020")}</span>
-                                    )}
-                                  </div>
-                                  <div style={{ fontSize: 14, color: theme.text, marginTop: 3, fontWeight: 700 }}>
-                                    {t("balance.036")} <b style={{ color: wr == null ? theme.textFaint : wr >= 50 ? theme.accentBright : theme.teamB }}>
-                                      {wr == null ? t("stats.015") : `${wr}%`}
-                                    </b>
-                                    {total > 0 && <span style={{ color: theme.textSub, fontWeight: 400 }}>{t("balance.054", { total, w: p.wins, l: p.losses })}</span>}
-                                    {link && (
-                                      <a href={link} target="_blank" rel="noopener noreferrer" onClick={(ev) => ev.stopPropagation()} style={{ display: "inline-flex", alignItems: "center", gap: 3, color: theme.accentBright, marginLeft: 10, fontWeight: 700 }}>
-                                        <ExternalLink size={14} />{t("scoutMulti.002")}
-                                      </a>
-                                    )}
-                                  </div>
-                                  <div style={{ fontSize: 14, color: theme.text, marginTop: 3, fontWeight: 700 }}>
-                                    {bp.role}{t("balance.038")}{" "}
-                                    {bestChamp ? (
-                                      <>
-                                        <ChampIcon name={bestChamp[0]} size={16} />
-                                        <b style={{ color: theme.text }}>{champLabel(bestChamp[0])}</b>
-                                        <span style={{ color: theme.textSub, fontWeight: 400 }}>
-                                          {t("balance.039")}{" "}
-                                          <b style={{ color: theme.accentBright, fontWeight: 700 }}>{Math.round((bestChamp[1].wins / bestChamp[1].games) * 100)}%</b>
-                                          {bestChamp[1].kn > 0 && ` KDA: ${(bestChamp[1].k / bestChamp[1].kn).toFixed(1)}/${(bestChamp[1].d / bestChamp[1].kn).toFixed(1)}/${(bestChamp[1].a / bestChamp[1].kn).toFixed(1)}`}）
-                                        </span>
-                                      </>
-                                    ) : <span style={{ color: theme.textFaint, fontWeight: 400 }}>{t("stats.015")}</span>}
-                                  </div>
-                                </div>
+                                <PlayerSlotCard key={idx} p={players.find((x) => x.id === bp.id)} role={bp.role} name={bp.name} mu={bp.mu}
+                                  ChampIcon={ChampIcon} onClick={() => handleSlotTap(side, idx)}
+                                  selected={!!(swapSel && swapSel.team === side && swapSel.idx === idx)} warnLeft={!!gapWarn}
+                                  badges={gapWarn && <span title={t("balance.076")} style={{ color: theme.teamB, fontWeight: 700, fontSize: 13, marginLeft: 6 }}>⚠ {t("balance.078", { diff: gapWarn.diff.toFixed(1) })}</span>} />
                               );
                             })}
                           </div>
