@@ -42,6 +42,39 @@ export function poolForMatch(players, prefs, match, results) {
   return remainingPool(players, results).filter((p) => !isPinnedFor((prefs || {})[p.id], other));
 }
 
+// 2試合同時の卓分け(固定あり)。まず通常どおり分け、固定した試合と違う卓に入った人を移す。
+// 移す相手は、固定違いどうし → 相手卓の固定していない人のうちレートの近い人、の順(卓分けの方針をなるべく崩さない)。
+// pinnedMatch(p): その人を固定した試合(1/2)。固定なしは null。各試合の固定は10人以下である前提
+export function splitWithPins(players, mode, ratingOf, pinnedMatch) {
+  let [l1, l2] = splitIntoLobbies(players, mode, ratingOf);
+  const wrong1 = l2.filter((p) => pinnedMatch(p) === 1); // 第1試合に固定したのに第2試合の卓にいる
+  const wrong2 = l1.filter((p) => pinnedMatch(p) === 2);
+  // a(第1試合の卓) と b(第2試合の卓) を入れ替える
+  const swap = (a, b) => { l1 = l1.map((x) => (x === a ? b : x)); l2 = l2.map((x) => (x === b ? a : x)); };
+  const closest = (cands, target) => [...cands].sort((x, y) => Math.abs(ratingOf(x) - ratingOf(target)) - Math.abs(ratingOf(y) - ratingOf(target))
+    || String(x.id).localeCompare(String(y.id)))[0];
+  while (wrong1.length && wrong2.length) swap(wrong2.shift(), wrong1.shift());
+  wrong1.forEach((b) => swap(closest(l1.filter((p) => !pinnedMatch(p)), b), b));
+  wrong2.forEach((a) => swap(a, closest(l2.filter((p) => !pinnedMatch(p)), a)));
+  return [l1, l2];
+}
+
+// 事前固定を変えた時に作り直しが必要な試合(変わった人の、変更前・変更後それぞれの固定先の試合)。
+// 第2試合の固定を変えただけで、組んであった第1試合の結果まで消さないようにする
+export function pinChangeClears(prevPrefs, nextPrefs) {
+  const out = { match1: false, match2: false };
+  const ids = new Set([...Object.keys(prevPrefs || {}), ...Object.keys(nextPrefs || {})]);
+  ids.forEach((id) => {
+    const a = (prevPrefs || {})[id], b = (nextPrefs || {})[id];
+    if (JSON.stringify(a || null) === JSON.stringify(b || null)) return;
+    [a, b].forEach((pref) => {
+      if (isPinnedFor(pref, 1)) out.match1 = true;
+      if (isPinnedFor(pref, 2)) out.match2 = true;
+    });
+  });
+  return out;
+}
+
 // NGレーン等でどちらかの卓が組めなかった時に試す、卓をまたいだ1対1の入替候補。
 // レートの近い2人から順に試し、卓分けの方針(実力順/混ぜる)をなるべく崩さない
 export function lobbySwapCandidates(l1, l2, ratingOf) {

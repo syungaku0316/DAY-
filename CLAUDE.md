@@ -92,7 +92,7 @@ Python等で一括置換した後は、必ず 1 → 5 の順で確認するこ�
   - `ngRoles`: **最大3つ**(ランク「初心者」は無制限)。超過データは読み込み時にリセット(`migratePlayer`)
   - `otp`: 1人1体・ロール紐付け。本人(PASS不要)/管理者が設定。登録ロールに配置された時だけ自チームのバン保護枠へ自動反映(保存はせずライブ計算)
 - **matches**: ID単位個別保存。`image` は承認/却下時に自動削除
-- **session**: `{roster, prefs, resetAt, balance, balance2}`(balance2 = 第2試合。「2試合同時に編成」または「残りのメンバーで第2試合を編成」(第1試合の出場者を除いた出席者から10人)で作る。1試合の編成・事前固定の変更・クリアで null)。事前固定 `prefs[id].match`(1/2、未指定=1)で固定を使う試合を選ぶ。第2試合に固定した人は第1試合に入らない(`poolForMatch` / `isPinnedFor`)。2試合同時編成は固定を使わない — クリア時に未知フィールドは落ちる
+- **session**: `{roster, prefs, resetAt, balance, balance2}`(balance2 = 第2試合。「2試合同時に編成」または「残りのメンバーで第2試合を編成」(第1試合の出場者を除いた出席者から10人)で作る。1試合の編成・事前固定の変更・クリアで null)。事前固定 `prefs[id].match`(1/2、未指定=1)で固定を使う試合を選ぶ。第2試合に固定した人は第1試合に入らない(`poolForMatch` / `isPinnedFor`)。2試合同時編成も固定を守る(`splitWithPins`)。固定の変更は影響する試合の結果だけ消す(`pinChangeClears`) — クリア時に未知フィールドは落ちる
   - `balance.banProtect` = 手動宣言 `{A:[],B:[]}` / `balance.banProtectOff` = ✕で外したOTP分 `{A:[],B:[]}`
 - **settings**: `{matchupWarnThreshold, matchupWarnLanes}` — 運用設定。session と分離
   - `matchupWarnLanes`: 格差レーン数がこれ以上で「組み直し推奨」警告(既定3)

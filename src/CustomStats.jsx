@@ -12,7 +12,7 @@ import { computeEfficiency, PERCENT_DISPLAY_KEYS } from "./itemEfficiency.js";
 import { CHAMPSTATS, CHAMPSTATS_PATCH } from "./champStats.js";
 import { computeAt, STAT_ROWS, COMPARE_LEVELS, MAX_LEVEL } from "./champGrowth.js";
 import { BACKUP_FORMAT, buildBackup, backupToNodes } from "./backup.js";
-import { splitIntoLobbies, lobbySwapCandidates, remainingPool, pinMatchOf, isPinnedFor, poolForMatch } from "./lobby.js";
+import { splitIntoLobbies, lobbySwapCandidates, remainingPool, pinMatchOf, isPinnedFor, poolForMatch, splitWithPins, pinChangeClears } from "./lobby.js";
 import {
   MU0, SIGMA_RATED, SIGMA_UNRANKED, SIGMA_FLOOR, BETA, TAU, K_SCALE, STREAK_STEP, STREAK_MAX_MULT, STREAK_MIN_MULT,
   RATING_FLOOR, RATING_CEIL, clampRating, ROLES, RANKS, PROF_RATE, PROF_SIGMA_MULT,
@@ -4595,9 +4595,15 @@ export default function CustomStats() {
     setEditMatchId(null); setEditMatchForm(null);
   };
 
+  // 固定の変更で作り直しが必要な試合の結果だけ消す(第1試合が変われば第2試合の候補も変わるので両方)
+  const pinClearPatch = (prevPrefs, nextPrefs) => {
+    const cl = pinChangeClears(prevPrefs || {}, nextPrefs);
+    return cl.match1 ? { balance: null, balance2: null } : cl.match2 ? { balance2: null } : {};
+  };
   const setPref = async (playerId, patch) => {
     const cur = (session.prefs || {})[playerId] || { team: "AUTO", roles: [] };
-    const next = { ...session, prefs: { ...(session.prefs || {}), [playerId]: { ...cur, ...patch } }, balance: null, balance2: null };
+    const nextPrefs = { ...(session.prefs || {}), [playerId]: { ...cur, ...patch } };
+    const next = { ...session, prefs: nextPrefs, ...pinClearPatch(session.prefs, nextPrefs) };
     setSession(next);
     await saveSession(next);
   };
@@ -4608,7 +4614,7 @@ export default function CustomStats() {
       const cur = nextPrefs[pid] || { team: "AUTO", roles: [] };
       nextPrefs[pid] = { ...cur, ...patch };
     });
-    const next = { ...session, prefs: nextPrefs, balance: null, balance2: null };
+    const next = { ...session, prefs: nextPrefs, ...pinClearPatch(session.prefs, nextPrefs) };
     setSession(next);
     await saveSession(next);
   };
@@ -4911,18 +4917,40 @@ export default function CustomStats() {
     if (!(await requireAdminPass(t("balance.098")))) return;
     const pool = players.filter((p) => p.status !== "rest");
     if (pool.length < 20) { themedAlert(t("balance.099", { n: pool.length })); return; }
-    const toChosen = (ps) => ps.map((p) => ({
-      id: p.id, name: p.name, roles: p.roles, lockedTeam: null, lockedRole: null,
-      prefRoles: p.prefRoles || [], ngRoles: p.ngRoles || [],
-    }));
+    // 第1試合・第2試合に固定した人は、必ず選んでその試合の卓に固定どおりに置く
+    const prefOf = (id) => (session.prefs || {})[id] || {};
+    const pinOf = (p) => (isPinnedFor(prefOf(p.id), 1) ? 1 : isPinnedFor(prefOf(p.id), 2) ? 2 : null);
+    const pinned = pool.filter(pinOf);
+    for (const m of [1, 2]) {
+      const list = pinned.filter((p) => pinOf(p) === m);
+      if (list.length > 10) { themedAlert(t("balance.062")); return; }
+      const seen = {};
+      for (const p of list) {
+        const pref = prefOf(p.id);
+        if (!pref.team || pref.team === "AUTO" || !pref.role || pref.role === "AUTO") continue;
+        const key = `${pref.team}_${pref.role}`;
+        if (seen[key]) { themedAlert(t("balance.061", { team: sideLabel(pref.team), role: pref.role }), [pref.role]); return; }
+        seen[key] = true;
+      }
+    }
+    const toChosen = (ps) => ps.map((p) => {
+      const pref = pinOf(p) ? prefOf(p.id) : {};
+      return {
+        id: p.id, name: p.name, roles: p.roles,
+        lockedTeam: pref.team && pref.team !== "AUTO" ? pref.team : null,
+        lockedRole: pref.role && pref.role !== "AUTO" ? pref.role : null,
+        prefRoles: p.prefRoles || [], ngRoles: p.ngRoles || [],
+      };
+    });
     const split = (ps) => bestBalancedSplit(toChosen(ps), matchupThreshold, matchupLaneLimit);
     const ratingOf = (p) => repRating(p).mu;
-    const seated = pickSeatsFairly(pool, 20, todayCounts);
-    let [l1, l2] = splitIntoLobbies(seated, lobbyMode, ratingOf);
+    const free = pool.filter((p) => !pinOf(p));
+    const seated = [...pinned, ...pickSeatsFairly(free, 20 - pinned.length, todayCounts, pinned)];
+    let [l1, l2] = splitWithPins(seated, lobbyMode, ratingOf, pinOf);
     let r1 = split(l1), r2 = split(l2);
-    // NGレーン等でどちらかの卓が組めなければ、レートの近い2人を卓の間で入れ替えて再試行(方針を崩しにくい順)
+    // NGレーン等でどちらかの卓が組めなければ、レートの近い2人を卓の間で入れ替えて再試行(方針を崩しにくい順・固定した人は動かさない)
     if (!r1 || !r2) {
-      for (const [a, b] of lobbySwapCandidates(l1, l2, ratingOf).slice(0, 15)) {
+      for (const [a, b] of lobbySwapCandidates(l1, l2, ratingOf).filter(([a, b]) => !pinOf(a) && !pinOf(b)).slice(0, 15)) {
         const n1 = l1.map((x) => (x.id === a.id ? b : x)), n2 = l2.map((x) => (x.id === b.id ? a : x));
         const s1 = split(n1), s2 = split(n2);
         if (s1 && s2) { l1 = n1; l2 = n2; r1 = s1; r2 = s2; break; }

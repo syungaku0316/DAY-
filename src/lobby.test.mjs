@@ -1,5 +1,5 @@
 // Node単体テスト（実行: node src/lobby.test.mjs）
-import { splitIntoLobbies, lobbySwapCandidates, LOBBY_MODES, remainingPool, pinMatchOf, isPinnedFor, poolForMatch } from "./lobby.js";
+import { splitIntoLobbies, lobbySwapCandidates, LOBBY_MODES, remainingPool, pinMatchOf, isPinnedFor, poolForMatch, splitWithPins, pinChangeClears } from "./lobby.js";
 
 let failed = 0;
 function assert(cond, label) {
@@ -69,6 +69,31 @@ const g1 = { teamA: [{ id: "a" }], teamB: [{ id: "c" }] };
 assert(poolForMatch(pinRoster, pins, 2, [g1]).map((p) => p.id).join() === "b,d", "第2試合の候補: 第1試合の出場者を除き、第2試合の固定(b)は含む");
 const pinsA1 = { ...pins, d: { team: "A", match: 1 } };
 assert(poolForMatch(pinRoster, pinsA1, 2, [g1]).map((p) => p.id).join() === "b", "第2試合の候補: 第1試合に固定したが出ていない人(d)も除く");
+
+
+// ---- 2試合同時の編成でも固定を守る: 固定した人は固定した試合の卓に入れる ----
+// p0..p19(p0 が最上位)。p1 を第2試合に、p18・p19 を第1試合に固定
+const pinOf = { p1: 2, p18: 1, p19: 1 };
+const pinnedMatch = (p) => pinOf[p.id] || null;
+for (const mode of ["tier", "mix"]) {
+  const [q1, q2] = splitWithPins(shuffled, mode, ratingOf, pinnedMatch);
+  assert(q1.length === 10 && q2.length === 10 && ids([...q1, ...q2]) === ids(ps), `固定あり(${mode}): 10人ずつ・漏れなし`);
+  assert(q1.some((p) => p.id === "p18") && q1.some((p) => p.id === "p19") && q2.some((p) => p.id === "p1"), `固定あり(${mode}): 固定した人は固定した試合に入る`);
+}
+// 実力順は固定のために動かす人をレートの近い人に限る(方針をなるべく崩さない)
+const [k1, k2] = splitWithPins(shuffled, "tier", ratingOf, pinnedMatch);
+const moved = ps.filter((p) => !pinOf[p.id]).filter((p) => (k1.includes(p) ? 1 : 2) !== (t1.includes(p) ? 1 : 2));
+assert(moved.map((p) => p.id).join() === "p9", `実力順: 固定していない人で卓を移るのは、境目に近いp9の1人だけ(実際 ${moved.map((p) => p.id).join()})`);
+const noPin = splitWithPins(shuffled, "tier", ratingOf, () => null);
+assert(ids(noPin[0]) === ids(t1), "固定なしなら通常の卓分けと同じ");
+
+// ---- 固定を変えた時に消すチーム分け結果: 影響する試合だけ ----
+const before = { a: { team: "A", role: "TOP", match: 1 }, b: { team: "B", match: 2 } };
+assert(JSON.stringify(pinChangeClears(before, { ...before, b: { team: "A", match: 2 } })) === JSON.stringify({ match1: false, match2: true }), "第2試合の固定を変えても第1試合は消さない");
+assert(pinChangeClears(before, { ...before, a: { team: "B", role: "TOP", match: 1 } }).match1, "第1試合の固定を変えたら第1試合を作り直す");
+assert(JSON.stringify(pinChangeClears(before, { ...before, a: { team: "A", role: "TOP", match: 2 } })) === JSON.stringify({ match1: true, match2: true }), "第1試合→第2試合への付け替えは両方");
+assert(JSON.stringify(pinChangeClears(before, { ...before, c: { team: "AUTO", role: "AUTO" } })) === JSON.stringify({ match1: false, match2: false }), "固定でない設定の追加はどちらも消さない");
+assert(pinChangeClears(before, { b: before.b }).match1, "第1試合の固定の解除は第1試合を作り直す");
 
 console.log(failed === 0 ? "\nすべて成功" : `\n${failed}件失敗`);
 process.exit(failed === 0 ? 0 : 1);

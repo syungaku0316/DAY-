@@ -2,7 +2,7 @@
 export const DICT = {
   "ja": {
     "balance.111": "固定する試合",
-    "balance.112": "新しく固定する選手は選んだ試合に入ります。第2試合に固定した選手は第1試合に入らず、上の「残りのメンバーで第2試合を編成」で固定どおりに組まれます(「2試合同時に編成」では固定は使いません)。",
+    "balance.112": "新しく固定する選手は選んだ試合に入ります。第2試合に固定した選手は第1試合に入らず、上の「残りのメンバーで第2試合を編成」で固定どおりに組まれます。「2試合同時に編成」でも、それぞれの試合に固定どおりに入ります。",
     "balance.107": "残りのメンバーで第2試合を編成",
     "balance.108": "第2試合には、第1試合に出ていない出席者が10人以上必要です(現在{n}人)",
     "balance.109": "第2試合を作り直す",
@@ -13,7 +13,7 @@ export const DICT = {
     "balance.103": "第{n}試合",
     "balance.104": "上位卓",
     "balance.105": "下位卓",
-    "balance.106": "参加回数の少ない順に20人を選び、10人ずつ2試合に分けてそれぞれチーム分けします。レーン固定・対面指定は使いません。",
+    "balance.106": "参加回数の少ない順に20人を選び、10人ずつ2試合に分けてそれぞれチーム分けします。第1試合・第2試合に固定した選手は、その試合に固定どおりに入ります。",
     "balance.098": "2試合同時に編成",
     "balance.099": "2試合同時の編成には出席者が20人以上必要です(現在{n}人)",
     "report.040": "{side}が{n}人です(5対5で報告してください)",
@@ -873,7 +873,7 @@ export const DICT = {
   },
   "en": {
     "balance.111": "Lock for",
-    "balance.112": "Newly locked players go to the selected game. Players locked to game 2 are kept out of game 1 and placed as locked by \"Build game 2 from the rest\" above (\"Build 2 games at once\" does not use locks).",
+    "balance.112": "Newly locked players go to the selected game. Players locked to game 2 are kept out of game 1 and placed as locked by \"Build game 2 from the rest\" above. \"Build 2 games at once\" also places locked players in their game.",
     "balance.107": "Build game 2 from the rest",
     "balance.108": "Game 2 needs 10 or more attendees who are not in game 1 (now {n})",
     "balance.109": "Rebuild game 2",
@@ -884,7 +884,7 @@ export const DICT = {
     "balance.103": "Game {n}",
     "balance.104": "Upper game",
     "balance.105": "Lower game",
-    "balance.106": "Picks 20 players with the fewest games today, splits them into two games of 10 and balances each. Lane locks and matchups are not used.",
+    "balance.106": "Picks 20 players with the fewest games today, splits them into two games of 10 and balances each. Players locked to game 1 or 2 are placed in that game as locked.",
     "balance.098": "Build 2 games at once",
     "balance.099": "Building 2 games at once needs 20 or more attendees (now {n})",
     "report.040": "{side} has {n} players (report 5 vs 5)",
@@ -1744,7 +1744,7 @@ export const DICT = {
   },
   "ko": {
     "balance.111": "고정할 경기",
-    "balance.112": "새로 고정하는 선수는 선택한 경기에 들어갑니다. 2경기에 고정한 선수는 1경기에 들어가지 않고, 위의 「남은 멤버로 2경기 편성」에서 고정대로 편성됩니다 (「2경기 동시 편성」에서는 고정을 사용하지 않습니다).",
+    "balance.112": "새로 고정하는 선수는 선택한 경기에 들어갑니다. 2경기에 고정한 선수는 1경기에 들어가지 않고, 위의 「남은 멤버로 2경기 편성」에서 고정대로 편성됩니다. 「2경기 동시 편성」에서도 각 경기에 고정대로 들어갑니다.",
     "balance.107": "남은 멤버로 2경기 편성",
     "balance.108": "2경기에는 1경기에 나가지 않는 참석자가 10명 이상 필요합니다 (현재 {n}명)",
     "balance.109": "2경기 다시 편성",
@@ -1755,7 +1755,7 @@ export const DICT = {
     "balance.103": "{n}경기",
     "balance.104": "상위 경기",
     "balance.105": "하위 경기",
-    "balance.106": "참가 횟수가 적은 순으로 20명을 골라 10명씩 2경기로 나누고 각각 팀을 나눕니다. 라인 고정·맞라인 지정은 사용하지 않습니다.",
+    "balance.106": "참가 횟수가 적은 순으로 20명을 골라 10명씩 2경기로 나누고 각각 팀을 나눕니다. 1경기·2경기에 고정한 선수는 해당 경기에 고정대로 들어갑니다.",
     "balance.098": "2경기 동시 편성",
     "balance.099": "2경기 동시 편성에는 참석자가 20명 이상 필요합니다 (현재 {n}명)",
     "report.040": "{side}이(가) {n}명입니다 (5대5로 보고하세요)",
