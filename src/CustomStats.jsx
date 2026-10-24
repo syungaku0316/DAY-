@@ -15,7 +15,7 @@ import {
   FX_ROLES, DEFAULT_RULES, STAGE_JA, toTenths, fmtTenths, normalizeRules, isMasterPlusAuto, snapshotMember, snapshotSub,
   teamSubs, teamPlayerIds, playerNameIn, starterLineup, validateTeam, validateLineup, orderTeams, buildSchedule, gameList,
   resolveBracket, hasAnyResult, finalPlacements, fearlessLocked, fearlessConflicts, sideChooser, subRoleUsage,
-  tournamentStats, drawSeeds, drawSurvivors,
+  tournamentStats, drawSeeds, drawSurvivors, gamePicks, fearlessBlocked, findDraftRecord, splitChampList, isEntryOpen,
 } from "./fearless.js";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
@@ -26,7 +26,7 @@ import { PAGE_SOURCE } from "./pageSource.js";
 
 /* 更新履歴。リリースのたびに先頭へ追記(手動管理)。Discordコピー文面と同様、UI言語に関わらず日本語固定 */
 const CHANGELOG = [
-  { date: "2026-10-24", text: "大会タブを追加(フィアレス大会のチーム登録・対戦表・ピック記録・大会成績)。マッチングにチームビルダーを追加し、フィアレスドラフトを大会タブへ移動" },
+  { date: "2026-10-24", text: "大会タブを追加(フィアレス大会のチーム登録・対戦表・大会用ドラフト・ピック記録・大会成績)。大会用ドラフトで確定した試合はピック記録へ自動反映。マッチングにチームビルダーを追加" },
   { date: "2026-10-22", text: "フィアレス: 手番が切り替わると音が鳴るように(自チームの番は高い2音、残り5秒からカウントダウン音、端末ごとにON/OFF)" },
   { date: "2026-10-19", text: "選手登録の入力欄を「ディスコード名」「Riot ID(ゲーム名)」「#タグ」の3つに分割(「名前#タグ」の貼り付けは自動で分割)" },
   { date: "2026-10-10", text: "フィアレス: ピック後のロール宣言を追加(両チーム確定まで相手には非公開)。「1つ戻す」で持ち時間が延びないように変更(キャプテンは相手が次の手を打つまで自分の手のみ)" },
@@ -1838,12 +1838,13 @@ const normFearless = (v) => ({
   roles: normRoles(v && v.roles),
   rolesLocked: { A: !!(v && v.rolesLocked && v.rolesLocked.A), B: !!(v && v.rolesLocked && v.rolesLocked.B) },
   captains: normCaptains(v && v.captains),
+  blue: (v && v.blue) || null, // 大会シリーズのドラフトのみ: ブルーサイドのチームID
 });
 // 正規化した盤面を保存形へ。ロール関連はロール宣言フェーズ中だけ保存する
 const packFearless = (st) => {
   const inRoles = st.draft.length >= DRAFT_LEN;
   return {
-    games: st.games, draft: st.draft, starts: keepStarts(st.starts, st.draft.length), timer: st.timer, captains: st.captains,
+    games: st.games, draft: st.draft, starts: keepStarts(st.starts, st.draft.length), timer: st.timer, captains: st.captains, blue: st.blue || null,
     roles: inRoles ? { A: packRoles(st.roles.A), B: packRoles(st.roles.B) } : null,
     rolesLocked: inRoles ? st.rolesLocked : null,
   };
@@ -1898,11 +1899,11 @@ const fillRoles = (arr) => {
   return arr.map((role) => role || rest.shift());
 };
 // 複数端末が同じ盤面を操作するため、画面で見ていた盤面(手数・試合数)から変わっていたら中止する
-async function updateFearless(expect, mutate) {
+async function updateFearless(expect, mutate, path = "customstats/fearless") {
   const db = getDb();
   if (!db) return "error";
   try {
-    const res = await runTransaction(ref(db, "customstats/fearless"), (cur) => {
+    const res = await runTransaction(ref(db, path), (cur) => {
       const st = normFearless(cur);
       if (st.draft.length !== expect.draft || st.games.length !== expect.games) return undefined;
       const patch = mutate(st);
@@ -1950,7 +1951,10 @@ const playTurnSound = (mine) => playTones(mine ? [880, 1320] : [660]);
 const playCountdownTick = (sec) => playTones([sec === 1 ? 1568 : 1046], { len: sec === 1 ? 0.25 : 0.08, vol: 0.25, type: "square" });
 const toKatakana = (s) => s.replace(/[ぁ-ゖ]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) + 0x60));
 
-function FearlessDraftTab({ champList, ddVer, champImgMap }) {
+// path: 保存先。大会タブではシリーズごとに customstats/cup/.../drafts/<シリーズ> を使う。
+// cup(大会シリーズ連携、省略時は単独ドラフト): { teamA, teamB, names:{id:名前}, lockedMap: Map(チャンピオン→大会の試合番号),
+//   nextNo, defaultBlue, chooser, done, onConfirmed(盤面), onUndoGame(ドラフト上の試合index) }
+function FearlessDraftTab({ champList, ddVer, champImgMap, path = "customstats/fearless", cup = null }) {
   const [state, setState] = useState(() => normFearless(null));
   const deviceId = getDeviceId();
   const [isAdmin, setIsAdmin] = useState(() => adminPassCache === ADMIN_PASS);
@@ -1976,25 +1980,30 @@ function FearlessDraftTab({ champList, ddVer, champImgMap }) {
   useEffect(() => {
     const db = getDb();
     if (!db) return undefined;
-    const un1 = onValue(ref(db, "customstats/fearless"), (snap) => { setState(normFearless(snap.val())); setLoaded(true); }, (e) => console.error(e));
+    const un1 = onValue(ref(db, path), (snap) => { setState(normFearless(snap.val())); setLoaded(true); }, (e) => console.error(e));
     const un2 = onValue(ref(db, ".info/serverTimeOffset"), (snap) => { _fearlessOffset = Number(snap.val()) || 0; }, (e) => console.error(e));
     return () => { un1(); un2(); };
-  }, []);
+  }, [path]);
 
   const { games, draft, timer, captains, roles, rolesLocked } = state;
-  const gameNo = games.length + 1;
+  const gameNo = cup ? cup.nextNo : games.length + 1;
+  const blueTeam = cup ? state.blue || cup.defaultBlue : null;
+  const teamOfSide = (side) => (!cup ? null : side === "A" ? blueTeam : blueTeam === cup.teamA ? cup.teamB : cup.teamA);
+  const sideName = (side) => (cup ? `${sideLabel(side)} ・ ${cup.names[teamOfSide(side)] || ""}` : sideLabel(side));
   const step = draft.length;
   const done = step >= DRAFT_LEN; // BAN/PICK 20手完了(以降はロール宣言)
   const complete = done && rolesLocked.A && rolesLocked.B; // ロールも確定
   const [curSide, curKind] = done ? [null, null] : DRAFT_ORDER[step];
   // 使用不可: チャンピオン → 使用された試合番号
   const lockedBy = useMemo(() => {
+    // 大会シリーズでは正本はピック記録。記録の編集・削除がそのままドラフトの使用不可に効くよう、盤面側の履歴は使わない
+    if (cup) return new Map(cup.lockedMap);
     const m = new Map();
     games.forEach((g, gi) => DRAFT_ORDER.forEach(([, k], i) => {
       if (k === "pick" && g[i] && g[i] !== DRAFT_SKIP && !m.has(g[i])) m.set(g[i], gi + 1);
     }));
     return m;
-  }, [games]);
+  }, [games, cup && cup.lockedMap]);
   const inDraft = new Set(draft.filter((c) => c !== DRAFT_SKIP));
   const sideColor = (side) => (side === "A" ? theme.accentBright : theme.teamB);
   const imgSrc = (name) => (name && ddVer && champImgMap[name]
@@ -2004,7 +2013,7 @@ function FearlessDraftTab({ champList, ddVer, champImgMap }) {
   const run = async (mutate, silent = false) => {
     if (busy) return "busy";
     setBusy(true);
-    const res = await updateFearless({ draft: draft.length, games: games.length }, mutate);
+    const res = await updateFearless({ draft: draft.length, games: games.length }, mutate, path);
     setBusy(false);
     if (res === "stale") { if (!silent) await themedAlert(t("fearless.020")); }
     else if (res === "error") await themedAlert(t("fearless.021"));
@@ -2015,7 +2024,8 @@ function FearlessDraftTab({ champList, ddVer, champImgMap }) {
   const mySide = captains ? ["A", "B"].find((side) => captains[side].device === deviceId) || null : null;
   const canAct = (side) => !restricted || isAdmin || mySide === side;
   const canControl = !restricted || isAdmin || !!mySide;
-  const myTurn = !done && canAct(curSide);
+  const cupBlocked = !!(cup && (cup.done || cup.pendingNo)); // シリーズ終了 or 前の試合の勝者未記録
+  const myTurn = !done && canAct(curSide) && !cupBlocked;
   // 戻す: 管理者以外は「直前の1手が自サイドの手」の間だけ(相手が次の手を打ったら戻せない)。ロール宣言中・試合確定の取り消しは管理者のみ
   const lastSide = step > 0 && !done ? DRAFT_ORDER[step - 1][0] : null;
   const canUndo = isAdmin ? (step > 0 || games.length > 0) : !!lastSide && (!restricted || mySide === lastSide);
@@ -2045,14 +2055,24 @@ function FearlessDraftTab({ champList, ddVer, champImgMap }) {
     if (!canUndo) return;
     if (draft.length) { run((st) => undoMove(st, isAdmin)); return; }
     if (!(await themedConfirm(t("fearless.019", { n: games.length })))) return;
-    run((st) => ({ games: st.games.slice(0, -1), draft: st.games[st.games.length - 1], starts: {}, timer: null,
-      rolesLocked: { A: false, B: false }, roles: normRoles(null) })); // ロールは保存していないため宣言し直し
+    const last = games[games.length - 1];
+    const rec = cup ? cup.findRecord(last) : null; // 大会: この試合から反映した記録(サイドを戻すのに使う)
+    const res = await run((st) => ({ games: st.games.slice(0, -1), draft: st.games[st.games.length - 1], starts: {}, timer: null,
+      rolesLocked: { A: false, B: false }, roles: normRoles(null), ...(cup ? { blue: rec ? rec.blue : null } : {}) })); // ロールは保存していないため宣言し直し
+    if (res === "ok" && rec) cup.onUndoGame(rec);
   };
   const redoDraft = async () => {
     if (!(await themedConfirm(t("fearless.018")))) return;
     run(() => ({ draft: [], starts: {}, timer: null }));
   };
-  const confirmGame = () => run((st) => ({ games: [...st.games, st.draft], draft: [], starts: {}, timer: null }));
+  const confirmGame = async () => {
+    // 大会シリーズでは確定時の盤面(ピック・ロール・サイド)をピック記録へ自動反映する。次の試合のサイドは選び直し
+    if (cup && cupBlocked) return;
+    const snap = { draft, roles, blue: blueTeam, red: teamOfSide("B"), idx: games.length };
+    const res = await run((st) => ({ games: [...st.games, st.draft], draft: [], starts: {}, timer: null, ...(cup ? { blue: null } : {}) }));
+    if (res === "ok" && cup) await cup.onConfirmed(snap); // 管理者の強制確定(ロール未確定)でも反映。未選択ロールは枠順に埋める
+  };
+  const chooseBlue = (teamId) => run((st) => (st.draft.length ? null : { blue: teamId }));
   const startTimer = () => run(resumeTimer);
   const stopTimer = () => run(pauseTimer);
   // ロール宣言: 同じチーム内で既に使われているロールを選ぶと、その枠と入れ替える
@@ -2158,7 +2178,7 @@ function FearlessDraftTab({ champList, ddVer, champImgMap }) {
     if (!(await themedConfirm(t("fearless.016")))) return;
     if (!(await requireAdminPass(t("fearless.017")))) return;
     const db = getDb();
-    try { await fbRemove(ref(db, "customstats/fearless")); }
+    try { await fbRemove(ref(db, path)); }
     catch (e) { console.error("storage error", e); await themedAlert(t("fearless.021")); }
   };
   // Discord用文面は日本語固定
@@ -2276,6 +2296,25 @@ function FearlessDraftTab({ champList, ddVer, champImgMap }) {
               : isAdmin && <button className="cs-btn-ghost" style={{ padding: "3px 12px", fontSize: 13 }} disabled={busy} onClick={clearCaptains}>{t("fearless.030")}</button>}
           </span>
         </div>
+        {cup && (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 12, fontSize: 14 }}>
+            {cup.done ? <b style={{ color: theme.accent }}>{t("cup.149")}</b> : cup.pendingNo ? <b style={{ color: theme.teamB }}>{t("cup.156", { n: cup.pendingNo })}</b> : (
+              <>
+                <b>{t("cup.150")}</b>
+                {[cup.teamA, cup.teamB].map((id) => (
+                  <button key={id} className="cs-btn-ghost" disabled={busy || draft.length > 0 || !canControl} onClick={() => chooseBlue(id)}
+                    style={{ padding: "3px 12px", fontSize: 14, borderColor: blueTeam === id ? theme.accentBright : theme.borderInput,
+                      color: blueTeam === id ? theme.accentBright : theme.textSub, fontWeight: blueTeam === id ? 700 : 400 }}>
+                    {cup.names[id]}
+                  </button>
+                ))}
+                <span style={{ color: theme.textFaint }}>
+                  {gameNo === 1 ? t("cup.096") : cup.chooser ? t("cup.095", { n: gameNo, team: cup.names[cup.chooser] }) : t("cup.154")}
+                </span>
+              </>
+            )}
+          </div>
+        )}
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
           <span style={{ fontSize: 18, fontWeight: 700 }}>{t("fearless.003", { n: gameNo })}</span>
           {complete ? (
@@ -2307,7 +2346,7 @@ function FearlessDraftTab({ champList, ddVer, champImgMap }) {
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
           {["A", "B"].map((side) => (
             <div key={side} style={{ flex: "1 1 240px", minWidth: 0, borderTop: `3px solid ${sideColor(side)}`, paddingTop: 8 }}>
-              <div style={{ fontSize: 15, fontWeight: 700, color: sideColor(side), marginBottom: 6 }}>{sideLabel(side)}</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: sideColor(side), marginBottom: 6 }}>{sideName(side)}</div>
               <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 8 }}>
                 {draftSlots(draft, side, "ban").map((s) => banSlot(s, side))}
               </div>
@@ -2388,7 +2427,17 @@ function FearlessDraftTab({ champList, ddVer, champImgMap }) {
 
       <div style={cardStyle}>
         <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 10 }}>{t("fearless.010", { n: lockedBy.size })}</div>
-        {!games.length ? <div style={{ fontSize: 14, color: theme.textFaint }}>{t("fearless.011")}</div> : (
+        {cup ? (
+          lockedBy.size === 0 ? <div style={{ fontSize: 14, color: theme.textFaint }}>{t("fearless.011")}</div> : (
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {[...lockedBy.entries()].map(([c, no]) => (
+                <span key={c} title={t("fearless.014", { n: no })} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 13, padding: "2px 8px 2px 2px", borderRadius: 999, border: `1px solid ${theme.borderTable}`, background: theme.surfaceAlt }}>
+                  {icon(c, 20, true)} {champLabel(c)}
+                </span>
+              ))}
+            </div>
+          )
+        ) : !games.length ? <div style={{ fontSize: 14, color: theme.textFaint }}>{t("fearless.011")}</div> : (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {games.map((g, gi) => (
               <div key={gi}>
@@ -2589,7 +2638,17 @@ const fxChip = (color, filled = false) => ({
 });
 const fxSmallBtn = { padding: "3px 12px", fontSize: 13 };
 
-function FearlessTab({ view, data, players, champOptions, ChampIcon, selTid, setSelTid, seriesKey, setSeriesKey, setTab, onOpenPlayer }) {
+// 締切日時の表示(月日 時:分)と、datetime-local 入力との相互変換(端末のローカル時刻)
+const fxDateLabel = (ts) => new Date(ts).toLocaleString(dateLocale(), { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+const fxToLocalInput = (ts) => {
+  if (!ts) return "";
+  const d = new Date(ts);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+const fxFromLocalInput = (v) => { const n = v ? new Date(v).getTime() : NaN; return Number.isFinite(n) ? n : null; };
+
+function FearlessTab({ view, data, players, champOptions, ChampIcon, ddVer, champImgMap, selTid, setSelTid, seriesKey, setSeriesKey, setTab, onOpenPlayer }) {
   const tours = Object.values(data?.tournaments || {}).filter((x) => x && x.meta && x.meta.id)
     .sort((a, b) => (b.meta.createdAt || 0) - (a.meta.createdAt || 0));
   const activeId = data?.activeId || null;
@@ -2605,10 +2664,12 @@ function FearlessTab({ view, data, players, champOptions, ChampIcon, selTid, set
   const resolved = resolveBracket(sched.series, seriesMap);
   const ctx = {
     tours, activeId, tour, tid, readOnly, rules, teamsObj, teamList, ordered, sched, seriesMap, resolved,
-    locked: hasAnyResult(seriesMap), teamName: (id) => teamsObj[id]?.name || t("cup.091"),
-    players, champOptions, ChampIcon, setSelTid, seriesKey, setSeriesKey, setTab, onOpenPlayer,
+    locked: hasAnyResult(seriesMap), entryOpen: isEntryOpen(tour?.meta), teamName: (id) => teamsObj[id]?.name || t("cup.091"),
+    players, champOptions, ChampIcon, ddVer, champImgMap, setSelTid, seriesKey, setSeriesKey, setTab, onOpenPlayer,
   };
-  const statusKey = !tour ? null : tour.meta.status === "finished" ? "cup.006" : tour.meta.status === "running" ? "cup.008" : "cup.009";
+  // 受付中 → 受付締切 → 開催中(最初の試合を記録) → 終了
+  const statusKey = !tour ? null : tour.meta.status === "finished" ? "cup.006" : tour.meta.status === "running" ? "cup.008"
+    : ctx.entryOpen ? "cup.009" : "cup.161";
 
   return (
     <div>
@@ -2622,9 +2683,13 @@ function FearlessTab({ view, data, players, champOptions, ChampIcon, selTid, set
           </select>
         ) : <span style={{ color: theme.textFaint }}>{t("cup.007")}</span>}
         {statusKey && <span style={fxChip(tour.meta.status === "finished" ? theme.textSub : theme.accentBright)}>{t(statusKey)}</span>}
+        {ctx.entryOpen && tour.meta.entryDeadline && (
+          <span style={{ fontSize: 13, color: theme.textSub }}>{t("cup.162", { date: fxDateLabel(tour.meta.entryDeadline) })}</span>
+        )}
       </div>
       {view === "fxTeams" && <FxTeamsView ctx={ctx} />}
       {view === "fxBracket" && (tour ? <FxBracketView ctx={ctx} /> : <EmptyState text={t("cup.007")} />)}
+      {view === "fxDraft" && (tour ? <FxDraftView ctx={ctx} /> : <EmptyState text={t("cup.007")} />)}
       {view === "fxPicks" && (tour ? <FxPicksView ctx={ctx} /> : <EmptyState text={t("cup.007")} />)}
       {view === "fxStats" && (tour ? <FxStatsView ctx={ctx} /> : <EmptyState text={t("cup.007")} />)}
     </div>
@@ -2686,6 +2751,9 @@ function TeamBuilderCard({ players, ChampIcon, rules, teamsObj = {}, others = []
       else members[slot] = pid;
       return { ...d, members, subs };
     });
+    if (slot === "SUB" && !draft.subs.includes(pid) && draft.subs.length + 1 >= rules.maxSubs) {
+      setSlot(FX_ROLES.find((r) => !draft.members[r] || draft.members[r] === pid) || "TOP");
+    }
     // 次の空きロールへ自動で進める
     if (slot !== "SUB") {
       const next = FX_ROLES.find((r) => r !== slot && !draft.members[r]);
@@ -2896,13 +2964,15 @@ function TeamBuilderTab({ players, ChampIcon }) {
 }
 
 function FxTeamsView({ ctx }) {
-  const { tid, tour, readOnly, rules, teamsObj, teamList, players, ChampIcon, locked, teamName } = ctx;
+  const { tid, tour, readOnly, rules, teamsObj, teamList, players, ChampIcon, locked, entryOpen, teamName } = ctx;
   const [draft, setDraft] = useState(FX_EMPTY_DRAFT);
   const pById = (id) => players.find((p) => p.id === id);
   const orig = draft.editingId ? teamsObj[draft.editingId] : null;
 
   const saveTeam = async (team) => {
     if (readOnly) return;
+    // 締切後の新規追加は対戦表が組み変わるため不可(画面を開いたまま締切時刻を過ぎた場合もここで止める)
+    if (!draft.editingId && !isEntryOpen(tour.meta)) { await themedAlert(t("cup.163")); return; }
     const activeCount = teamList.filter((x) => !x.eliminated).length;
     if (!draft.editingId && activeCount >= 4 && !(await themedConfirm(t("cup.033")))) return;
     if (draft.editingId && locked && !(await themedConfirm(t("cup.034")))) return;
@@ -2943,6 +3013,7 @@ function FxTeamsView({ ctx }) {
   };
   const deleteTeam = async (tm) => {
     if (locked) { await themedAlert(t("cup.055")); return; }
+    if (!isEntryOpen(tour.meta)) { await themedAlert(t("cup.163")); return; }
     if (!(await themedConfirm(t("cup.056", { name: tm.name }), [tm.name]))) return;
     if (!(await requireAdminPass(t("cup.039")))) return;
     await fxRemove(`tournaments/${tid}/teams/${tm.id}`);
@@ -2954,8 +3025,9 @@ function FxTeamsView({ ctx }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       {tour && !readOnly && (
         <TeamBuilderCard players={players} ChampIcon={ChampIcon} rules={rules} teamsObj={teamsObj}
-          others={teamList.filter((x) => x.id !== draft.editingId)} draft={draft} setDraft={setDraft} onSave={saveTeam}
-          teamNameOf={teamName} title={draft.editingId ? t("cup.027") : t("cup.010")} note={t("cup.011")} copyTitle="Fearless チーム" />
+          others={teamList.filter((x) => x.id !== draft.editingId)} draft={draft} setDraft={setDraft}
+          onSave={entryOpen || draft.editingId ? saveTeam : null}
+          teamNameOf={teamName} title={draft.editingId ? t("cup.027") : t("cup.010")} note={entryOpen ? t("cup.011") : t("cup.163")} copyTitle="Fearless チーム" />
       )}
 
       {tour && (
@@ -3002,7 +3074,7 @@ function FxTeamsView({ ctx }) {
                       <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", flexWrap: "wrap", marginTop: 8 }}>
                         <button className="cs-btn-ghost" style={fxSmallBtn} onClick={() => editTeam(tm)}><Pencil size={12} /> {t("cup.037")}</button>
                         <button className="cs-btn-ghost" style={fxSmallBtn} onClick={() => refreshTeam(tm)}><RefreshCw size={12} /> {t("cup.038")}</button>
-                        <button className="cs-btn-ghost" style={fxSmallBtn} onClick={() => deleteTeam(tm)}><Trash2 size={12} /> {t("cup.039")}</button>
+                        {entryOpen && <button className="cs-btn-ghost" style={fxSmallBtn} onClick={() => deleteTeam(tm)}><Trash2 size={12} /> {t("cup.039")}</button>}
                       </div>
                     )}
                   </div>
@@ -3019,11 +3091,12 @@ function FxTeamsView({ ctx }) {
 }
 
 function FxAdminPanel({ ctx }) {
-  const { tours, activeId, tour, tid, setSelTid } = ctx;
+  const { tours, activeId, tour, tid, setSelTid, entryOpen, locked } = ctx;
   const [form, setForm] = useState(null); // 設定編集中の値
   const cur = tour ? normalizeRules(tour.rules) : null;
   const f = form && form.tid === tid ? form : (tour ? {
     tid, name: tour.meta.name, pointCap: cur.pointCap, maxMasterPlus: cur.maxMasterPlus, maxSubs: cur.maxSubs, bestOf: { ...cur.bestOf },
+    deadline: fxToLocalInput(tour.meta.entryDeadline),
   } : null);
   const setF = (patch) => setForm({ ...f, ...patch });
 
@@ -3047,6 +3120,23 @@ function FxAdminPanel({ ctx }) {
     await fxUpdate({
       [`tournaments/${tid}/rules`]: rl,
       [`tournaments/${tid}/meta/name`]: (f.name || "").trim().slice(0, 40) || tour.meta.name,
+      [`tournaments/${tid}/meta/entryDeadline`]: fxFromLocalInput(f.deadline),
+    });
+    setForm(null);
+  };
+  const closeEntry = async () => {
+    if (!(await themedConfirm(t("cup.165", { name: tour.meta.name }), [tour.meta.name]))) return;
+    if (!(await requireAdminPass(t("cup.159")))) return;
+    await fxUpdate({ [`tournaments/${tid}/meta/entryClosed`]: true });
+  };
+  // 再開は試合結果が無い間だけ(結果があると対戦表の組み変わりで結果が宙に浮くため)。過ぎた締切日時は消す
+  const reopenEntry = async () => {
+    if (locked) { await themedAlert(t("cup.080")); return; }
+    if (!(await requireAdminPass(t("cup.160")))) return;
+    const passed = tour.meta.entryDeadline && Date.now() >= tour.meta.entryDeadline;
+    await fxUpdate({
+      [`tournaments/${tid}/meta/entryClosed`]: null, [`tournaments/${tid}/meta/status`]: "entry",
+      ...(passed ? { [`tournaments/${tid}/meta/entryDeadline`]: null } : {}),
     });
     setForm(null);
   };
@@ -3082,6 +3172,17 @@ function FxAdminPanel({ ctx }) {
         <div><button className="cs-btn" style={{ padding: "6px 14px" }} onClick={create}>+ {t("cup.059")}</button></div>
         {tour && tour.meta.status !== "finished" && f && (
           <>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", fontSize: 14, padding: "8px 10px", background: theme.surfaceAlt, borderRadius: 8 }}>
+              <b>{t("cup.166")}</b>
+              <span style={fxChip(entryOpen ? theme.accentBright : theme.textSub)}>{t(entryOpen ? "cup.009" : "cup.161")}</span>
+              {entryOpen
+                ? <button className="cs-btn" style={{ padding: "4px 12px", fontSize: 13 }} onClick={closeEntry}>{t("cup.159")}</button>
+                : !locked && <button className="cs-btn-ghost" style={{ padding: "4px 12px", fontSize: 13 }} onClick={reopenEntry}>{t("cup.160")}</button>}
+            </div>
+            <label style={{ fontSize: 14 }}>{t("cup.158")}<br />
+              <input className="cs-input" type="datetime-local" value={f.deadline} onChange={(e) => setF({ deadline: e.target.value })}
+                style={{ fontSize: 14, padding: "4px 6px" }} />
+            </label>
             <label style={{ fontSize: 14 }}>{t("cup.060")}<br />
               <input className="cs-input" value={f.name} maxLength={40} onChange={(e) => setF({ name: e.target.value })} style={{ width: "100%", maxWidth: 360, boxSizing: "border-box", fontSize: 14 }} />
             </label>
@@ -3136,7 +3237,7 @@ function fxSeriesMismatch(s, gamesObj) {
 }
 
 function FxBracketView({ ctx }) {
-  const { tid, readOnly, sched, resolved, ordered, teamList, teamName, locked, seriesMap, setSeriesKey, setTab, tour } = ctx;
+  const { tid, readOnly, sched, resolved, ordered, teamList, teamName, locked, entryOpen, seriesMap, setSeriesKey, setTab, tour } = ctx;
   const placements = finalPlacements(sched.mode, resolved);
   const eliminated = teamList.filter((x) => x.eliminated);
 
@@ -3180,6 +3281,7 @@ function FxBracketView({ ctx }) {
           <span style={nameStyle(s.a)}>{fxSlotName(ctx, s, "a")}</span><b style={{ fontVariantNumeric: "tabular-nums" }}>{ready ? st.winsA : "-"}</b>
           <span style={nameStyle(s.b)}>{fxSlotName(ctx, s, "b")}</span><b style={{ fontVariantNumeric: "tabular-nums" }}>{ready ? st.winsB : "-"}</b>
         </div>
+        {ready && st.pendingNo && <div style={{ fontSize: 13, color: theme.teamB, fontWeight: 700, marginTop: 6 }}>{t("cup.156", { n: st.pendingNo })}</div>}
         {ready && st.nextNo && (
           <div style={{ fontSize: 13, color: theme.textSub, marginTop: 6 }}>
             {st.nextNo === 1 ? t("cup.096") : chooser ? t("cup.095", { n: st.nextNo, team: teamName(chooser) }) : t("cup.101", { n: st.nextNo })}
@@ -3195,12 +3297,13 @@ function FxBracketView({ ctx }) {
   const placed = Object.entries(placements).sort((a, b) => a[1] - b[1]);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {entryOpen && <div style={{ ...cardStyle, fontSize: 14, color: theme.textSub }}>{t("cup.164")}</div>}
       {sched.mode === "none" && <EmptyState text={t("cup.073", { n: ordered.length })} />}
       {sched.mode === "draw" && (
         <div style={{ ...cardStyle, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
           <Shuffle size={18} color={theme.accent} />
           <span style={{ fontWeight: 700 }}>{t("cup.074", { n: ordered.length, m: sched.drawTo })}</span>
-          {!readOnly && <button className="cs-btn" style={{ padding: "6px 14px", marginLeft: "auto" }} onClick={doDraw}>{t("cup.075")}</button>}
+          {!readOnly && !entryOpen && <button className="cs-btn" style={{ padding: "6px 14px", marginLeft: "auto" }} onClick={doDraw}>{t("cup.075")}</button>}
         </div>
       )}
       {eliminated.length > 0 && (
@@ -3214,7 +3317,7 @@ function FxBracketView({ ctx }) {
         <div style={{ ...cardStyle, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontSize: 14 }}>
           <b>{t("cup.077")}</b>
           {ordered.map((x, i) => <span key={x.id}>{i + 1}. {x.name}</span>)}
-          {!readOnly && !locked && <button className="cs-btn-ghost" style={{ ...fxSmallBtn, marginLeft: "auto" }} onClick={doSeed}><Shuffle size={12} /> {t("cup.078")}</button>}
+          {!readOnly && !locked && !entryOpen && <button className="cs-btn-ghost" style={{ ...fxSmallBtn, marginLeft: "auto" }} onClick={doSeed}><Shuffle size={12} /> {t("cup.078")}</button>}
         </div>
       )}
       {placed.length > 0 && (
@@ -3241,8 +3344,99 @@ function FxBracketView({ ctx }) {
   );
 }
 
+// 勝者が未記録の試合に、勝者をワンタップで記録する(管理者PASS)
+function FxWinnerQuick({ ctx, cur }) {
+  const { tid, seriesMap, teamName } = ctx;
+  const pending = gameList(seriesMap[cur.key]?.games).filter((g) => !g.winner);
+  if (!pending.length) return null;
+  const setWinner = async (g, id) => {
+    if (!(await requireAdminPass(t("cup.152")))) return;
+    await fxSet(`tournaments/${tid}/series/${cur.key}/games/g${g.no}/winner`, id);
+  };
+  return (
+    <div style={{ ...cardStyle, borderColor: theme.accent }}>
+      {pending.map((g) => (
+        <div key={g.no} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontSize: 14, marginBottom: 4 }}>
+          <b>{t("cup.155", { n: g.no })}</b>
+          {[g.blue, g.red].map((id) => (
+            <button key={id} className="cs-btn-ghost" style={fxSmallBtn} onClick={() => setWinner(g, id)}>
+              {sideLabel(id === g.blue ? "A" : "B")} ・ {teamName(id)}
+            </button>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// 大会シリーズ用のフィアレスドラフト。シリーズごとに別の盤面を持ち、試合を確定するとピック記録へ自動で反映する
+function FxDraftView({ ctx }) {
+  const { tid, tour, readOnly, entryOpen, resolved, seriesMap, teamsObj, teamName, champOptions, ddVer, champImgMap, seriesKey, setSeriesKey } = ctx;
+  const playable = resolved.filter((s) => s.a && s.b);
+  const cur = playable.find((s) => s.key === seriesKey) || playable.find((s) => !s.state.done) || playable[0] || null;
+  if (!cur) return <EmptyState text={t("cup.098")} />;
+  if (readOnly) return <EmptyState text={t("cup.157")} />; // 終了した大会(過去大会)ではドラフトしない
+  if (entryOpen) return <EmptyState text={t("cup.164")} />; // 対戦表が確定するまで試合を始めない
+
+  const gamesObj = seriesMap[cur.key]?.games || {};
+  const games = gameList(gamesObj);
+  const lastNo = games.reduce((m, g) => Math.max(m, g.no || 0), 0);
+  const nextNo = cur.state.nextNo ?? (cur.state.pendingNo ? cur.state.pendingNo + 1 : lastNo + 1);
+  const lockedMap = new Map();
+  games.forEach((g) => gamePicks(g).forEach((x) => { if (!lockedMap.has(x.champ)) lockedMap.set(x.champ, g.no); }));
+
+  const onConfirmed = async (snap) => {
+    const picks = { [snap.blue]: {}, [snap.red]: {} };
+    const bans = {};
+    ["A", "B"].forEach((side) => {
+      const id = side === "A" ? snap.blue : snap.red;
+      const rl = fillRoles(snap.roles[side]);
+      draftSlots(snap.draft, side, "pick").forEach((sl, k) => { if (sl.champ && sl.champ !== DRAFT_SKIP) picks[id][rl[k]] = sl.champ; });
+      const bs = draftSlots(snap.draft, side, "ban").map((sl) => sl.champ).filter((c) => c && c !== DRAFT_SKIP);
+      if (bs.length) bans[id] = bs;
+    });
+    const game = {
+      no: lastNo + 1, blue: snap.blue, red: snap.red, winner: null,
+      lineup: { [cur.a]: starterLineup(teamsObj[cur.a]), [cur.b]: starterLineup(teamsObj[cur.b]) },
+      picks, bans, kda: {}, ts: Date.now(), draftIdx: snap.idx,
+    };
+    const ok = await fxSet(`tournaments/${tid}/series/${cur.key}/games/g${game.no}`, game);
+    if (!ok) { await themedAlert(t("shell.001")); return; }
+    if (tour.meta.status === "entry") await fxSet(`tournaments/${tid}/meta/status`, "running");
+  };
+  // 管理者がドラフト上で確定済みの試合を取り消した場合、ドラフトから反映した記録も消す。
+  // 盤面の試合番号はドラフトのリセットで振り直されるため、ピックの組(10体)で照合する。記録側を編集済みなら消さない
+  const findRecord = (moves) => findDraftRecord(gamesObj, DRAFT_ORDER.map(([, k], i) => (k === "pick" ? moves[i] : null)).filter((c) => c && c !== DRAFT_SKIP));
+  const onUndoGame = async (rec) => { await fxRemove(`tournaments/${tid}/series/${cur.key}/games/g${rec.no}`); };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div className="cs-scroll" style={{ display: "flex", gap: 6, overflowX: "auto" }}>
+        {playable.map((s) => (
+          <button key={s.key} className="cs-btn-ghost" onClick={() => setSeriesKey(s.key)}
+            style={{ padding: "5px 12px", fontSize: 14, whiteSpace: "nowrap", borderColor: s.key === cur.key ? theme.accent : theme.borderInput, color: s.key === cur.key ? theme.accent : theme.textSub, fontWeight: s.key === cur.key ? 700 : 400 }}>
+            {t(FX_STAGE_KEYS[s.key])} {s.state.winsA}-{s.state.winsB}
+          </button>
+        ))}
+      </div>
+      <div style={{ fontSize: 13, color: theme.textFaint, lineHeight: 1.6 }}>
+        <b style={{ color: theme.text }}>{t(FX_STAGE_KEYS[cur.key])} ・ {teamName(cur.a)} {cur.state.winsA} - {cur.state.winsB} {teamName(cur.b)}</b>
+        <span style={{ marginLeft: 8 }}>{t("cup.151")}</span>
+      </div>
+      <FxWinnerQuick ctx={ctx} cur={cur} />
+      <FearlessDraftTab key={`${tid}-${cur.key}`} path={`customstats/cup/tournaments/${tid}/drafts/${cur.key}`}
+        champList={champOptions} ddVer={ddVer} champImgMap={champImgMap}
+        cup={{
+          teamA: cur.a, teamB: cur.b, names: { [cur.a]: teamName(cur.a), [cur.b]: teamName(cur.b) },
+          lockedMap, nextNo, defaultBlue: cur.a, chooser: sideChooser(gamesObj, nextNo), done: cur.state.done, pendingNo: cur.state.pendingNo,
+          onConfirmed, onUndoGame, findRecord,
+        }} />
+    </div>
+  );
+}
+
 function FxPicksView({ ctx }) {
-  const { tid, tour, readOnly, resolved, seriesMap, teamsObj, teamName, rules, champOptions, ChampIcon, seriesKey, setSeriesKey } = ctx;
+  const { tid, tour, readOnly, entryOpen, resolved, seriesMap, teamsObj, teamName, rules, champOptions, ChampIcon, seriesKey, setSeriesKey } = ctx;
   const [form, setForm] = useState(null); // 入力中の試合
   const playable = resolved.filter((s) => s.a && s.b);
   const cur = playable.find((s) => s.key === seriesKey) || playable.find((s) => !s.state.done) || playable[0] || null;
@@ -3255,7 +3449,9 @@ function FxPicksView({ ctx }) {
   const conflicts = fearlessConflicts(gamesObj);
   const chooser = nextNo ? sideChooser(gamesObj, nextNo) : null;
   const champSet = new Set(champOptions);
-  const formLocked = form ? fearlessLocked(gamesObj, form.no) : new Set();
+  // 編集時は前後どちらの試合のピックも選べない(後の試合で使ったチャンピオンに変えると後の試合が違反になる)
+  const formLocked = form ? fearlessBlocked(gamesObj, form.no) : new Set();
+  const pendingNo = cur.state.pendingNo;
   const lastNo = games.reduce((m, g) => Math.max(m, g.no || 0), 0);
 
   const openForm = (g) => {
@@ -3303,20 +3499,27 @@ function FxPicksView({ ctx }) {
     if (dups.length) { await themedAlert(t("cup.117", { names: [...new Set(dups)].map(champLabel).join("、") })); return; }
     const lineErrs = ids.flatMap((id) => lineupCheck(id).errors.map((e) => `${teamName(id)}: ${fxIssueText(e, (pid) => playerNameIn(teamsObj[id], pid) || "?", teamName)}`));
     if (lineErrs.length) { await themedAlert(lineErrs.join("\n")); return; }
+    const badBans = ids.flatMap((id) => splitChampList(form.bans[id]).map(champCanonical)).filter((c) => !champSet.has(c));
+    if (badBans.length) { await themedAlert(t("cup.115", { names: badBans.join("、") })); return; }
     if (!(await requireAdminPass(t("cup.118")))) return;
     const bans = {};
     ids.forEach((id) => {
-      const list = (form.bans[id] || "").split(/[、,，\s]+/).map((x) => x.trim()).filter(Boolean).map(champCanonical);
+      const list = splitChampList(form.bans[id]).map(champCanonical);
       if (list.length) bans[id] = list;
     });
     const kda = {};
     if (form.showKda) {
+      // 入力後に出場選手を入れ替えた場合、出場していない選手のKDAは保存しない
+      const playing = new Set(ids.flatMap((id) => Object.values(form.lineup[id] || {})));
       Object.entries(form.kda).forEach(([pid, x]) => {
-        if (x.k === "" && x.d === "" && x.a === "") return;
+        if (!playing.has(pid) || (x.k === "" && x.d === "" && x.a === "")) return;
         kda[pid] = { k: Number(x.k) || 0, d: Number(x.d) || 0, a: Number(x.a) || 0 };
       });
     }
-    const game = { no: form.no, blue: form.blue, red: form.red, winner: form.winner || null, lineup: form.lineup, picks, bans, kda, ts: Date.now() };
+    // ドラフトから反映した記録は編集後も印(draftIdx)を残す: ドラフト側の確定取り消しで対応する記録を消せるように
+    const draftIdx = form.editing ? gamesObj[`g${form.no}`]?.draftIdx : undefined;
+    const game = { no: form.no, blue: form.blue, red: form.red, winner: form.winner || null, lineup: form.lineup, picks, bans, kda, ts: Date.now(),
+      ...(draftIdx != null ? { draftIdx } : {}) };
     const ok = await fxSet(`tournaments/${tid}/series/${cur.key}/games/g${form.no}`, game);
     if (!ok) { await themedAlert(t("shell.001")); return; }
     if (tour.meta.status === "entry") await fxSet(`tournaments/${tid}/meta/status`, "running");
@@ -3336,6 +3539,7 @@ function FxPicksView({ ctx }) {
     });
     lines.push(`使用不可（${lockedNow.size}体）: ${[...lockedNow].join("、")}`);
     if (nextNo) lines.push(chooser ? `次の試合: ${n(chooser)} がサイド選択` : nextNo === 1 ? "次の試合: サイドはダイスBOTで決定" : `次の試合: 第${nextNo}試合`);
+    else if (pendingNo) lines.push(`第${pendingNo}試合: 勝者未記録`);
     else lines.push(`シリーズ終了: 勝者 ${n(cur.state.winner)}`);
     fxCopy(lines.join("\n"));
   };
@@ -3367,18 +3571,19 @@ function FxPicksView({ ctx }) {
         </div>
         <div style={{ fontSize: 14, color: theme.textSub, marginTop: 6 }}>
           {nextNo ? (nextNo === 1 ? t("cup.096") : chooser ? t("cup.095", { n: nextNo, team: teamName(chooser) }) : t("cup.101", { n: nextNo }))
+            : pendingNo ? <b style={{ color: theme.teamB }}>{t("cup.156", { n: pendingNo })}</b>
             : <b style={{ color: theme.accent }}>{t("cup.102")}: {teamName(cur.state.winner)}</b>}
         </div>
       </div>
 
       <div style={cardStyle}>
         <div style={{ fontWeight: 700, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
-          <Lock size={15} color={theme.teamB} />{nextNo ? t("cup.099", { n: lockedNow.size }) : t("cup.100")}
+          <Lock size={15} color={theme.teamB} />{cur.state.done ? t("cup.100") : t("cup.099", { n: lockedNow.size })}
         </div>
         {lockedNow.size === 0 ? <div style={{ color: theme.textFaint, fontSize: 14 }}>-</div> : (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(64px, 1fr))", gap: 8 }}>
             {[...lockedNow].map((c) => (
-              <div key={c} style={{ textAlign: "center", fontSize: 11, color: theme.textSub, filter: nextNo ? "grayscale(0.85)" : "none" }}>
+              <div key={c} style={{ textAlign: "center", fontSize: 11, color: theme.textSub, filter: cur.state.done ? "none" : "grayscale(0.85)" }}>
                 <ChampIcon name={c} size={40} /><div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{champLabel(c)}</div>
               </div>
             ))}
@@ -3393,6 +3598,7 @@ function FxPicksView({ ctx }) {
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
               <b>{t("cup.101", { n: g.no })}</b>
               {g.winner && <span style={fxChip(theme.accent, true)}>{t("cup.102")}: {teamName(g.winner)}</span>}
+              {g.draftIdx != null && <span style={fxChip(theme.textSub)}>{t("cup.153")}</span>}
               {!readOnly && (
                 <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
                   <button className="cs-btn-ghost" style={fxSmallBtn} onClick={() => openForm(g)}><Pencil size={12} /> {t("cup.037")}</button>
@@ -3428,7 +3634,10 @@ function FxPicksView({ ctx }) {
         );
       })}
 
-      {!readOnly && !form && nextNo && (
+      {!readOnly && <FxWinnerQuick ctx={ctx} cur={cur} />}
+
+      {!readOnly && entryOpen && <div style={{ ...cardStyle, fontSize: 14, color: theme.textSub }}>{t("cup.164")}</div>}
+      {!readOnly && !entryOpen && !form && nextNo && (
         <div><button className="cs-btn" style={{ padding: "8px 18px" }} onClick={() => openForm(null)}>+ {t("cup.104", { n: nextNo })}</button></div>
       )}
 
@@ -3526,7 +3735,7 @@ function FxStatsView({ ctx }) {
   const champCount = (row) => Object.keys(row.champs).length;
   const deepest = [...st.players].sort((a, b) => champCount(b) - champCount(a))[0];
   const mostBanned = [...st.champs].sort((a, b) => b.bans - a.bans)[0];
-  const unbeaten = st.champs.filter((c) => c.picks >= 2 && c.wins === c.picks).map((c) => champLabel(c.champ));
+  const unbeaten = st.champs.filter((c) => c.wins >= 2 && c.losses === 0).map((c) => champLabel(c.champ));
   const wl = (w, l) => t("cup.143", { w, l });
   const teamsSorted = [...st.teams].filter((x) => x.gw + x.gl > 0)
     .sort((a, b) => (placements[a.teamId] || 9) - (placements[b.teamId] || 9) || b.sw - a.sw || (b.gw - b.gl) - (a.gw - a.gl));
@@ -3536,7 +3745,7 @@ function FxStatsView({ ctx }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <div style={{ fontSize: 13, color: theme.textFaint }}>{t("cup.140")}</div>
       <div style={{ ...cardStyle, fontSize: 14, lineHeight: 1.8 }}>
-        {deepest && <div>🎯 {t("cup.135", { name: deepest.name, n: champCount(deepest) })}</div>}
+        {deepest && champCount(deepest) > 0 && <div>🎯 {t("cup.135", { name: deepest.name, n: champCount(deepest) })}</div>}
         {mostBanned && mostBanned.bans > 0 && <div>🚫 {t("cup.136", { champ: champLabel(mostBanned.champ), n: mostBanned.bans })}</div>}
         {unbeaten.length > 0 && <div>🏅 {t("cup.137", { champs: unbeaten.join("、") })}</div>}
       </div>
@@ -3568,7 +3777,7 @@ function FxStatsView({ ctx }) {
                   <td style={{ fontWeight: 700, cursor: exists ? "pointer" : "default", whiteSpace: "nowrap" }} onClick={() => exists && onOpenPlayer(row.playerId)}>{row.name}</td>
                   <td style={{ whiteSpace: "nowrap" }}>{teamName(row.teamId)}</td>
                   <td>{row.games}</td>
-                  <td style={{ whiteSpace: "nowrap" }}>{wl(row.wins, row.games - row.wins)}</td>
+                  <td style={{ whiteSpace: "nowrap" }}>{wl(row.wins, row.losses)}</td>
                   <td style={{ whiteSpace: "nowrap" }}>{row.kdaGames ? `${(row.k / row.kdaGames).toFixed(1)}/${(row.d / row.kdaGames).toFixed(1)}/${(row.a / row.kdaGames).toFixed(1)}` : "-"}</td>
                   <td>{champCount(row)}</td>
                   <td>{Object.keys(row.champs).map((c) => <span key={c} title={champLabel(c)}><ChampIcon name={c} size={20} /></span>)}</td>
@@ -3587,7 +3796,7 @@ function FxStatsView({ ctx }) {
               <tr key={c.champ}>
                 <td style={{ whiteSpace: "nowrap" }}><ChampIcon name={c.champ} size={20} />{champLabel(c.champ)}</td>
                 <td>{c.picks}</td>
-                <td>{c.picks ? `${Math.round((c.wins / c.picks) * 100)}%` : "-"}</td>
+                <td>{c.wins + c.losses ? `${Math.round((c.wins / (c.wins + c.losses)) * 100)}%` : "-"}</td>
                 <td>{c.bans}</td>
               </tr>
             ))}
@@ -5316,6 +5525,7 @@ export default function CustomStats() {
           { key: "matching", label: t("header.012"), icon: Scale, tabs: [
             { id: "balance", icon: Scale, label: t("header.013") },
             { id: "teamBuilder", icon: Users, label: t("cup.010") },
+            { id: "fearless", icon: Ban, label: t("fearless.001") },
           ] },
           { key: "scouting", label: t("header.014"), icon: UserRound, tabs: [
             { id: "scoutStats", icon: UserRound, label: t("header.015") },
@@ -5338,7 +5548,7 @@ export default function CustomStats() {
           { key: "cup", label: t("cup.001"), icon: Flag, tabs: [
             { id: "fxTeams", icon: Users, label: t("cup.002") },
             { id: "fxBracket", icon: Swords, label: t("cup.003") },
-            { id: "fearless", icon: Ban, label: t("fearless.001") },
+            { id: "fxDraft", icon: Ban, label: t("cup.148") },
             { id: "fxPicks", icon: Lock, label: t("cup.004") },
             { id: "fxStats", icon: Medal, label: t("cup.005") },
           ] },
@@ -6128,8 +6338,8 @@ export default function CustomStats() {
       {tab === "teamBuilder" && <TeamBuilderTab players={players} ChampIcon={ChampIcon} />}
 
       {/* ---------- FEARLESS(フィアレス大会) ---------- */}
-      {["fxTeams", "fxBracket", "fxPicks", "fxStats"].includes(tab) && (
-        <FearlessTab view={tab} data={fearlessData} players={players} ChampIcon={ChampIcon}
+      {["fxTeams", "fxBracket", "fxDraft", "fxPicks", "fxStats"].includes(tab) && (
+        <FearlessTab view={tab} data={fearlessData} players={players} ChampIcon={ChampIcon} ddVer={ddVer} champImgMap={champImgMap}
           champOptions={[...(ddChamps ? ddChamps.map((x) => x.name) : CHAMPIONS), ...customChamps]}
           selTid={fxTid} setSelTid={setFxTid} seriesKey={fxSeriesKey} setSeriesKey={setFxSeriesKey} setTab={setTab}
           onOpenPlayer={(id) => { setStatsPlayerId(id); setTab("stats"); }} />

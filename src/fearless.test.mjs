@@ -3,6 +3,7 @@ import {
   toTenths, isMasterPlusAuto, snapshotMember, snapshotSub, lineupTenths, validateTeam, validateLineup,
   orderTeams, buildSchedule, seriesState, resolveBracket, finalPlacements, fearlessLocked, fearlessConflicts,
   sideChooser, subRoleUsage, tournamentStats, drawSeeds, drawSurvivors, hasAnyResult, starterLineup,
+  normalizeRules, fearlessBlocked, findDraftRecord, splitChampList, isEntryOpen,
 } from "./fearless.js";
 
 let failed = 0;
@@ -149,6 +150,67 @@ let seed = 1; const rng = () => { seed = (seed * 16807) % 2147483647; return see
 const drawn = drawSeeds(["A", "B", "C", "D"], rng);
 assert(drawn.length === 4 && new Set(drawn).size === 4, "drawSeeds: 全員含む");
 assert(drawSurvivors(["A", "B", "C"], 2, rng).length === 2, "drawSurvivors: 指定数");
+
+
+// ==== 2回目レビューで見つかった不具合の再現テスト ====
+
+// ---- ルール値の正規化: 管理画面の数値入力をそのまま受けるため、範囲外・不正値を丸める ----
+const nr = normalizeRules({ pointCap: "abc", maxMasterPlus: -1, maxSubs: 9.6, bestOf: { sf: 4, final: "5", third: 0 } });
+assert(nr.pointCap === 430, "rules: 不正な上限は既定値");
+assert(nr.maxMasterPlus === 0, "rules: M+上限は0未満にならない");
+assert(nr.maxSubs === 5, "rules: 補欠上限は0〜5の整数");
+assert(nr.bestOf.sf === 3 && nr.bestOf.final === 5 && nr.bestOf.third === 5, "rules: BOは1/3/5以外なら既定値、文字列は数値化");
+assert(normalizeRules({ pointCap: "0" }).pointCap === 430, "rules: 上限0以下は既定値");
+assert(normalizeRules({ pointCap: "420.5" }).pointCap === 420.5, "rules: 文字列の上限は数値化");
+
+// ---- 勝者未記録の試合があるシリーズ: 次の試合へ進ませない ----
+const pend = seriesState({ a: "A", b: "B", bestOf: 3 }, { g1: g(1, "A", "B", "A"), g2: g(2, "B", "A", null) });
+assert(pend.pendingNo === 2, "seriesState: 勝者未記録の試合番号");
+assert(pend.nextNo === null && !pend.done, "seriesState: 勝者未記録の間は次の試合を入力させない");
+const noPend = seriesState({ a: "A", b: "B", bestOf: 3 }, { g1: g(1, "A", "B", "A") });
+assert(noPend.pendingNo === null && noPend.nextNo === 2, "seriesState: 全試合に勝者があれば次へ");
+
+// ---- 成績: 勝者未記録の試合を負けとして数えない ----
+const pdMap = { scrim: { games: { g1: { ...g(1, "A", "B", null, pk(["a1", "a2", "a3", "a4", "a5"], ["b1", "b2", "b3", "b4", "b5"])),
+  lineup: { A: starterLineup(stA), B: starterLineup(stB) } } } } };
+const pdStats = tournamentStats({ A: stA, B: stB }, resolveBracket(duo.series, pdMap), pdMap);
+const pdTop = pdStats.players.find((x) => x.playerId === "A-TOP");
+assert(pdTop.games === 1 && pdTop.wins === 0 && pdTop.losses === 0, "成績: 勝者未記録の試合は勝ちにも負けにも数えない");
+assert(pdStats.champs.find((c) => c.champ === "a1").losses === 0, "成績: チャンピオンも同様");
+const decided = tournamentStats({ A: stA, B: stB }, resolveBracket(duo.series, stMap), stMap);
+assert(decided.players.find((x) => x.playerId === "B-TOP").losses === 1, "成績: 負けは losses に数える");
+
+// ---- 過去試合の編集: 後の試合で使ったチャンピオンも選べない ----
+const blocked1 = fearlessBlocked(fg, 1);
+assert(blocked1.has("c1") && blocked1.has("d5"), "編集: 第1試合を直す時、第2試合のピックは選べない");
+assert(!blocked1.has("a1"), "編集: 自分の試合のピックは選べる");
+assert(fearlessBlocked(fg, 3).size === 20, "新規: 第3試合では既存20体が選べない");
+
+// ---- ドラフト取り消し時の記録特定: 番号ではなくピックの組で照合する ----
+const drMap = {
+  g1: { ...g(1, "A", "B", "A", pk(["a1", "a2", "a3", "a4", "a5"], ["b1", "b2", "b3", "b4", "b5"])), draftIdx: 0 },
+  g2: { ...g(2, "B", "A", null, pk(["c1", "c2", "c3", "c4", "c5"], ["d1", "d2", "d3", "d4", "d5"])), draftIdx: 0 },
+};
+const found = findDraftRecord(drMap, ["c1", "c2", "c3", "c4", "c5", "d1", "d2", "d3", "d4", "d5"]);
+assert(found && found.no === 2, "ドラフト記録: ドラフトをリセットして番号が重複してもピックの組で特定");
+assert(!findDraftRecord(drMap, ["c1", "c2", "c3", "c4", "c5", "d1", "d2", "d3", "d4", "zz"]), "ドラフト記録: 記録側を編集済みなら消さない");
+assert(!findDraftRecord({ g1: { ...drMap.g1, draftIdx: undefined } }, ["a1", "a2", "a3", "a4", "a5", "b1", "b2", "b3", "b4", "b5"]), "ドラフト記録: 手入力の記録は対象外");
+
+// ---- BAN入力の分割: 英語名の空白で割らない ----
+assert(JSON.stringify(splitChampList("Miss Fortune, Lee Sin、アーリ，Twisted Fate / Jax")) === JSON.stringify(["Miss Fortune", "Lee Sin", "アーリ", "Twisted Fate", "Jax"]), "BAN: 区切りは読点・カンマ・スラッシュのみ");
+assert(splitChampList("  ").length === 0, "BAN: 空入力");
+
+
+// ---- 登録締切: 受付中だけチームの追加・削除ができ、締切後に試合を始められる ----
+const NOW = 1_800_000_000_000;
+assert(isEntryOpen({ status: "entry" }, NOW), "締切: 何も設定していなければ受付中");
+assert(!isEntryOpen({ status: "entry", entryClosed: true }, NOW), "締切: 手動で締め切ったら受付終了");
+assert(!isEntryOpen({ status: "entry", entryDeadline: NOW - 1 }, NOW), "締切: 締切日時を過ぎたら受付終了");
+assert(!isEntryOpen({ status: "entry", entryDeadline: NOW }, NOW), "締切: 締切日時ちょうども受付終了");
+assert(isEntryOpen({ status: "entry", entryDeadline: NOW + 60000 }, NOW), "締切: 締切日時前は受付中");
+assert(!isEntryOpen({ status: "running" }, NOW), "締切: 試合が始まった大会は受付終了");
+assert(!isEntryOpen({ status: "finished" }, NOW), "締切: 終了した大会は受付終了");
+assert(!isEntryOpen(null, NOW), "締切: 大会が無ければ受付しない");
 
 console.log(failed === 0 ? "\nすべて成功" : `\n${failed}件失敗`);
 process.exit(failed === 0 ? 0 : 1);

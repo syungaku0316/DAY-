@@ -17,16 +17,31 @@ export const toTenths = (x) => Math.round(Number(x || 0) * 10);
 export const fmtTenths = (n) => (n / 10).toFixed(1);
 const vals = (o) => (Array.isArray(o) ? o.filter(Boolean) : o && typeof o === "object" ? Object.values(o).filter(Boolean) : []);
 
+// 管理画面の数値入力をそのまま受けるため、不正値は既定値に、範囲外は範囲内に丸める
 export function normalizeRules(r) {
   const src = r || {};
-  const bo = { ...DEFAULT_RULES.bestOf, ...(src.bestOf || {}) };
-  const num = (v, d) => (Number.isFinite(Number(v)) && v !== "" && v != null ? Number(v) : d);
+  const num = (v) => (v === "" || v == null || !Number.isFinite(Number(v)) ? null : Number(v));
+  const cap = num(src.pointCap);
+  const intIn = (v, lo, hi, d) => { const n = num(v); return n == null ? d : Math.min(hi, Math.max(lo, Math.round(n))); };
+  const bo = {};
+  Object.keys(DEFAULT_RULES.bestOf).forEach((k) => {
+    const n = num(src.bestOf?.[k]);
+    bo[k] = [1, 3, 5].includes(n) ? n : DEFAULT_RULES.bestOf[k];
+  });
   return {
-    pointCap: num(src.pointCap, DEFAULT_RULES.pointCap),
-    maxMasterPlus: num(src.maxMasterPlus, DEFAULT_RULES.maxMasterPlus),
-    maxSubs: num(src.maxSubs, DEFAULT_RULES.maxSubs),
+    pointCap: cap != null && cap > 0 ? cap : DEFAULT_RULES.pointCap,
+    maxMasterPlus: intIn(src.maxMasterPlus, 0, 5, DEFAULT_RULES.maxMasterPlus),
+    maxSubs: intIn(src.maxSubs, 0, 5, DEFAULT_RULES.maxSubs),
     bestOf: bo,
   };
+}
+
+// 登録受付中か。受付中だけチームの追加・削除ができ、締め切るまで試合は始められない(対戦表が確定しないため)。
+// 手動の締切(entryClosed)と締切日時(entryDeadline)のどちらかで締め切る。試合開始後・大会終了後は常に締切扱い
+export function isEntryOpen(meta, now = Date.now()) {
+  if (!meta || meta.status !== "entry") return false;
+  if (meta.entryClosed) return false;
+  return !(meta.entryDeadline && now >= meta.entryDeadline);
 }
 
 /* ---------------- 選手・チーム ---------------- */
@@ -175,7 +190,10 @@ export function seriesState(def, gamesObj) {
   const winner = winsA >= need ? def.a : winsB >= need ? def.b : null;
   const loser = winner ? (winner === def.a ? def.b : def.a) : null;
   const lastNo = games.reduce((m, g) => Math.max(m, g.no || 0), 0);
-  return { winsA, winsB, need, winner, loser, done: !!winner, nextNo: winner ? null : lastNo + 1, games };
+  // 勝者未記録の試合がある間は次の試合へ進ませない(サイド選択権も勝敗数も決まらないため)
+  const pending = winner ? null : games.find((g) => !g.winner);
+  const pendingNo = pending ? pending.no : null;
+  return { winsA, winsB, need, winner, loser, done: !!winner, pendingNo, nextNo: winner || pending ? null : lastNo + 1, games };
 }
 
 // seriesMap: { key: { games: {...} } }。決勝/3位決定戦の a/b を準決勝の結果で埋め、各シリーズに state を付ける
@@ -231,6 +249,26 @@ export function fearlessLocked(gamesObj, beforeNo) {
   return set;
 }
 
+// 第 no 試合で選べないチャンピオン(その試合以外の全試合のピック)。
+// 過去の試合を編集する時、後の試合で使ったチャンピオンに変えると後の試合がフィアレス違反になるため、前後とも除く
+export function fearlessBlocked(gamesObj, no) {
+  const set = new Set();
+  gameList(gamesObj).filter((g) => g.no !== no).forEach((g) => gamePicks(g).forEach((p) => set.add(p.champ)));
+  return set;
+}
+
+// ドラフトから反映した記録を、ドラフトのピックの組(10体)で特定する。
+// ドラフトをリセットすると盤面上の試合番号は振り直されるため番号では照合しない。記録側を編集済みなら一致せず消さない
+export function findDraftRecord(gamesObj, champs) {
+  const key = [...champs].sort().join("|");
+  return gameList(gamesObj).find((g) => g.draftIdx != null && gamePicks(g).map((p) => p.champ).sort().join("|") === key) || null;
+}
+
+// BAN等のチャンピオン名リスト入力を分割する。英語名("Miss Fortune")を割らないよう空白では区切らない
+export function splitChampList(text) {
+  return String(text || "").split(/[、,，/／\n]+/).map((x) => x.trim()).filter(Boolean);
+}
+
 // 使用済みチャンピオンの再ピック(過去試合を後から修正した場合など)と同一試合内の重複を検出
 export function fearlessConflicts(gamesObj) {
   const out = [];
@@ -275,7 +313,7 @@ export function tournamentStats(teamsObj, resolved, seriesMap) {
   vals(teamsObj).forEach((tm) => { teams[tm.id] = { teamId: tm.id, name: tm.name, sw: 0, sl: 0, gw: 0, gl: 0 }; });
   const players = {};
   const champs = {};
-  const champRow = (c) => (champs[c] || (champs[c] = { champ: c, picks: 0, wins: 0, bans: 0 }));
+  const champRow = (c) => (champs[c] || (champs[c] = { champ: c, picks: 0, wins: 0, losses: 0, bans: 0 }));
   resolved.forEach((s) => {
     if (s.state.done) {
       if (teams[s.state.winner]) teams[s.state.winner].sw++;
@@ -292,14 +330,14 @@ export function tournamentStats(teamsObj, resolved, seriesMap) {
         FX_ROLES.forEach((r) => {
           const pid = lu[r];
           if (!pid) return;
-          const row = players[pid] || (players[pid] = { playerId: pid, name: playerNameIn(tm, pid) || "?", teamId, games: 0, wins: 0, k: 0, d: 0, a: 0, kdaGames: 0, champs: {} });
-          row.games++; if (won) row.wins++;
+          const row = players[pid] || (players[pid] = { playerId: pid, name: playerNameIn(tm, pid) || "?", teamId, games: 0, wins: 0, losses: 0, k: 0, d: 0, a: 0, kdaGames: 0, champs: {} });
+          row.games++; if (won) row.wins++; if (lost) row.losses++;
           const kda = g.kda?.[pid];
           if (kda) { row.k += kda.k || 0; row.d += kda.d || 0; row.a += kda.a || 0; row.kdaGames++; }
           const c = g.picks?.[teamId]?.[r];
           if (c) {
             row.champs[c] = (row.champs[c] || 0) + 1;
-            const cr = champRow(c); cr.picks++; if (won) cr.wins++;
+            const cr = champRow(c); cr.picks++; if (won) cr.wins++; if (lost) cr.losses++;
           }
         });
         vals(g.bans?.[teamId]).forEach((c) => { champRow(c).bans++; });

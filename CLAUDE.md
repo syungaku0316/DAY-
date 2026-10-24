@@ -95,7 +95,9 @@ Python等で一括置換した後は、必ず 1 → 5 の順で確認するこ�
   - **手番の音**: 手数・試合数・完了状態の変化で Web Audio の合成音(`playTurnSound`、自チームの番は2音)。稼働中の残り5〜1秒は毎秒カウントダウン音(`playCountdownTick`、全端末)。初回読み込みでは鳴らさない。ON/OFFは端末ごと(localStorage `crl-fearless-sound`)。自動再生制限のため端末で一度操作するまで無音
   - `captains`: キャプテン制限。管理者PASSでサイド別4桁コードを発行(画面非表示・コピーのみ)、コード入力した端末(`getDeviceId`)だけがそのサイドの手番・ロールを操作可。開始/再開・試合確定はどちらかのキャプテンか管理者。**戻すは直前の手が自サイドの時だけ**(相手が次の手を打つまで)。一時停止・やり直し・ロール宣言中の戻す・試合確定の取り消しは管理者のみ。null=誰でも操作可(戻すの持ち時間据え置きは同じ)。時間切れの自動進行は権限不問。**登録済みサイドの乗っ取り不可**(端末変更は管理者の「登録解除」後に再登録)
 - **requests**: 要望掲示板。`{id, text, author, authorId(端末ID), ts, status: open|considering|planned|done|declined, reply, repliedAt, votes:{端末ID:true}}`。投稿・賛同はPASS不要、回答・削除は管理者PASS。done/declined は `repliedAt` から30日で閲覧端末が自動削除
-- **cup**: フィアレス大会(チーム登録・対戦表・大会成績)。`{activeId, tournaments/<tid>: {meta:{id,name,createdAt,status:entry|running|finished}, rules:{pointCap,maxMasterPlus,maxSubs,bestOf}, teams/<id>:{name, members:{ROLE:{playerId,name,pts}}, subs:{pid:{playerId,name,pts:{ROLE}}}, mplus:{pid:true}, eliminated}, seedOrder:[], series/<key>/games/g<n>:{no,blue,red,winner,lineup,picks,bans,kda}}}`
+- **cup**: フィアレス大会(チーム登録・対戦表・大会成績)。`{activeId, tournaments/<tid>: {meta:{id,name,createdAt,status:entry|running|finished, entryClosed, entryDeadline}, rules:{pointCap,maxMasterPlus,maxSubs,bestOf}, teams/<id>:{name, members:{ROLE:{playerId,name,pts}}, subs:{pid:{playerId,name,pts:{ROLE}}}, mplus:{pid:true}, eliminated}, seedOrder:[], series/<key>/games/g<n>:{no,blue,red,winner,lineup,picks,bans,kda,draftIdx}, drafts/<key>:(fearless と同じ盤面形式 + blue)}}`
+  - 大会用ドラフトは `FearlessDraftTab` を `path` / `cup` 付きで再利用。試合確定で `series/<key>/games` へ自動反映(`draftIdx` 付き、勝者は後で記録)。管理者の確定取り消しで反映分も削除
+  - 登録受付(`isEntryOpen`): 受付中だけチームの追加・削除可、締切後は試合開始可(メンバー・補欠の編集は締切後も可)。再開は試合結果が無い間のみ
   - `pts` は登録時μのスナップショット(固定)。合計判定は0.1pt単位の整数で行う
   - 対戦表は保存せず teams+rules+seedOrder から導出(2チーム=scrim/main、4チーム=sf1/sf2/final/third、奇数等=抽選)
   - 大会の試合は `matches`・レート・戦績に**一切書き込まない**。閲覧・ビルダーはPASS不要、保存系は管理者PASS
