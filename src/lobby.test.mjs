@@ -1,5 +1,5 @@
 // Node単体テスト（実行: node src/lobby.test.mjs）
-import { splitIntoLobbies, lobbySwapCandidates, LOBBY_MODES, remainingPool } from "./lobby.js";
+import { splitIntoLobbies, lobbySwapCandidates, LOBBY_MODES, remainingPool, pinMatchOf, isPinnedFor, poolForMatch } from "./lobby.js";
 
 let failed = 0;
 function assert(cond, label) {
@@ -50,6 +50,25 @@ const match1 = { teamA: [{ id: "a" }], teamB: [{ id: "b" }] };
 assert(remainingPool(roster, [match1]).map((p) => p.id).join() === "d,e", "残り: 第1試合の出場者と休みを除く(調整枠は含む)");
 assert(remainingPool(roster, [match1, null, undefined]).length === 2, "残り: 未編成(null)の試合は無視");
 assert(remainingPool(roster, []).length === 4, "残り: 編成が無ければ休み以外の全員");
+
+// ---- 事前固定(レーン固定・対面指定)をどの試合に使うか ----
+assert(pinMatchOf({ team: "A" }) === 1 && pinMatchOf({ team: "A", match: 2 }) === 2, "固定の試合: 指定なしは第1試合");
+assert(isPinnedFor({ team: "A", role: "TOP" }, 1) && !isPinnedFor({ team: "A", role: "TOP" }, 2), "第1試合の固定");
+assert(isPinnedFor({ team: "AUTO", role: "MID", match: 2 }, 2), "ロールだけの固定も固定");
+assert(!isPinnedFor({ team: "AUTO", role: "AUTO", match: 2 }, 2), "両方おまかせは固定ではない");
+assert(!isPinnedFor({ team: "A", force: "bench", match: 1 }, 1), "控え指定は固定に数えない");
+assert(!isPinnedFor(undefined, 1), "設定なし");
+
+const pinRoster = [
+  { id: "a", status: "active" }, { id: "b", status: "active" }, { id: "c", status: "active" },
+  { id: "d", status: "active" }, { id: "r", status: "rest" },
+];
+const pins = { a: { team: "A", role: "TOP" }, b: { team: "B", role: "TOP", match: 2 }, r: { team: "A", match: 2 } };
+assert(poolForMatch(pinRoster, pins, 1, []).map((p) => p.id).join() === "a,c,d", "第1試合の候補: 第2試合に固定した人(b)と休みを除く");
+const g1 = { teamA: [{ id: "a" }], teamB: [{ id: "c" }] };
+assert(poolForMatch(pinRoster, pins, 2, [g1]).map((p) => p.id).join() === "b,d", "第2試合の候補: 第1試合の出場者を除き、第2試合の固定(b)は含む");
+const pinsA1 = { ...pins, d: { team: "A", match: 1 } };
+assert(poolForMatch(pinRoster, pinsA1, 2, [g1]).map((p) => p.id).join() === "b", "第2試合の候補: 第1試合に固定したが出ていない人(d)も除く");
 
 console.log(failed === 0 ? "\nすべて成功" : `\n${failed}件失敗`);
 process.exit(failed === 0 ? 0 : 1);

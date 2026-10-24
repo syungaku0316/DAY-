@@ -12,7 +12,7 @@ import { computeEfficiency, PERCENT_DISPLAY_KEYS } from "./itemEfficiency.js";
 import { CHAMPSTATS, CHAMPSTATS_PATCH } from "./champStats.js";
 import { computeAt, STAT_ROWS, COMPARE_LEVELS, MAX_LEVEL } from "./champGrowth.js";
 import { BACKUP_FORMAT, buildBackup, backupToNodes } from "./backup.js";
-import { splitIntoLobbies, lobbySwapCandidates, remainingPool } from "./lobby.js";
+import { splitIntoLobbies, lobbySwapCandidates, remainingPool, pinMatchOf, isPinnedFor, poolForMatch } from "./lobby.js";
 import {
   MU0, SIGMA_RATED, SIGMA_UNRANKED, SIGMA_FLOOR, BETA, TAU, K_SCALE, STREAK_STEP, STREAK_MAX_MULT, STREAK_MIN_MULT,
   RATING_FLOOR, RATING_CEIL, clampRating, ROLES, RANKS, PROF_RATE, PROF_SIGMA_MULT,
@@ -3747,6 +3747,7 @@ export default function CustomStats() {
   const [lobbyMode, setLobbyModeState] = useState(() => { try { return localStorage.getItem("crl-lobby-mode") === "mix" ? "mix" : "tier"; } catch { return "tier"; } });
   const setLobbyMode = (m) => { setLobbyModeState(m); try { localStorage.setItem("crl-lobby-mode", m); } catch {} };
   const [scoutLobby, setScoutLobby] = useState(0); // マルチサーチで表示中の試合(2試合同時のとき)
+  const [pinMatch, setPinMatch] = useState(1); // レーン固定・対面指定で新しく固定する時の対象試合(1/2)
   // 運用設定(全端末共有・管理者PASSで変更)。customstats/settings を購読する。
   const [settings, setSettings] = useState({ matchupWarnThreshold: MATCHUP_WARN_DEFAULT, matchupWarnLanes: MATCHUP_LANES_DEFAULT, movedTo: "" });
   const matchupThreshold = settings.matchupWarnThreshold;
@@ -4806,14 +4807,12 @@ export default function CustomStats() {
   const AUTO_DIFF_THRESHOLD = 12; // このpt差を超えたら調整枠での改善を試みる
   const autoAssignAll = async () => {
     if (!(await requireAdminPass(t("balance.004")))) return;
-    const pool = players.filter((p) => p.status !== "rest");
+    // 第2試合に固定した人は第1試合に入れない
+    const pool = poolForMatch(players, session.prefs, 1, []);
     if (pool.length < 2) { themedAlert(t("shell.059")); return; }
 
     const prefOf = (id) => (session.prefs || {})[id] || { team: "AUTO" };
-    const isLocked = (p) => {
-      const pref = prefOf(p.id);
-      return pref.force !== "bench" && ((pref.team && pref.team !== "AUTO") || (pref.role && pref.role !== "AUTO"));
-    };
+    const isLocked = (p) => isPinnedFor(prefOf(p.id), 1);
     const lockedPlayers = pool.filter(isLocked);
     if (lockedPlayers.length > 10) { themedAlert(t("balance.062")); return; }
 
@@ -4828,7 +4827,7 @@ export default function CustomStats() {
     }
 
     const toChosen = (ps) => ps.map((p) => {
-      const pref = prefOf(p.id);
+      const pref = isLocked(p) ? prefOf(p.id) : {};
       return {
         id: p.id, name: p.name, roles: p.roles,
         lockedTeam: pref.team && pref.team !== "AUTO" ? pref.team : null,
@@ -4945,19 +4944,38 @@ export default function CustomStats() {
   const autoAssignNext = async () => {
     if (!balanceResult || !balanceResult.teamA) return;
     if (!(await requireAdminPass(t(balanceResult2 ? "balance.109" : "balance.107")))) return;
-    const pool = remainingPool(players, [balanceResult]);
+    // 第1試合の出場者・第1試合に固定した人を除いた出席者から選ぶ。第2試合に固定した人は必ず入れ、固定どおりに置く
+    const pool = poolForMatch(players, session.prefs, 2, [balanceResult]);
     if (pool.length < 10) { themedAlert(t("balance.108", { n: pool.length })); return; }
-    const toChosen = (ps) => ps.map((p) => ({
-      id: p.id, name: p.name, roles: p.roles, lockedTeam: null, lockedRole: null,
-      prefRoles: p.prefRoles || [], ngRoles: p.ngRoles || [],
-    }));
+    const prefOf = (id) => (session.prefs || {})[id] || {};
+    const locked = pool.filter((p) => isPinnedFor(prefOf(p.id), 2));
+    if (locked.length > 10) { themedAlert(t("balance.062")); return; }
+    const seenLock = {};
+    for (const p of locked) {
+      const pref = prefOf(p.id);
+      if (!pref.team || pref.team === "AUTO" || !pref.role || pref.role === "AUTO") continue;
+      const key = `${pref.team}_${pref.role}`;
+      if (seenLock[key]) { themedAlert(t("balance.061", { team: sideLabel(pref.team), role: pref.role }), [pref.role]); return; }
+      seenLock[key] = true;
+    }
+    const isLocked = (p) => locked.some((l) => l.id === p.id);
+    const toChosen = (ps) => ps.map((p) => {
+      const pref = isLocked(p) ? prefOf(p.id) : {};
+      return {
+        id: p.id, name: p.name, roles: p.roles,
+        lockedTeam: pref.team && pref.team !== "AUTO" ? pref.team : null,
+        lockedRole: pref.role && pref.role !== "AUTO" ? pref.role : null,
+        prefRoles: p.prefRoles || [], ngRoles: p.ngRoles || [],
+      };
+    });
     const split = (ps) => bestBalancedSplit(toChosen(ps), matchupThreshold, matchupLaneLimit);
-    let seated = pickSeatsFairly(pool, 10, todayCounts);
+    const restPool = pool.filter((p) => !isLocked(p));
+    let seated = [...locked, ...pickSeatsFairly(restPool, 10 - locked.length, todayCounts, locked)];
     let result = split(seated);
     if (!result) {
-      // 参加回数の多い人から順に、選ばれなかった人と1人ずつ入れ替えて再試行(試行数は上限あり)
+      // 参加回数の多い人から順に、選ばれなかった人と1人ずつ入れ替えて再試行(固定した人は外さない・試行数は上限あり)
       const notSeated = pool.filter((p) => !seated.some((x) => x.id === p.id));
-      const outOrder = [...seated].sort((a, b) => (todayCounts[b.id] || 0) - (todayCounts[a.id] || 0));
+      const outOrder = [...seated].filter((p) => !isLocked(p)).sort((a, b) => (todayCounts[b.id] || 0) - (todayCounts[a.id] || 0));
       let tries = 0;
       outer: for (const out of outOrder) {
         for (const cand of notSeated) {
@@ -7171,7 +7189,7 @@ export default function CustomStats() {
                 );
               })()}
               {balanceResult && balanceResult.teamA && (() => {
-                const restCount = remainingPool(players, [balanceResult]).length;
+                const restCount = poolForMatch(players, session.prefs, 2, [balanceResult]).length; // 第2試合の候補(第1試合の出場者・第1試合の固定を除く)
                 return (
                   <div style={{ flex: "1 1 100%", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", borderTop: `1px solid ${theme.borderTable}`, paddingTop: 10 }}>
                     <span style={{ fontSize: 12, color: theme.textFaint, flex: "1 1 240px" }}>
@@ -7193,15 +7211,22 @@ export default function CustomStats() {
             {(() => {
               const activePool = players.filter((p) => p.status !== "rest");
               const prefsMap = session.prefs || {};
-              const locked = activePool.filter((p) => {
-                const pf = prefsMap[p.id] || {};
-                return (pf.team && pf.team !== "AUTO") || (pf.role && pf.role !== "AUTO");
-              });
+              // 固定中の選手(第1試合 → 第2試合の順)
+              const locked = activePool.filter((p) => isPinnedFor(prefsMap[p.id], 1) || isPinnedFor(prefsMap[p.id], 2))
+                .sort((a, b) => pinMatchOf(prefsMap[a.id]) - pinMatchOf(prefsMap[b.id]));
+              const matchChip = (on) => ({ padding: "4px 14px", fontSize: 13, borderColor: on ? theme.accent : theme.borderInput, color: on ? theme.accent : theme.textSub, fontWeight: on ? 700 : 400 });
               const setLockPref = (id, patch) => setPref(id, patch);
               return (
                 <div style={{ ...cardStyle, marginBottom: 16 }}>
                   <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>{t("balance.063")}</div>
                   <div style={{ fontSize: 13, color: theme.textSub, marginBottom: 10 }}>{t("balance.064")}</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: theme.textSub }}>{t("balance.111")}</span>
+                    {[1, 2].map((n) => (
+                      <button key={n} className="cs-btn-ghost" style={matchChip(pinMatch === n)} onClick={() => setPinMatch(n)}>{t("balance.103", { n })}</button>
+                    ))}
+                  </div>
+                  <div style={{ fontSize: 12, color: theme.textFaint, marginBottom: 10 }}>{t("balance.112")}</div>
 
                   {locked.length === 0 ? (
                     <div style={{ fontSize: 13, color: theme.textFaint, marginBottom: 10 }}>{t("balance.070")}</div>
@@ -7212,6 +7237,10 @@ export default function CustomStats() {
                         return (
                           <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", borderBottom: `1px solid ${theme.borderTable}`, paddingBottom: 6 }}>
                             <span style={{ fontSize: 15, fontWeight: 700, minWidth: 80 }}>{p.name}</span>
+                            <select className="cs-input" style={{ padding: "4px 6px", fontSize: 13, borderColor: pinMatchOf(pf) === 2 ? theme.accent : undefined }} value={pinMatchOf(pf)}
+                              onChange={(e) => setLockPref(p.id, { match: Number(e.target.value) })}>
+                              {[1, 2].map((n) => <option key={n} value={n}>{t("balance.103", { n })}</option>)}
+                            </select>
                             <select className="cs-input" style={{ padding: "4px 6px", fontSize: 13 }} value={pf.team || "AUTO"}
                               onChange={(e) => setLockPref(p.id, { team: e.target.value })}>
                               <option value="AUTO">{t("balance.015")}</option>
@@ -7238,7 +7267,7 @@ export default function CustomStats() {
                   {/* 個別追加 */}
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
                     <select className="cs-input" style={{ padding: "4px 6px", fontSize: 13 }} value=""
-                      onChange={(e) => { if (e.target.value) setLockPref(e.target.value, { team: "A" }); }}>
+                      onChange={(e) => { if (e.target.value) setLockPref(e.target.value, { team: "A", match: pinMatch }); }}>
                       <option value="">{t("balance.066")}: {t("balance.069")}</option>
                       {activePool.filter((p) => !locked.some((l) => l.id === p.id)).map((p) => (
                         <option key={p.id} value={p.id}>{p.name}</option>
@@ -7249,7 +7278,7 @@ export default function CustomStats() {
                   {/* 対面指定ショートカット+全解除 */}
                   <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
                     <LaneMatchupSetter players={activePool} onSet={(xId, yId, role) => {
-                      setPrefsBatch({ [xId]: { team: "A", role }, [yId]: { team: "B", role } });
+                      setPrefsBatch({ [xId]: { team: "A", role, match: pinMatch }, [yId]: { team: "B", role, match: pinMatch } });
                     }} />
                     {locked.length > 0 && (
                       <button className="cs-btn-ghost" style={{ padding: "5px 14px", fontSize: 13, color: theme.teamB, borderColor: theme.teamB, fontWeight: 700 }}
