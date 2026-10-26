@@ -13,6 +13,7 @@ import { CHAMPSTATS, CHAMPSTATS_PATCH } from "./champStats.js";
 import { computeAt, STAT_ROWS, COMPARE_LEVELS, MAX_LEVEL } from "./champGrowth.js";
 import { BACKUP_FORMAT, buildBackup, backupToNodes } from "./backup.js";
 import { clockView, isAutoDue } from "./draftTimer.js";
+import { usableFirst } from "./draftList.js";
 import { splitIntoLobbies, lobbySwapCandidates, remainingPool, pinMatchOf, isPinnedFor, poolForMatch, splitWithPins, pinChangeClears, pinIssues } from "./lobby.js";
 import {
   MU0, SIGMA_RATED, SIGMA_UNRANKED, SIGMA_FLOOR, BETA, TAU, K_SCALE, STREAK_STEP, STREAK_MAX_MULT, STREAK_MIN_MULT,
@@ -2065,7 +2066,8 @@ function FearlessDraftTab({ champList, ddVer, champImgMap, path = "customstats/f
     .filter((name) => !q || [name, champLabel(name), ...(CHAMP_I18N[name] || [])].some((s) => s && toKatakana(s.toLowerCase()).includes(q)))
     .sort((a, b) => champLabel(a).localeCompare(champLabel(b), lang)),
   [champList, q, lang]);
-  const visible = hideUsed ? shown.filter(usable) : shown;
+  // 使えないチャンピオン(グレー表示)は一覧の下にまとめる
+  const visible = hideUsed ? shown.filter(usable) : usableFirst(shown, usable);
   const onSearchKey = (ev) => {
     if (ev.key !== "Enter") return;
     const cands = shown.filter(usable);

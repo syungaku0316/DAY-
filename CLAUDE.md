@@ -35,6 +35,7 @@ node src/rating.test.mjs
 node src/backup.test.mjs
 node src/lobby.test.mjs
 node src/draftTimer.test.mjs
+node src/draftList.test.mjs
 
 # 5. ビルド
 npx vite build   # → dist/index.html(単一ファイル 約1.0MB)
