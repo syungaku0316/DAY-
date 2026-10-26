@@ -36,6 +36,7 @@ node src/backup.test.mjs
 node src/lobby.test.mjs
 node src/draftTimer.test.mjs
 node src/draftList.test.mjs
+node src/appVersion.test.mjs
 
 # 5. ビルド
 npx vite build   # → dist/index.html(単一ファイル 約1.0MB)
@@ -101,7 +102,7 @@ Python等で一括置換した後は、必ず 1 → 5 の順で確認するこ�
   - `movedTo`: 移転先URL。設定時は全員に移転案内だけを表示(管理者はPASSで開ける)
 - **rankRequests** / **champions**
 - **fearless**: フィアレスドラフト(ハード方式)の一時データ。`{games:[[手×20],...], draft:[手...], starts:{手番:開始時刻}, timer, roles, rolesLocked, captains}`、1手=チャンピオン正規名 / BANなしは `"-"`。手順はトーナメントドラフト順(`DRAFT_ORDER`)。確定済み試合のピックが両チーム使用不可。**試合記録・レートとは無関係**、`session` とも別ノードで「シリーズをリセット」(管理者PASS)でのみ消える。トランザクションで手数/試合数が画面とずれていたら中止。読み書きは `normFearless` / `packFearless` 経由(RTDBの空文字・疎配列対策)
-  - `timer`: `{turnAt}`(稼働中) / `{remain, pausedAt}`(一時停止中) / null。1手30秒(`DRAFT_TURN_MS`)、時間切れから猶予3秒(`DRAFT_GRACE_MS`、`src/draftTimer.js`)の後に BAN→BANなし / PICK→使用可能からランダム(ロール宣言の自動確定も同じ)。猶予中は「時間切れ・猶予n秒」表示で手番の人はまだ選べる。全端末が自動実行を試み先着1台だけ確定(他は stale を黙殺)
+  - `timer`: `{turnAt}`(稼働中) / `{remain, pausedAt}`(一時停止中) / null。1手30秒(`DRAFT_TURN_MS`)、時間切れから猶予3秒(`DRAFT_GRACE_MS`、`src/draftTimer.js`)の後に BAN→BANなし / PICK→使用可能からランダム(ロール宣言の自動確定も同じ)。猶予中は「時間切れ・猶予n秒」表示で手番の人はまだ選べる。**全端末が同じ盤面を操作するため、古い画面が1台でもいると新しい動きが効かない**: 盤面に `ver`(`FEARLESS_DATA_VER`)を付けて書き、古い画面が書いて ver が消えたら警告(`oldClientWrote`)。アプリ全体はビルドIDを `__BUILD_ID__` と `docs/version.json` に書き出し、2分ごと・画面表示時に比べて新しいバージョンの公開を知らせる全端末が自動実行を試み先着1台だけ確定(他は stale を黙殺)
   - `starts`: 各手番の時計の開始時刻。「1つ戻す」は戻した手番を元の開始時刻から継続し**持ち時間を延ばさない**(管理者の戻すのみ満タン)。再開時は停止時間分ずらす
   - **ロール宣言**: 20手後に `roles:{A:{枠0-4:ロール},B:{...}}` を各キャプテンが選択(チーム内重複は入れ替え)→「ロールを確定」。**両チーム確定まで相手には「?」表示**(見えるのは自サイドのキャプテンと、キャプテンでない管理者。制限なし時は非公開にできない。DB上は平文=抑止力)。持ち時間30秒(`ROLE_PHASE_MS`)、時間切れは未選択を残りロールで埋めて両チーム確定。ロールは試合確定時に破棄(履歴に残さない)
   - **手番の音**: 手数・試合数・完了状態の変化で Web Audio の合成音(`playTurnSound`、自チームの番は2音)。稼働中の残り5〜1秒は毎秒カウントダウン音(`playCountdownTick`、全端末)。初回読み込みでは鳴らさない。ON/OFFは端末ごと(localStorage `crl-fearless-sound`)。自動再生制限のため端末で一度操作するまで無音

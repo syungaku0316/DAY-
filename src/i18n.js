@@ -1,6 +1,9 @@
 // 自動生成: 多言語辞書 (ja/ko/en)
 export const DICT = {
   "ja": {
+    "shell.086": "新しいバージョンが公開されています。再読み込みしてください(古い画面のままだと一部の機能が正しく動きません)",
+    "shell.087": "再読み込み",
+    "fearless.060": "古いバージョンの画面でこの盤面を操作した端末があります。全員ページを再読み込みしてください(時間切れ後の猶予などが正しく動きません)",
     "fearless.059": "時間切れ・猶予{n}秒",
     "balance.113": "{team}に{n}人固定されています(1チーム5人まで)",
     "balance.114": "{role}に{n}人固定されています(1試合に2人まで)",
@@ -875,6 +878,9 @@ export const DICT = {
     "fearless.058": "手番の音: OFF"
   },
   "en": {
+    "shell.086": "A new version is available. Please reload (some features may not work correctly on the old page).",
+    "shell.087": "Reload",
+    "fearless.060": "A device on an old version of the page changed this board. Everyone, please reload (the grace period after timeout and other features will not work correctly).",
     "fearless.059": "Time up · {n}s grace",
     "balance.113": "{n} players are locked to {team} (max 5 per team)",
     "balance.114": "{n} players are locked to {role} (max 2 per game)",
@@ -1749,6 +1755,9 @@ export const DICT = {
     "fearless.058": "Turn sound: OFF"
   },
   "ko": {
+    "shell.086": "새 버전이 공개되었습니다. 새로고침하세요 (이전 화면에서는 일부 기능이 제대로 작동하지 않습니다).",
+    "shell.087": "새로고침",
+    "fearless.060": "이전 버전 화면으로 이 보드를 조작한 기기가 있습니다. 모두 페이지를 새로고침하세요 (시간 초과 후 유예 등이 제대로 작동하지 않습니다).",
     "fearless.059": "시간 초과·유예 {n}초",
     "balance.113": "{team}에 {n}명이 고정되어 있습니다 (팀당 5명까지)",
     "balance.114": "{role}에 {n}명이 고정되어 있습니다 (경기당 2명까지)",

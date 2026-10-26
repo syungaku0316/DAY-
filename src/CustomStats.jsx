@@ -14,6 +14,7 @@ import { computeAt, STAT_ROWS, COMPARE_LEVELS, MAX_LEVEL } from "./champGrowth.j
 import { BACKUP_FORMAT, buildBackup, backupToNodes } from "./backup.js";
 import { clockView, isAutoDue } from "./draftTimer.js";
 import { usableFirst } from "./draftList.js";
+import { FEARLESS_DATA_VER, isNewDeploy, oldClientWrote } from "./appVersion.js";
 import { splitIntoLobbies, lobbySwapCandidates, remainingPool, pinMatchOf, isPinnedFor, poolForMatch, splitWithPins, pinChangeClears, pinIssues } from "./lobby.js";
 import {
   MU0, SIGMA_RATED, SIGMA_UNRANKED, SIGMA_FLOOR, BETA, TAU, K_SCALE, STREAK_STEP, STREAK_MAX_MULT, STREAK_MIN_MULT,
@@ -1696,12 +1697,14 @@ const normFearless = (v) => ({
   rolesLocked: { A: !!(v && v.rolesLocked && v.rolesLocked.A), B: !!(v && v.rolesLocked && v.rolesLocked.B) },
   captains: normCaptains(v && v.captains),
   blue: (v && v.blue) || null, // 大会シリーズのドラフトのみ: ブルーサイドのチームID
+  ver: (v && v.ver) || null, // データ形式の版(古い画面の書き込み検出用)
 });
 // 正規化した盤面を保存形へ。ロール関連はロール宣言フェーズ中だけ保存する
 const packFearless = (st) => {
   const inRoles = st.draft.length >= DRAFT_LEN;
   return {
     games: st.games, draft: st.draft, starts: keepStarts(st.starts, st.draft.length), timer: st.timer, captains: st.captains, blue: st.blue || null,
+    ver: FEARLESS_DATA_VER,
     roles: inRoles ? { A: packRoles(st.roles.A), B: packRoles(st.roles.B) } : null,
     rolesLocked: inRoles ? st.rolesLocked : null,
   };
@@ -1815,6 +1818,9 @@ function FearlessDraftTab({ champList, ddVer, champImgMap, path = "customstats/f
   const [state, setState] = useState(() => normFearless(null));
   const deviceId = getDeviceId();
   const [isAdmin, setIsAdmin] = useState(() => adminPassCache === ADMIN_PASS);
+  // 古いバージョンの画面がこの盤面を書き換えたか(全端末が同じ盤面を操作するため、1台でも古いと新しい動きが効かない)
+  const [oldClientWarn, setOldClientWarn] = useState(false);
+  const prevVerRef = useRef(null);
   const [nowTs, setNowTs] = useState(() => fearlessNow());
   const [query, setQuery] = useState("");
   const [hideUsed, setHideUsed] = useState(false);
@@ -1837,7 +1843,13 @@ function FearlessDraftTab({ champList, ddVer, champImgMap, path = "customstats/f
   useEffect(() => {
     const db = getDb();
     if (!db) return undefined;
-    const un1 = onValue(ref(db, path), (snap) => { setState(normFearless(snap.val())); setLoaded(true); }, (e) => console.error(e));
+    prevVerRef.current = null;
+    const un1 = onValue(ref(db, path), (snap) => {
+      const v = snap.val();
+      if (oldClientWrote(prevVerRef.current, v)) setOldClientWarn(true);
+      prevVerRef.current = v ? v.ver ?? null : null;
+      setState(normFearless(v)); setLoaded(true);
+    }, (e) => console.error(e));
     const un2 = onValue(ref(db, ".info/serverTimeOffset"), (snap) => { _fearlessOffset = Number(snap.val()) || 0; }, (e) => console.error(e));
     return () => { un1(); un2(); };
   }, [path]);
@@ -2125,6 +2137,12 @@ function FearlessDraftTab({ champList, ddVer, champImgMap, path = "customstats/f
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <div style={cardStyle}>
         <div style={{ fontSize: 13, color: theme.textFaint, marginBottom: 10, lineHeight: 1.6 }}>{t("fearless.002")}</div>
+        {oldClientWarn && (
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", padding: "8px 12px", marginBottom: 12, borderRadius: 8, border: `2px solid ${theme.teamB}`, color: theme.teamB, fontSize: 14, fontWeight: 700 }}>
+            ⚠ {t("fearless.060")}
+            <button className="cs-btn" style={{ padding: "3px 12px", fontSize: 13, marginLeft: "auto" }} onClick={() => window.location.reload()}>{t("shell.087")}</button>
+          </div>
+        )}
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", padding: "8px 12px", background: theme.surfaceAlt, borderRadius: 8, marginBottom: 12, fontSize: 14 }}>
           <b>{t("fearless.026")}</b>
           {!restricted ? <span style={{ color: theme.textFaint }}>{t("fearless.027")}</span> : ["A", "B"].map((side) => (
@@ -3714,6 +3732,7 @@ export default function CustomStats() {
   const [rankRequests, setRankRequests] = useState([]); // ランク変更申請(承認待ち)
   const [requests, setRequests] = useState([]); // 要望掲示板の投稿
   const [fearlessData, setFearlessData] = useState(null); // フィアレス大会(customstats/cup)
+  const [newDeploy, setNewDeploy] = useState(false); // 新しいバージョンが公開された(再読み込みを促す)
   const [fxTid, setFxTid] = useState(null); // 大会タブで表示中の大会(未選択=開催中)
   const [fxSeriesKey, setFxSeriesKey] = useState(null); // ピック記録で表示中のシリーズ
   const [loading, setLoading] = useState(true);
@@ -3851,6 +3870,28 @@ export default function CustomStats() {
   const [gateInput, setGateInput] = useState("");
   const [movedBypass, setMovedBypass] = useState(false); // 移転済みでも管理者は開ける(バックアップ取得・移転取消のため)
   const [movedPassInput, setMovedPassInput] = useState("");
+
+  // 新しいバージョンの公開を検出する。開いたままの端末は再読み込みするまで古い画面で動き続け、
+  // ドラフトの時間切れ処理のように全端末で動く処理が古い動きのまま走ってしまうため。
+  // ビルドごとの version.json と、画面に埋め込んだビルドIDを比べる(開発サーバー等で取れない時は何もしない)
+  useEffect(() => {
+    const mine = typeof __BUILD_ID__ !== "undefined" ? __BUILD_ID__ : "";
+    if (!mine) return undefined;
+    let stop = false;
+    const check = async () => {
+      try {
+        const res = await fetch(new URL(`version.json?v=${Date.now()}`, window.location.href), { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!stop && isNewDeploy(mine, data && data.build)) setNewDeploy(true);
+      } catch { /* 取れない時は何もしない */ }
+    };
+    check();
+    const id = setInterval(check, 2 * 60 * 1000);
+    const onVis = () => { if (document.visibilityState === "visible") check(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { stop = true; clearInterval(id); document.removeEventListener("visibilitychange", onVis); };
+  }, []);
 
   // Firebaseリアルタイム購読: 他ユーザーの更新が即時反映される
   useEffect(() => {
@@ -5688,6 +5729,12 @@ export default function CustomStats() {
       <p style={{ fontSize: 15, color: theme.textFaint, marginTop: 0, marginBottom: 16 }}>
         {t("header.008")}
       </p>
+      {newDeploy && (
+        <div style={{ ...cardStyle, marginBottom: 12, borderColor: theme.accent, borderWidth: 2, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", fontSize: 14, fontWeight: 700 }}>
+          <RefreshCw size={16} color={theme.accent} /> {t("shell.086")}
+          <button className="cs-btn" style={{ padding: "5px 16px", fontSize: 14, marginLeft: "auto" }} onClick={() => window.location.reload()}>{t("shell.087")}</button>
+        </div>
+      )}
 
       {(() => {
         const GROUPS = [
