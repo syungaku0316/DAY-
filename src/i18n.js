@@ -1,6 +1,7 @@
 // 自動生成: 多言語辞書 (ja/ko/en)
 export const DICT = {
   "ja": {
+    "fearless.059": "時間切れ・猶予{n}秒",
     "balance.113": "{team}に{n}人固定されています(1チーム5人まで)",
     "balance.114": "{role}に{n}人固定されています(1試合に2人まで)",
     "balance.111": "固定する試合",
@@ -815,7 +816,7 @@ export const DICT = {
     "reqBoard.035": "あと{n}日で削除",
     "reqBoard.036": "保存に失敗しました。時間をおいて再度お試しください",
     "fearless.001": "フィアレス",
-    "fearless.002": "ハードフィアレス: 確定した試合でピックされたチャンピオンは、以降の試合で両チームとも使用できません。BANは試合ごとにリセットされます。スタートを押すと1手30秒の制限がかかり、時間切れはBANなし/ランダムPICKで自動的に進みます。20手のあとは各チームがロールを宣言します。ここでBAN/PICKとロールを決めてから、クライアントで一斉にピックしてください。試合記録・レートには反映されません。",
+    "fearless.002": "ハードフィアレス: 確定した試合でピックされたチャンピオンは、以降の試合で両チームとも使用できません。BANは試合ごとにリセットされます。スタートを押すと1手30秒の制限がかかり、時間切れから3秒の猶予の後、BANなし/ランダムPICKで自動的に進みます。20手のあとは各チームがロールを宣言します。ここでBAN/PICKとロールを決めてから、クライアントで一斉にピックしてください。試合記録・レートには反映されません。",
     "fearless.003": "第{n}試合",
     "fearless.004": "手番 {step}/{total}",
     "fearless.005": "ドラフト完了。クライアントで一斉にピックしてください",
@@ -874,6 +875,7 @@ export const DICT = {
     "fearless.058": "手番の音: OFF"
   },
   "en": {
+    "fearless.059": "Time up · {n}s grace",
     "balance.113": "{n} players are locked to {team} (max 5 per team)",
     "balance.114": "{n} players are locked to {role} (max 2 per game)",
     "balance.111": "Lock for",
@@ -1688,7 +1690,7 @@ export const DICT = {
     "reqBoard.035": "Deleted in {n} days",
     "reqBoard.036": "Failed to save. Please try again later.",
     "fearless.001": "Fearless",
-    "fearless.002": "Hard fearless: champions picked in a confirmed game cannot be used by either team in later games. Bans reset every game. Press Start to limit each turn to 30 seconds; on timeout a ban is skipped and a pick is chosen at random. After the 20 turns, each team declares roles. Decide bans, picks and roles here, then everyone picks at once in the client. Not recorded in match history or ratings.",
+    "fearless.002": "Hard fearless: champions picked in a confirmed game cannot be used by either team in later games. Bans reset every game. Press Start to limit each turn to 30 seconds; 3 seconds after timeout, a ban is skipped and a pick is chosen at random. After the 20 turns, each team declares roles. Decide bans, picks and roles here, then everyone picks at once in the client. Not recorded in match history or ratings.",
     "fearless.003": "Game {n}",
     "fearless.004": "Turn {step}/{total}",
     "fearless.005": "Draft complete. Everyone pick at once in the client.",
@@ -1747,6 +1749,7 @@ export const DICT = {
     "fearless.058": "Turn sound: OFF"
   },
   "ko": {
+    "fearless.059": "시간 초과·유예 {n}초",
     "balance.113": "{team}에 {n}명이 고정되어 있습니다 (팀당 5명까지)",
     "balance.114": "{role}에 {n}명이 고정되어 있습니다 (경기당 2명까지)",
     "balance.111": "고정할 경기",
@@ -2561,7 +2564,7 @@ export const DICT = {
     "reqBoard.035": "{n}일 후 삭제",
     "reqBoard.036": "저장에 실패했습니다. 잠시 후 다시 시도해 주세요.",
     "fearless.001": "피어리스",
-    "fearless.002": "하드 피어리스: 확정된 경기에서 픽된 챔피언은 이후 경기에서 양 팀 모두 사용할 수 없습니다. 밴은 경기마다 초기화됩니다. 시작을 누르면 1턴 30초 제한이 걸리며, 시간이 초과되면 밴은 밴 없음, 픽은 무작위로 자동 진행됩니다. 20턴 후에는 각 팀이 라인을 선언합니다. 여기서 밴/픽과 라인을 정한 뒤 클라이언트에서 동시에 픽하세요. 경기 기록·레이팅에는 반영되지 않습니다.",
+    "fearless.002": "하드 피어리스: 확정된 경기에서 픽된 챔피언은 이후 경기에서 양 팀 모두 사용할 수 없습니다. 밴은 경기마다 초기화됩니다. 시작을 누르면 1턴 30초 제한이 걸리며, 시간이 초과되고 3초의 유예가 지나면 밴은 밴 없음, 픽은 무작위로 자동 진행됩니다. 20턴 후에는 각 팀이 라인을 선언합니다. 여기서 밴/픽과 라인을 정한 뒤 클라이언트에서 동시에 픽하세요. 경기 기록·레이팅에는 반영되지 않습니다.",
     "fearless.003": "{n}경기",
     "fearless.004": "차례 {step}/{total}",
     "fearless.005": "드래프트 완료. 클라이언트에서 동시에 픽하세요",

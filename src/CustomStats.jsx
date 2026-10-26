@@ -12,6 +12,7 @@ import { computeEfficiency, PERCENT_DISPLAY_KEYS } from "./itemEfficiency.js";
 import { CHAMPSTATS, CHAMPSTATS_PATCH } from "./champStats.js";
 import { computeAt, STAT_ROWS, COMPARE_LEVELS, MAX_LEVEL } from "./champGrowth.js";
 import { BACKUP_FORMAT, buildBackup, backupToNodes } from "./backup.js";
+import { clockView, isAutoDue } from "./draftTimer.js";
 import { splitIntoLobbies, lobbySwapCandidates, remainingPool, pinMatchOf, isPinnedFor, poolForMatch, splitWithPins, pinChangeClears, pinIssues } from "./lobby.js";
 import {
   MU0, SIGMA_RATED, SIGMA_UNRANKED, SIGMA_FLOOR, BETA, TAU, K_SCALE, STREAK_STEP, STREAK_MAX_MULT, STREAK_MIN_MULT,
@@ -2003,6 +2004,7 @@ function FearlessDraftTab({ champList, ddVer, champImgMap, path = "customstats/f
   const remainMs = running ? timer.turnAt + phaseLen - nowTs : paused ? timer.remain : null;
   // カウントダウン音: 稼働中の残り5〜1秒で1秒ごとに1回(同じ手番・同じ秒では1回だけ)
   const secLeft = running ? Math.ceil(remainMs / 1000) : null;
+  const clock = remainMs == null ? null : clockView(remainMs, phaseLen);
   const tickRef = useRef("");
   useEffect(() => {
     if (!soundOn || secLeft == null || secLeft < 1 || secLeft > 5) return;
@@ -2013,12 +2015,12 @@ function FearlessDraftTab({ champList, ddVer, champImgMap, path = "customstats/f
   }, [secLeft, soundOn]);
   const autoKeyRef = useRef("");
   useEffect(() => {
-    if (!running || remainMs > 0 || busy) return;
+    if (!running || !isAutoDue(remainMs) || busy) return; // 時間切れから猶予(3秒)を過ぎたら自動処理
     const key = `${games.length}-${step}-${timer.turnAt}`;
     if (autoKeyRef.current === key) return;
     autoKeyRef.current = key;
     // サーバー上の最新状態でも期限切れの時だけ実行(直前に一時停止・戻すが入った場合は中止)
-    const expired = (st) => timerRunning(st) && st.timer.turnAt + phaseMs(st.draft.length) <= fearlessNow() + 500;
+    const expired = (st) => timerRunning(st) && isAutoDue(st.timer.turnAt + phaseMs(st.draft.length) - fearlessNow(), 500);
     if (done) {
       run((st) => (expired(st) ? { roles: { A: fillRoles(st.roles.A), B: fillRoles(st.roles.B) }, rolesLocked: { A: true, B: true }, timer: null } : null), true);
       return;
@@ -2185,7 +2187,7 @@ function FearlessDraftTab({ champList, ddVer, champImgMap, path = "customstats/f
           )}
           {(running || paused) && (
             <span style={{ fontSize: 22, fontWeight: 800, fontVariantNumeric: "tabular-nums", color: paused ? theme.textFaint : remainMs <= 10000 ? theme.teamB : theme.text }}>
-              {t(paused ? "fearless.051" : "fearless.025", { n: Math.min(phaseLen / 1000, Math.max(0, Math.ceil(remainMs / 1000))) })}
+              {running && clock.inGrace ? t("fearless.059", { n: clock.graceSec }) : t(paused ? "fearless.051" : "fearless.025", { n: clock.sec })}
             </span>
           )}
           {busy && <Loader2 size={16} className="spin" />}
