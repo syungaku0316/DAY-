@@ -897,7 +897,20 @@ export const DICT = {
     "roleImpact.018": "すべて表示({n}試合)",
     "roleImpact.019": "集計できる承認済みの試合がまだありません",
     "roleImpact.020": "{n}試合",
-    "roleImpact.021": "「他4レーンの合計は低かった試合」は、そのロールだけレートが高く、残り4レーンの合計では低かった試合です。たとえばJGに高レートの人が入って他のレーンが弱くなった試合で、JG側が勝てているかが分かります。"
+    "roleImpact.021": "「他4レーンの合計は低かった試合」は、そのロールだけレートが高く、残り4レーンの合計では低かった試合です。たとえばJGに高レートの人が入って他のレーンが弱くなった試合で、JG側が勝てているかが分かります。",
+    "roleImpact.022": "うち{n}pt以上低いレーンあり",
+    "roleImpact.023": "うち差が分散",
+    "roleImpact.024": "「他4レーンの合計は低かった試合」はさらに2つに分けています。他のどこかのレーンで{n}pt以上低かった試合(不利が1レーンに集中)と、他はどのレーンも差が{n}pt未満だった試合(不利が分散)です。",
+    "roleImpact.025": "ロール別",
+    "roleImpact.026": "組み合わせ表",
+    "roleImpact.027": "組み合わせ表は、行のロールで対面よりレートが高く、列のロールで{n}pt以上低かった試合で、行のロール側のチームが勝った割合です。たとえばJGの行・ADCの列は「JGでは高く、ADCで大きく離された試合」です。同じ試合が複数のマスに入ることがあります。",
+    "roleImpact.028": "高かったロール",
+    "roleImpact.029": "{n}pt以上",
+    "roleImpact.030": "低かったレーンの差",
+    "roleImpact.031": "{n}pt以上低かったロール",
+    "roleImpact.032": "下線は差が{n}pt以上のレーンです。",
+    "roleImpact.033": "差が{n}pt以上のレーンを含む試合だけ表示({count}試合)",
+    "roleImpact.034": "該当する試合がありません"
   },
   "en": {
     "shell.086": "A new version is available. Please reload (some features may not work correctly on the old page).",
@@ -1796,7 +1809,20 @@ export const DICT = {
     "roleImpact.018": "Show all ({n} games)",
     "roleImpact.019": "No approved games to analyze yet",
     "roleImpact.020": "{n} games",
-    "roleImpact.021": "“Games lower in the other 4 lanes” are games where a team was higher only in that role and lower in the total of the other four lanes. For example, it shows whether the JG side wins when a high-rated jungler joins and the other lanes get weaker."
+    "roleImpact.021": "“Games lower in the other 4 lanes” are games where a team was higher only in that role and lower in the total of the other four lanes. For example, it shows whether the JG side wins when a high-rated jungler joins and the other lanes get weaker.",
+    "roleImpact.022": "Of which: a lane {n}pt+ lower",
+    "roleImpact.023": "Of which: gap spread out",
+    "roleImpact.024": "“Games lower in the other 4 lanes” is split further: games where some other lane was {n}pt or more lower (disadvantage in one lane) and games where every other lane was within {n}pt (disadvantage spread out).",
+    "roleImpact.025": "By role",
+    "roleImpact.026": "Role pairs",
+    "roleImpact.027": "The pair table shows the win rate of the row role's team in games where that team was higher-rated in the row role and {n}pt or more lower in the column role. For example, JG row × ADC column means “ahead in JG, far behind in ADC”. One game can count in several cells.",
+    "roleImpact.028": "Higher role",
+    "roleImpact.029": "{n}pt+",
+    "roleImpact.030": "Gap in the lower lane",
+    "roleImpact.031": "Role {n}pt+ lower",
+    "roleImpact.032": "Underlined lanes have a gap of {n}pt or more.",
+    "roleImpact.033": "Show only games with a lane gap of {n}pt or more ({count} games)",
+    "roleImpact.034": "No matching games"
   },
   "ko": {
     "shell.086": "새 버전이 공개되었습니다. 새로고침하세요 (이전 화면에서는 일부 기능이 제대로 작동하지 않습니다).",
@@ -2695,7 +2721,20 @@ export const DICT = {
     "roleImpact.018": "모두 보기 ({n}경기)",
     "roleImpact.019": "집계할 수 있는 승인된 경기가 아직 없습니다",
     "roleImpact.020": "{n}경기",
-    "roleImpact.021": "'나머지 4라인 합계는 낮았던 경기'는 그 라인만 레이팅이 높고 나머지 4라인 합계로는 낮았던 경기입니다. 예를 들어 정글에 고레이팅 선수가 들어가 다른 라인이 약해진 경기에서 정글 쪽이 이기고 있는지 알 수 있습니다."
+    "roleImpact.021": "'나머지 4라인 합계는 낮았던 경기'는 그 라인만 레이팅이 높고 나머지 4라인 합계로는 낮았던 경기입니다. 예를 들어 정글에 고레이팅 선수가 들어가 다른 라인이 약해진 경기에서 정글 쪽이 이기고 있는지 알 수 있습니다.",
+    "roleImpact.022": "그중 {n}pt 이상 낮은 라인 있음",
+    "roleImpact.023": "그중 차이가 분산",
+    "roleImpact.024": "'나머지 4라인 합계는 낮았던 경기'는 다시 둘로 나눕니다. 다른 어느 라인에서 {n}pt 이상 낮았던 경기(불리함이 한 라인에 집중)와, 다른 라인은 모두 차이가 {n}pt 미만이었던 경기(불리함이 분산)입니다.",
+    "roleImpact.025": "라인별",
+    "roleImpact.026": "조합표",
+    "roleImpact.027": "조합표는 행의 라인에서 맞라인보다 레이팅이 높고, 열의 라인에서 {n}pt 이상 낮았던 경기에서 행 라인 쪽 팀이 이긴 비율입니다. 예를 들어 JG 행·ADC 열은 '정글은 높고 원딜에서 크게 밀린 경기'입니다. 같은 경기가 여러 칸에 들어갈 수 있습니다.",
+    "roleImpact.028": "높았던 라인",
+    "roleImpact.029": "{n}pt 이상",
+    "roleImpact.030": "낮았던 라인의 차이",
+    "roleImpact.031": "{n}pt 이상 낮았던 라인",
+    "roleImpact.032": "밑줄은 차이가 {n}pt 이상인 라인입니다.",
+    "roleImpact.033": "차이가 {n}pt 이상인 라인이 있는 경기만 표시 ({count}경기)",
+    "roleImpact.034": "해당하는 경기가 없습니다"
   }
 };
 

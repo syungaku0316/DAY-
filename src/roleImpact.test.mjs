@@ -1,5 +1,5 @@
 // Node単体テスト（実行: node src/roleImpact.test.mjs）
-import { matchLaneDiffs, roleImpact, rateWithMargin } from "./roleImpact.js";
+import { matchLaneDiffs, roleImpact, rateWithMargin, pairMatrix, hasBigGap } from "./roleImpact.js";
 import { ROLES } from "./rating.js";
 
 let failed = 0;
@@ -70,6 +70,34 @@ const even = (over = {}) => Object.fromEntries(ROLES.map((r) => [r, over[r] || [
   assert(imp.SUP.all.n === 0, "差が無いロールは対象0試合");
   assert(imp.TOTAL.all.n === 2, `合計差が0の試合(1試合目は合計0)は対象外。実際 ${imp.TOTAL.all.n}`);
   assert(imp.TOTAL.against.n === 0, "チーム合計に『他レーン劣勢』は無い");
+}
+
+// ---- 他レーンの不利が集中か分散か / 組み合わせ表 / 絞り込み ----
+{
+  const players = [];
+  const ms = [
+    buildMatch(players, even({ JG: [75, 60], ADC: [40, 70] }), "B"),                                       // JG+15 / ADC-30(集中)でレッド勝ち
+    buildMatch(players, even({ JG: [75, 60], TOP: [55, 60], MID: [55, 60], ADC: [55, 60], SUP: [55, 60] }), "A"), // JG+15 / 各-5(分散)でブルー勝ち
+    buildMatch(players, even({ JG: [60, 72], ADC: [80, 60] }), "B"),                                        // レッドJG+12 / レッドADC-20(集中)、合計はブルー有利 → レッド勝ち
+    buildMatch(players, even({ JG: [65, 60], ADC: [60, 70] }), "A"),                                        // JG+5 / ADC-10(15未満なので分散)
+  ];
+  const { rows } = matchLaneDiffs(players, ms);
+  const imp = roleImpact(rows);
+  assert(imp.JG.against.n === 4, `JG: 他4レーン合計で低い試合は4つ。実際 ${imp.JG.against.n}`);
+  assert(imp.JG.againstConc.n === 2 && imp.JG.againstConc.wins === 1, `集中(他に15pt以上低いレーンあり): 2試合1勝。実際 ${imp.JG.againstConc.wins}/${imp.JG.againstConc.n}`);
+  assert(imp.JG.againstSpread.n === 2 && imp.JG.againstSpread.wins === 2, `分散: 2試合2勝。実際 ${imp.JG.againstSpread.wins}/${imp.JG.againstSpread.n}`);
+  assert(imp.JG.againstConc.n + imp.JG.againstSpread.n === imp.JG.against.n, "集中+分散 = 他4レーン劣勢の合計");
+
+  const pm = pairMatrix(rows);
+  assert(pm.JG.ADC.n === 2 && pm.JG.ADC.wins === 1, `JG高×ADC15pt以上低: 2試合1勝。実際 ${pm.JG.ADC.wins}/${pm.JG.ADC.n}`);
+  // 逆側から見たマス: 1試合目(レッドADC+30・レッドJG-15、レッド勝ち)と2試合目(レッドADC+5・レッドJG-15、レッド負け)
+  assert(pm.ADC.JG.n === 2 && pm.ADC.JG.wins === 1, `ADC高×JG15pt以上低 は2試合1勝。実際 ${pm.ADC.JG.wins}/${pm.ADC.JG.n}`);
+  assert(pm.JG.JG === undefined, "同じロール同士のマスは無い");
+  const pm10 = pairMatrix(rows, 10);
+  assert(pm10.JG.ADC.n === 3 && pm10.JG.ADC.wins === 2, `基準10ptなら ADC-10 の試合も入り3試合2勝。実際 ${pm10.JG.ADC.wins}/${pm10.JG.ADC.n}`);
+
+  assert(rows.filter((r) => hasBigGap(r)).length === 3, "15pt以上の差があるレーンを含む試合は3つ(JG+15の試合も含む)");
+  assert(rows.filter((r) => hasBigGap(r, 20)).length === 2, "基準20ptなら2つ");
 }
 
 // ---- 目安幅 ----
