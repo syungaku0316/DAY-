@@ -1505,7 +1505,7 @@ const SYNERGY_MIN_CHOICES = [3, 5, 10];
 const SYNERGY_TOP = 10; // 各一覧の初期表示件数
 const ROLE_COMBOS = ROLES.flatMap((r, i) => ROLES.slice(i + 1).map((o) => `${r}×${o}`));
 function PairSynergyTab({ players, matches }) {
-  const [minGames, setMinGames] = useState(3);
+  const [minGames, setMinGames] = useState(5); // 既定5試合(3試合だと該当する組が多すぎて偶然の数字が目立つため)
   const [byRole, setByRole] = useState(false);
   const [combo, setCombo] = useState("ALL");
   const [focus, setFocus] = useState("ALL");
