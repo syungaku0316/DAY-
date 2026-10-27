@@ -56,6 +56,7 @@ Python等で一括置換した後は、必ず 1 → 5 の順で確認するこ�
 5. **`window.alert/confirm/prompt` 禁止** — `themedAlert` / `themedConfirm` / `themedPrompt`(Promise ベース)を使う。`requireAdminPass` は async なので必ず `await`
 6. **チャンピオン名は保存時に `champCanonical()`** / 表示は `champLabel()`
 7. **サイド表記は `sideLabel(side)` 経由**。文字列定数を新設しない
+   - **サイドの色は `theme.sideA`(ブルー=青系)/ `theme.sideB`(レッド=赤〜橙系)**。`accentBright` / `teamB` は勝ち負け・警告の色なのでサイドに流用しない(テーマによって青赤が逆転する)。新テーマを足すときも sideA/sideB と headA*/headB* は青/赤系にする
 8. **Discordコピー文面は日本語固定**(UI言語に追従させない)
 9. **OPGGのregionは `jp` 固定**(UI言語に追従させない)
 10. **統計抽出は常に `en_US`**、表示名のみ現在ロケール(アイテム効率)
@@ -81,7 +82,7 @@ Python等で一括置換した後は、必ず 1 → 5 の順で確認するこ�
 | `src/itemEfficiency.js` | 275 | アイテム金銭効率の純粋計算 |
 | `src/itemEfficiency.test.mjs` | 247 | 上記のNode単体テスト29件 |
 | `src/scoreboardOcr.js` | 318 | KDA読み取り |
-| `src/digitTemplates.js`, `src/theme.js` | - | 数字テンプレート、16テーマ |
+| `src/digitTemplates.js`, `src/theme.js` | - | 数字テンプレート、22テーマ・9書体。書体は**選んだものだけ** Google Fonts を `<link>` で読み込む(`loadFontCss`、全書体の一括読込はしない) |
 | `src/pageSource.js` | - | 起動時のHTML原本(引継ぎ用HTMLの生成元)。**`main.jsx` の最初の import から動かさない** |
 | `check_shadowing.mjs` / `check_i18n.mjs` | - | 検証スクリプト |
 

@@ -38,6 +38,7 @@ import { BIG_GAP_PT, matchLaneDiffs, roleImpact, pairMatrix, hasBigGap, rateWith
 
 /* 更新履歴。リリースのたびに先頭へ追記(手動管理)。Discordコピー文面と同様、UI言語に関わらず日本語固定 */
 const CHANGELOG = [
+  { date: "2026-10-27", text: "表示設定にカラー6種(色覚配慮・高コントラスト・漆黒・金紺・紅葉・葡萄)と書体4種(BIZ UDPゴシック・角ゴシック・丸ゴシック・ドット)を追加。旧「丸文字」は「手書き風」に改名。一部のカラーでブルー/レッドの色が逆になっていたのを修正" },
   { date: "2026-10-27", text: "ロール分析に「組み合わせ表」(例: JGで高くADCで大きく離された試合の勝率。高い側・低い側それぞれに差の基準を指定可、数値入力にも対応)と、他レーンの不利が1レーンに集中か分散かの内訳、15pt以上の差がある試合の絞り込みを追加" },
   { date: "2026-10-27", text: "データベースに「ロール分析」を追加(対面のレートが高い側の勝率をロールごとに集計。試合ごとのレーン差も表示)" },
   { date: "2026-10-24", text: "大会タブを追加(フィアレス大会のチーム登録・対戦表・大会用ドラフト・ピック記録・大会成績)。大会用ドラフトで確定した試合はピック記録へ自動反映。マッチングにチームビルダーを追加" },
@@ -1186,7 +1187,7 @@ function GrowthBar({ value, min, max }) {
 
 // ---- ロール分析(対面レート差と勝敗の関係) ----------------------------------
 // 集計本体は roleImpact.js(純粋関数)。ここは表示とDiscordコピーのみ
-const RI_SIDE_COLOR = (side) => (side === "A" ? theme.accentBright : theme.teamB);
+const RI_SIDE_COLOR = (side) => (side === "A" ? theme.sideA : theme.sideB);
 // 差の基準(pt)の数値入力。入力途中の空欄や不正値は確定させず、0.1pt単位に丸めて min〜60 に収める
 function PtInput({ value, min, onChange }) {
   const [text, setText] = useState(String(value));
@@ -2130,7 +2131,7 @@ function FearlessDraftTab({ champList, ddVer, champImgMap, path = "customstats/f
     return m;
   }, [games, cup && cup.lockedMap]);
   const inDraft = new Set(draft.filter((c) => c !== DRAFT_SKIP));
-  const sideColor = (side) => (side === "A" ? theme.accentBright : theme.teamB);
+  const sideColor = (side) => (side === "A" ? theme.sideA : theme.sideB);
   const imgSrc = (name) => (name && ddVer && champImgMap[name]
     ? `https://ddragon.leagueoflegends.com/cdn/${ddVer}/img/champion/${champImgMap[name]}` : null);
 
@@ -3685,7 +3686,7 @@ function FxPicksView({ ctx }) {
       <ChampIcon name={c} size={size} />{champLabel(c)}
     </span>
   );
-  const sideColor = (id, g) => (id === g.blue ? theme.accentBright : theme.teamB);
+  const sideColor = (id, g) => (id === g.blue ? theme.sideA : theme.sideB);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -3799,8 +3800,8 @@ function FxPicksView({ ctx }) {
               const lc = lineupCheck(id);
               const options = [...FX_ROLES.map((r) => tm.members?.[r]).filter(Boolean), ...teamSubs(tm)];
               return (
-                <div key={id} style={{ border: `1px solid ${id === form.blue ? theme.accentBright : theme.teamB}`, borderRadius: 8, padding: 10 }}>
-                  <div style={{ fontWeight: 700, color: id === form.blue ? theme.accentBright : theme.teamB, marginBottom: 6 }}>
+                <div key={id} style={{ border: `1px solid ${id === form.blue ? theme.sideA : theme.sideB}`, borderRadius: 8, padding: 10 }}>
+                  <div style={{ fontWeight: 700, color: id === form.blue ? theme.sideA : theme.sideB, marginBottom: 6 }}>
                     {sideLabel(id === form.blue ? "A" : "B")} ・ {tm.name}
                     <span style={{ fontWeight: 400, color: lc.total10 > lc.cap10 ? theme.teamB : theme.textFaint, fontSize: 13, marginLeft: 8 }}>{fmtTenths(lc.total10)} / {rules.pointCap}pt</span>
                   </div>
@@ -5389,7 +5390,7 @@ export default function CustomStats() {
         <React.Fragment key={side}>
           {ti === 1 && <div className="cs-match-sep" style={{ background: theme.border }} />}
           <div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: side === "A" ? theme.accentBright : theme.teamB, marginBottom: 6 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: side === "A" ? theme.sideA : theme.sideB, marginBottom: 6 }}>
               {sideLabel(side)}{m.winner === side && " 🏆"}
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "30px minmax(80px,150px) minmax(0,1fr) 92px 68px", gap: 0, fontSize: 12, color: theme.textFaint, borderBottom: `1px solid ${theme.border}`, paddingBottom: 4, marginBottom: 2 }}>
@@ -5446,7 +5447,7 @@ export default function CustomStats() {
         <td style={{ color: theme.textSub }}>{new Date(m.timestamp).toLocaleString(dateLocale())}</td>
         <td>{m.entries.filter((e) => e.team === "A").map((e) => `${nameOf(e.playerId)}(${e.role})`).join(", ")}</td>
         <td>{m.entries.filter((e) => e.team === "B").map((e) => `${nameOf(e.playerId)}(${e.role})`).join(", ")}</td>
-        <td style={{ color: m.winner === "A" ? theme.accentBright : theme.teamB, fontWeight: 700 }}>{sideLabel(m.winner)}</td>
+        <td style={{ color: m.winner === "A" ? theme.sideA : theme.sideB, fontWeight: 700 }}>{sideLabel(m.winner)}</td>
         <td style={{ display: "flex", gap: 8 }}>
           {!readOnly && (
             <>
@@ -5610,7 +5611,7 @@ export default function CustomStats() {
         <div ref={(el) => { lobbyCardRefs.current[li] = el; }} style={{ background: theme.surface, padding: 4 }}>
         <div className="cs-cols2">
           {["A", "B"].map((side) => {
-            const color = side === "A" ? theme.accentBright : theme.teamB;
+            const color = side === "A" ? theme.sideA : theme.sideB;
             const list = side === "A" ? res.teamA : res.teamB;
             return (
               <div key={side} style={{ ...cardStyle, borderColor: color }}>
@@ -5643,7 +5644,7 @@ export default function CustomStats() {
           </div>
           <div className="cs-cols2">
             {["A", "B"].map((side) => {
-              const color = side === "A" ? theme.accentBright : theme.teamB;
+              const color = side === "A" ? theme.sideA : theme.sideB;
               const list = banProtectList(li, side);
               const key = `${li}${side}`;
               return (
@@ -5829,7 +5830,6 @@ export default function CustomStats() {
         </div>
       )}
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&family=Zen+Maru+Gothic:wght@400;700&family=Zen+Old+Mincho:wght@400;700&family=Yuji+Syuku&family=Zen+Kurenaido&family=Klee+One:wght@400;600&display=swap');
         :root {
           /* JSでのテーマ適用(applyTheme)前でも正しく表示されるデフォルト値(sky+ゴシック体) */
           --cs-bgFrom:#F4F8FB; --cs-bgVia:#E9F1F7; --cs-bgTo:#DCE8F0;
@@ -5837,7 +5837,7 @@ export default function CustomStats() {
           --cs-surface:#FFFFFF; --cs-surfaceAlt:#F4F9FD; --cs-surfaceWhite:#FDFEFF;
           --cs-border:#C3DCEA; --cs-borderInput:#B0D2E5; --cs-borderTable:#DCEBF3;
           --cs-accent:#0F5FA3; --cs-accentBright:#2483C9; --cs-accentDeep:#0D4A80; --cs-btnFrom:#2483C9; --cs-btnTo:#0F5FA3;
-          --cs-teamB:#C94F14; --cs-faintAccent:#B7CEE0; --cs-faintAccent2:#A9C1DA;
+          --cs-teamB:#C94F14; --cs-sideA:#1B7FBE; --cs-sideB:#C4551C; --cs-faintAccent:#B7CEE0; --cs-faintAccent2:#A9C1DA;
           --cs-profGreat:#8A3FA0; --cs-profGood:#2483C9; --cs-profFair:#C99A1E; --cs-profWeak:#9AA3AD;
           --cs-headAFrom:#1E78BC; --cs-headATo:#0F5FA3; --cs-headBFrom:#C94F14; --cs-headBTo:#9E3C0D; --cs-badgeBg:transparent;
           --cs-headNeutral:#C3D6E4; --cs-headNeutralText:#0F2A3D;
@@ -6213,7 +6213,7 @@ export default function CustomStats() {
                               padding: "5px 8px", borderRadius: 5, cursor: "pointer",
                               outline: ocrActiveRow === i ? `2px solid ${theme.accent}` : "none",
                             }}>
-                              <span style={{ color: r.teamNo === 1 ? theme.accentBright : theme.teamB, fontWeight: 700, fontSize: 12 }}>{t("report.038", { n: i + 1 })}</span>
+                              <span style={{ color: r.teamNo === 1 ? theme.sideA : theme.sideB, fontWeight: 700, fontSize: 12 }}>{t("report.038", { n: i + 1 })}</span>
                               {["k", "d", "a"].map((f) => (
                                 <input key={f} className="cs-input" type="number" min="0" max="100" style={{ padding: "3px 4px", fontSize: 14, textAlign: "center", minWidth: 0 }}
                                   value={r[f]} placeholder={f.toUpperCase()} onClick={(ev) => ev.stopPropagation()}
@@ -6228,13 +6228,13 @@ export default function CustomStats() {
                         <div style={{ marginTop: 10 }}>
                           {["A", "B"].map((side) => (
                             <div key={side} style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 6 }}>
-                              <span style={{ fontSize: 13, fontWeight: 700, color: side === "A" ? theme.accentBright : theme.teamB, width: 84, flexShrink: 0 }}>{sideLabel(side)}</span>
+                              <span style={{ fontSize: 13, fontWeight: 700, color: side === "A" ? theme.sideA : theme.sideB, width: 84, flexShrink: 0 }}>{sideLabel(side)}</span>
                               {teamOf(side).map((e) => {
                                 const assigned = ocrRows.some((r) => r.playerId === e.playerId);
                                 return (
                                   <button key={e.playerId} className="cs-btn-ghost" style={{
                                     padding: "4px 10px", fontSize: 13, whiteSpace: "nowrap",
-                                    borderColor: assigned ? theme.borderTable : (side === "A" ? theme.accentBright : theme.teamB),
+                                    borderColor: assigned ? theme.borderTable : (side === "A" ? theme.sideA : theme.sideB),
                                     color: assigned ? theme.textFaint : theme.text,
                                     opacity: assigned ? 0.55 : 1,
                                   }} onClick={() => assignPlayerToActiveRow(e.playerId)}>
@@ -6273,8 +6273,8 @@ export default function CustomStats() {
               </div>
               <div className="cs-cols2" style={{ marginBottom: 16 }}>
                 {["A", "B"].map((side) => (
-                  <div key={side} style={{ ...cardStyle, borderColor: side === "A" ? theme.accentBright : theme.teamB }}>
-                    <label style={{ ...labelStyle, color: side === "A" ? theme.accentBright : theme.teamB, fontWeight: 700 }}>{sideLabel(side)}</label>
+                  <div key={side} style={{ ...cardStyle, borderColor: side === "A" ? theme.sideA : theme.sideB }}>
+                    <label style={{ ...labelStyle, color: side === "A" ? theme.sideA : theme.sideB, fontWeight: 700 }}>{sideLabel(side)}</label>
                     <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
                       {teamOf(side).map((e) => (
                         <div key={e.playerId} className="cs-reprow">
@@ -6313,8 +6313,8 @@ export default function CustomStats() {
                 <div>
                   <label style={labelStyle}>{t("report.030")}</label>
                   <div style={{ display: "flex", gap: 8 }}>
-                    <button className="cs-btn-ghost" style={{ borderColor: winner === "A" ? theme.accentBright : theme.borderInput, color: winner === "A" ? theme.accentBright : theme.text }} onClick={() => setWinner("A")}>{t("report.031")}</button>
-                    <button className="cs-btn-ghost" style={{ borderColor: winner === "B" ? theme.teamB : theme.borderInput, color: winner === "B" ? theme.teamB : theme.text }} onClick={() => setWinner("B")}>{t("report.032")}</button>
+                    <button className="cs-btn-ghost" style={{ borderColor: winner === "A" ? theme.sideA : theme.borderInput, color: winner === "A" ? theme.sideA : theme.text }} onClick={() => setWinner("A")}>{t("report.031")}</button>
+                    <button className="cs-btn-ghost" style={{ borderColor: winner === "B" ? theme.sideB : theme.borderInput, color: winner === "B" ? theme.sideB : theme.text }} onClick={() => setWinner("B")}>{t("report.032")}</button>
                   </div>
                 </div>
                 <div>
@@ -6385,7 +6385,7 @@ export default function CustomStats() {
                           <tbody>
                             {m.entries.map((e) => (
                               <tr key={e.playerId}>
-                                <td style={{ color: e.team === "A" ? theme.accentBright : theme.teamB, fontWeight: 700 }}>{nameOf(e.playerId)}</td>
+                                <td style={{ color: e.team === "A" ? theme.sideA : theme.sideB, fontWeight: 700 }}>{nameOf(e.playerId)}</td>
                                 <td>{e.role}</td>
                                 <td>{e.champion || "-"}</td>
                                 <td>{m.kda[e.playerId] ? `${m.kda[e.playerId].k}/${m.kda[e.playerId].d}/${m.kda[e.playerId].a}` : "-"}</td>
@@ -6719,7 +6719,7 @@ export default function CustomStats() {
                                 <span style={{ fontWeight: 700 }}>{st.g ? `${pct}%` : "-"}</span>
                               </div>
                               <div style={{ height: 6, borderRadius: 3, background: theme.borderTable, overflow: "hidden", marginTop: 3 }}>
-                                <div style={{ width: `${pct}%`, height: "100%", background: s === "A" ? theme.accentBright : theme.teamB }} />
+                                <div style={{ width: `${pct}%`, height: "100%", background: s === "A" ? theme.sideA : theme.sideB }} />
                               </div>
                             </div>
                           );
@@ -6928,8 +6928,8 @@ export default function CustomStats() {
               return (
                 <div style={{ ...cardStyle, marginBottom: 14 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: 15, fontWeight: 700, marginBottom: 6 }}>
-                    <span style={{ color: theme.accentBright }}>{t("scoutMulti.009")} {pct}%</span>
-                    <span style={{ color: theme.teamB }}>{t("scoutMulti.010")} {100 - pct}%</span>
+                    <span style={{ color: theme.sideA }}>{t("scoutMulti.009")} {pct}%</span>
+                    <span style={{ color: theme.sideB }}>{t("scoutMulti.010")} {100 - pct}%</span>
                   </div>
                   <div style={{ display: "flex", height: 16, borderRadius: 8, overflow: "hidden" }}>
                     <div style={{ width: `${pct}%`, background: `linear-gradient(135deg, var(--cs-headAFrom), var(--cs-headATo))` }} />
@@ -6978,8 +6978,8 @@ export default function CustomStats() {
                           return (
                             <div style={{ marginTop: 6 }} title={t("scoutMulti.013")}>
                               <div style={{ display: "flex", height: 8, borderRadius: 4, overflow: "hidden", border: even ? `1px solid ${theme.accent}` : "none" }}>
-                                <div style={{ width: `${pct}%`, background: theme.accentBright }} />
-                                <div style={{ width: `${100 - pct}%`, background: theme.teamB }} />
+                                <div style={{ width: `${pct}%`, background: theme.sideA }} />
+                                <div style={{ width: `${100 - pct}%`, background: theme.sideB }} />
                               </div>
                               <div style={{ fontSize: 11, fontWeight: 700, marginTop: 2, color: theme.textFaint }}>
                                 {pct}% | {100 - pct}%{even && t("scoutMulti.014")}
@@ -7132,7 +7132,7 @@ export default function CustomStats() {
                     {["A", "B"].map((s) => {
                       const st = profile.sideStat[s];
                       return (
-                        <div key={s} style={{ fontSize: 15, fontWeight: 700, color: s === "A" ? theme.accentBright : theme.teamB }}>
+                        <div key={s} style={{ fontSize: 15, fontWeight: 700, color: s === "A" ? theme.sideA : theme.sideB }}>
                           {sideLabel(s)}: {st.g ? `${Math.round((st.w / st.g) * 100)}%` : "-"}
                           <span style={{ fontSize: 13, color: theme.textFaint, fontWeight: 400 }}> ({st.w}{t("board.010")}{st.g - st.w}{t("stats.013")}</span>
                         </div>
@@ -7343,7 +7343,7 @@ export default function CustomStats() {
                             <tr style={{ cursor: m ? "pointer" : "default" }} onClick={() => m && setStatsLogMatch(open ? null : m.id)}>
                               <td style={{ color: theme.accent, fontWeight: 700 }}>{m ? (open ? "▼" : "▶") : ""}</td>
                               <td style={{ color: theme.textSub }}>{new Date(h.ts).toLocaleDateString(dateLocale())}</td>
-                              <td style={{ color: h.side === "A" ? theme.accentBright : theme.teamB, fontWeight: 700 }}>{h.side ? sideLabel(h.side) : "-"}</td>
+                              <td style={{ color: h.side === "A" ? theme.sideA : theme.sideB, fontWeight: 700 }}>{h.side ? sideLabel(h.side) : "-"}</td>
                               <td>{h.role}</td>
                               <td>
                                 {h.champion ? (
@@ -7413,7 +7413,7 @@ export default function CustomStats() {
                                         <tr style={{ cursor: m ? "pointer" : "default" }} onClick={() => m && setChampHistMatch(open ? null : m.id)}>
                                           <td style={{ color: theme.accent, fontWeight: 700 }}>{m ? (open ? "▼" : "▶") : ""}</td>
                                           <td style={{ color: theme.textSub, whiteSpace: "nowrap" }}>{new Date(h.ts).toLocaleDateString(dateLocale())}</td>
-                                          <td style={{ color: h.side === "A" ? theme.accentBright : theme.teamB, fontWeight: 700 }}>{h.side ? sideLabel(h.side) : "-"}</td>
+                                          <td style={{ color: h.side === "A" ? theme.sideA : theme.sideB, fontWeight: 700 }}>{h.side ? sideLabel(h.side) : "-"}</td>
                                           <td>{h.role}</td>
                                           <td style={{ fontSize: 17, fontWeight: 700, whiteSpace: "nowrap" }}>{h.k != null ? `${h.k}/${h.d}/${h.a}` : "-"}</td>
                                           <td>
@@ -8510,7 +8510,7 @@ function MatchEditForm({ form, players, setEntryField, setKda, setEntryPlayer, s
       <div className="cs-cols2" style={{ marginBottom: 10 }}>
         {["A", "B"].map((side) => (
           <div key={side}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: side === "A" ? theme.accentBright : theme.teamB, marginBottom: 6 }}>{sideLabel(side)}</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: side === "A" ? theme.sideA : theme.sideB, marginBottom: 6 }}>{sideLabel(side)}</div>
             {form.entries.map((e, idx) => ({ e, idx })).filter(({ e }) => e.team === side).map(({ e, idx }) => (
               <div key={idx} className="cs-reprow6" style={{ marginBottom: 6 }}>
                 <select className="cs-input" style={{ padding: "5px 4px", fontSize: 15 }} value={e.role} onChange={(ev) => setEntryField(idx, "role", ev.target.value)}>
@@ -8537,8 +8537,8 @@ function MatchEditForm({ form, players, setEntryField, setKda, setEntryPlayer, s
       <div style={{ fontSize: 13, color: theme.textFaint, marginBottom: 6 }}>{t("misc.001")}</div>
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 6 }}>
         <span style={{ fontSize: 16, color: theme.textSub }}>{t("misc.002")}</span>
-        <button className="cs-btn-ghost" style={{ borderColor: form.winner === "A" ? theme.accentBright : theme.borderInput, color: form.winner === "A" ? theme.accentBright : theme.text, padding: "6px 14px", fontSize: 15 }} onClick={() => setWinner("A")}>A</button>
-        <button className="cs-btn-ghost" style={{ borderColor: form.winner === "B" ? theme.teamB : theme.borderInput, color: form.winner === "B" ? theme.teamB : theme.text, padding: "6px 14px", fontSize: 15 }} onClick={() => setWinner("B")}>B</button>
+        <button className="cs-btn-ghost" style={{ borderColor: form.winner === "A" ? theme.sideA : theme.borderInput, color: form.winner === "A" ? theme.sideA : theme.text, padding: "6px 14px", fontSize: 15 }} onClick={() => setWinner("A")}>A</button>
+        <button className="cs-btn-ghost" style={{ borderColor: form.winner === "B" ? theme.sideB : theme.borderInput, color: form.winner === "B" ? theme.sideB : theme.text, padding: "6px 14px", fontSize: 15 }} onClick={() => setWinner("B")}>B</button>
         <button className="cs-btn" style={{ fontSize: 15 }} onClick={onSave}>{t("misc.003")}</button>
         <button className="cs-btn-ghost" style={{ fontSize: 15 }} onClick={onCancel}>{t("players.044")}</button>
         {error && <span style={{ fontSize: 15, color: theme.teamB }}>{error}</span>}
