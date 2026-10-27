@@ -34,11 +34,12 @@ import {
 import { t, setLang, getLang, rankLabel, rankShortLang, initialLang, dateLocale } from "./i18n.js";
 import { champLabel, champCanonical, CHAMP_I18N } from "./champNames.js";
 import { PAGE_SOURCE } from "./pageSource.js";
-import { matchLaneDiffs, roleImpact, rateWithMargin } from "./roleImpact.js";
+import { BIG_GAP_PT, matchLaneDiffs, roleImpact, pairMatrix, hasBigGap, rateWithMargin } from "./roleImpact.js";
 
 /* 更新履歴。リリースのたびに先頭へ追記(手動管理)。Discordコピー文面と同様、UI言語に関わらず日本語固定 */
 const CHANGELOG = [
-  { date: "2026-10-27", text: "データベースに「ロール分析」を追加(ロールごとに、対面で試合前レートが上回った側の勝率と、試合ごとのレーン差)" },
+  { date: "2026-10-27", text: "ロール分析に「組み合わせ表」(例: JGで高くADCで大きく離された試合の勝率)と、他レーンの不利が1レーンに集中か分散かの内訳、15pt以上の差がある試合の絞り込みを追加" },
+  { date: "2026-10-27", text: "データベースに「ロール分析」を追加(対面のレートが高い側の勝率をロールごとに集計。試合ごとのレーン差も表示)" },
   { date: "2026-10-24", text: "大会タブを追加(フィアレス大会のチーム登録・対戦表・大会用ドラフト・ピック記録・大会成績)。大会用ドラフトで確定した試合はピック記録へ自動反映。マッチングにチームビルダーを追加" },
   { date: "2026-10-22", text: "フィアレス: 手番が切り替わると音が鳴るように(自チームの番は高い2音、残り5秒からカウントダウン音、端末ごとにON/OFF)" },
   { date: "2026-10-19", text: "選手登録の入力欄を「ディスコード名」「Riot ID(ゲーム名)」「#タグ」の3つに分割(「名前#タグ」の貼り付けは自動で分割)" },
@@ -1183,13 +1184,17 @@ function GrowthBar({ value, min, max }) {
   );
 }
 
-// ---- ロール分析(対面レート差の効き具合) ----------------------------------
+// ---- ロール分析(対面レート差と勝敗の関係) ----------------------------------
 // 集計本体は roleImpact.js(純粋関数)。ここは表示とDiscordコピーのみ
 const RI_SIDE_COLOR = (side) => (side === "A" ? theme.accentBright : theme.teamB);
 function RoleImpactTab({ players, matches }) {
+  const [view, setView] = useState("roles"); // roles: ロール別 / pairs: 組み合わせ表
   const [showAll, setShowAll] = useState(false);
+  const [bigOnly, setBigOnly] = useState(false);
+  const [pairGap, setPairGap] = useState(BIG_GAP_PT);
   const { rows, skipped } = useMemo(() => matchLaneDiffs(players, matches), [players, matches]);
   const imp = useMemo(() => roleImpact(rows), [rows]);
+  const pairs = useMemo(() => pairMatrix(rows, pairGap), [rows, pairGap]);
   const keys = [...ROLES, "TOTAL"];
   const keyLabel = (k) => (k === "TOTAL" ? t("roleImpact.011") : k);
   const pct = (x) => `${Math.round(x * 100)}%`;
@@ -1206,51 +1211,119 @@ function RoleImpactTab({ players, matches }) {
       </div>
     );
   };
-  // Discord用文面は日本語固定
-  const copyText = async () => {
-    const line = (k) => {
-      const s = imp[k];
-      const main = rateWithMargin(s.all);
-      if (!main) return `${k === "TOTAL" ? "チーム合計" : k}: データなし`;
-      const ag = k !== "TOTAL" ? rateWithMargin(s.against) : null;
-      return `${k === "TOTAL" ? "チーム合計" : k}: ${pct(main.p)}（${main.n}試合）` + (ag ? ` ／ 他4レーン劣勢時 ${pct(ag.p)}（${ag.n}試合）` : "");
-    };
-    const txt = [
-      `【ロール別 対面差の効き（集計 ${rows.length}試合）】`,
-      "対面で試合前レートが上回った側の勝率",
-      ...keys.map(line),
-      "※50%より高いほど、そのロールのレート差が勝敗に効いている",
-    ].join("\n");
+  const copy = async (txt) => {
     try { await navigator.clipboard.writeText(txt); themedAlert(t("balance.047")); }
     catch { await themedPrompt(t("balance.048"), { defaultValue: txt }); }
+  };
+  // Discord用文面は日本語固定
+  const copyRoles = () => {
+    const rate = (tl) => { const r = rateWithMargin(tl); return r ? `${pct(r.p)}（${r.n}試合）` : "データなし"; };
+    const line = (k) => {
+      const s = imp[k];
+      const name = k === "TOTAL" ? "チーム合計" : k;
+      if (!s.all.n) return `${name}: データなし`;
+      if (k === "TOTAL") return `${name}: ${rate(s.all)}`;
+      return `${name}: ${rate(s.all)}` + (s.against.n
+        ? ` ／ 他4レーンの合計は低かった試合 ${rate(s.against)}（うち${BIG_GAP_PT}pt以上低いレーンあり ${rate(s.againstConc)}・差が分散 ${rate(s.againstSpread)}）`
+        : "");
+    };
+    copy([
+      `【ロール分析（集計 ${rows.length}試合）】`,
+      "対面より試合前のレートが高かった側の勝率",
+      ...keys.map(line),
+      "※50%より高いロールほど、そのレーンのレート差で勝敗が決まりやすい",
+    ].join("\n"));
+  };
+  const copyPairs = () => {
+    const lines = [];
+    ROLES.forEach((r) => ROLES.forEach((o) => {
+      if (o === r) return;
+      const x = rateWithMargin(pairs[r][o]);
+      if (x) lines.push(`${r}で高く ${o}で${pairGap}pt以上低い: ${r}側の勝率 ${pct(x.p)}（${x.n}試合）`);
+    }));
+    copy([
+      `【ロール組み合わせ（集計 ${rows.length}試合）】`,
+      ...(lines.length ? lines : ["該当する試合なし"]),
+    ].join("\n"));
   };
   const diffCell = (d, winner) => {
     const side = d > 0 ? "A" : d < 0 ? "B" : null;
     if (!side) return <span style={{ color: theme.textFaint }}>0.0</span>;
+    const big = Math.abs(d) >= BIG_GAP_PT * 10;
     return (
-      <span style={{ color: RI_SIDE_COLOR(side), fontWeight: side === winner ? 700 : 400, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
+      <span style={{ color: RI_SIDE_COLOR(side), fontWeight: side === winner ? 700 : 400, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap",
+        borderBottom: big ? `2px solid ${RI_SIDE_COLOR(side)}` : "none" }}>
         {(Math.abs(d) / 10).toFixed(1)}{side === winner ? " ✓" : ""}
       </span>
     );
   };
-  const shownRows = showAll ? rows : rows.slice(0, 30);
+  const wrapTh = { whiteSpace: "normal", minWidth: 96, lineHeight: 1.35 }; // 長い列名は折り返して表の横幅を抑える
+  const listRows = bigOnly ? rows.filter((row) => hasBigGap(row)) : rows;
+  const shownRows = showAll ? listRows : listRows.slice(0, 30);
+  const hdr = (label, copyFn) => (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+      <span style={{ fontSize: 16, fontWeight: 700 }}>{label}</span>
+      <span style={{ fontSize: 13, color: theme.textFaint }}>{t("roleImpact.004")}: {rows.length}</span>
+      <button className="cs-btn-ghost" style={{ marginLeft: "auto", padding: "4px 12px", fontSize: 13 }} onClick={copyFn}>{t("balance.049")}</button>
+    </div>
+  );
+  const note = (
+    <div style={{ fontSize: 12, color: theme.textFaint, marginTop: 8, lineHeight: 1.6 }}>
+      {t("roleImpact.012")}{skipped > 0 && <> {t("roleImpact.013", { n: skipped })}</>}
+    </div>
+  );
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <div style={{ ...cardStyle, fontSize: 13, color: theme.textSub, lineHeight: 1.7 }}>
         <div>{t("roleImpact.002")}</div>
-        <div style={{ marginTop: 6 }}>{t("roleImpact.021")}</div>
+        <div style={{ marginTop: 6 }}>{t(view === "roles" ? "roleImpact.021" : "roleImpact.027", { n: pairGap })}</div>
+        {view === "roles" && <div style={{ marginTop: 6 }}>{t("roleImpact.024", { n: BIG_GAP_PT })}</div>}
       </div>
-      {!rows.length ? <EmptyState text={t("roleImpact.019")} /> : (
+      <SegGroup>
+        <SegBtn variant="solid" active={view === "roles"} onClick={() => setView("roles")}>{t("roleImpact.025")}</SegBtn>
+        <SegBtn variant="solid" active={view === "pairs"} onClick={() => setView("pairs")}>{t("roleImpact.026")}</SegBtn>
+      </SegGroup>
+      {!rows.length ? <EmptyState text={t("roleImpact.019")} /> : view === "pairs" ? (
+        <div style={cardStyle}>
+          {hdr(t("roleImpact.026"), copyPairs)}
+          <div style={{ marginBottom: 10 }}>
+            <SegGroup label={t("roleImpact.030")}>
+              {[10, 15, 20].map((g) => (
+                <SegBtn key={g} active={pairGap === g} onClick={() => setPairGap(g)}>{t("roleImpact.029", { n: g })}</SegBtn>
+              ))}
+            </SegGroup>
+          </div>
+          <div className="cs-scroll" style={{ overflowX: "auto" }}>
+            <table className="cs-table" style={{ minWidth: 560 }}>
+              <thead>
+                <tr>
+                  <th style={{ whiteSpace: "nowrap" }}>{t("roleImpact.028")} ＼ {t("roleImpact.031", { n: pairGap })}</th>
+                  {ROLES.map((o) => <th key={o}>{o}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {ROLES.map((r) => (
+                  <tr key={r}>
+                    <td style={{ fontWeight: 700 }}>{r}</td>
+                    {ROLES.map((o) => (
+                      <td key={o} style={o === r ? { background: theme.surfaceAlt } : undefined}>
+                        {o === r ? <span style={{ color: theme.textFaint }}>—</span> : rateCell(pairs[r][o])}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {note}
+        </div>
+      ) : (
         <>
           <div style={cardStyle}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
-              <span style={{ fontSize: 16, fontWeight: 700 }}>{t("roleImpact.006")}</span>
-              <span style={{ fontSize: 13, color: theme.textFaint }}>{t("roleImpact.004")}: {rows.length}</span>
-              <button className="cs-btn-ghost" style={{ marginLeft: "auto", padding: "4px 12px", fontSize: 13 }} onClick={copyText}>{t("balance.049")}</button>
-            </div>
+            {hdr(t("roleImpact.006"), copyRoles)}
             <div className="cs-scroll" style={{ overflowX: "auto" }}>
-              <table className="cs-table" style={{ minWidth: 640 }}>
+              <table className="cs-table" style={{ minWidth: 720 }}>
                 <thead>
                   <tr>
                     <th>{t("roleImpact.003")}</th>
@@ -1259,12 +1332,15 @@ function RoleImpactTab({ players, matches }) {
                     <th>{t("roleImpact.007")}</th>
                     <th>{t("roleImpact.008")}</th>
                     <th>{t("roleImpact.009")}</th>
-                    <th>{t("roleImpact.010")}</th>
+                    <th style={wrapTh}>{t("roleImpact.010")}</th>
+                    <th style={wrapTh}>{t("roleImpact.022", { n: BIG_GAP_PT })}</th>
+                    <th style={wrapTh}>{t("roleImpact.023")}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {keys.map((k) => {
                     const s = imp[k];
+                    const none = <span style={{ color: theme.textFaint }}>—</span>;
                     return (
                       <tr key={k} style={k === "TOTAL" ? { borderTop: `2px solid ${theme.borderTable}` } : undefined}>
                         <td style={{ fontWeight: 700, whiteSpace: "nowrap" }}>{keyLabel(k)}</td>
@@ -1273,46 +1349,52 @@ function RoleImpactTab({ players, matches }) {
                         <td>{rateCell(s.bins.small)}</td>
                         <td>{rateCell(s.bins.mid)}</td>
                         <td>{rateCell(s.bins.large)}</td>
-                        <td>{k === "TOTAL" ? <span style={{ color: theme.textFaint }}>—</span> : rateCell(s.against)}</td>
+                        <td>{k === "TOTAL" ? none : rateCell(s.against)}</td>
+                        <td>{k === "TOTAL" ? none : rateCell(s.againstConc)}</td>
+                        <td>{k === "TOTAL" ? none : rateCell(s.againstSpread)}</td>
                       </tr>
                     );
                   })}
                 </tbody>
               </table>
             </div>
-            <div style={{ fontSize: 12, color: theme.textFaint, marginTop: 8, lineHeight: 1.6 }}>
-              {t("roleImpact.012")}{skipped > 0 && <> {t("roleImpact.013", { n: skipped })}</>}
-            </div>
+            {note}
           </div>
 
           <div style={cardStyle}>
             <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>{t("roleImpact.014")}</div>
-            <div style={{ fontSize: 12, color: theme.textFaint, marginBottom: 10, lineHeight: 1.6 }}>{t("roleImpact.015")}</div>
-            <div className="cs-scroll" style={{ overflowX: "auto" }}>
-              <table className="cs-table" style={{ minWidth: 560 }}>
-                <thead>
-                  <tr>
-                    <th>{t("roleImpact.016")}</th>
-                    {ROLES.map((r) => <th key={r}>{r}</th>)}
-                    <th>{t("roleImpact.011")}</th>
-                    <th>{t("roleImpact.017")}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {shownRows.map((row) => (
-                    <tr key={row.id}>
-                      <td style={{ whiteSpace: "nowrap", fontSize: 13, color: theme.textSub }}>{row.ts ? new Date(row.ts).toLocaleDateString(dateLocale()) : "-"}</td>
-                      {ROLES.map((r) => <td key={r}>{diffCell(row.diffs[r], row.winner)}</td>)}
-                      <td>{diffCell(row.total, row.winner)}</td>
-                      <td style={{ fontWeight: 700, color: RI_SIDE_COLOR(row.winner), whiteSpace: "nowrap" }}>{sideLabel(row.winner)}</td>
+            <div style={{ fontSize: 12, color: theme.textFaint, marginBottom: 8, lineHeight: 1.6 }}>{t("roleImpact.015")} {t("roleImpact.032", { n: BIG_GAP_PT })}</div>
+            <label style={{ fontSize: 14, color: theme.textSub, display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer", marginBottom: 10 }}>
+              <input type="checkbox" checked={bigOnly} onChange={(ev) => setBigOnly(ev.target.checked)} />
+              {t("roleImpact.033", { n: BIG_GAP_PT, count: rows.filter((row) => hasBigGap(row)).length })}
+            </label>
+            {!listRows.length ? <EmptyState text={t("roleImpact.034")} /> : (
+              <div className="cs-scroll" style={{ overflowX: "auto" }}>
+                <table className="cs-table" style={{ minWidth: 560 }}>
+                  <thead>
+                    <tr>
+                      <th>{t("roleImpact.016")}</th>
+                      {ROLES.map((r) => <th key={r}>{r}</th>)}
+                      <th>{t("roleImpact.011")}</th>
+                      <th>{t("roleImpact.017")}</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {rows.length > shownRows.length && (
+                  </thead>
+                  <tbody>
+                    {shownRows.map((row) => (
+                      <tr key={row.id}>
+                        <td style={{ whiteSpace: "nowrap", fontSize: 13, color: theme.textSub }}>{row.ts ? new Date(row.ts).toLocaleDateString(dateLocale()) : "-"}</td>
+                        {ROLES.map((r) => <td key={r}>{diffCell(row.diffs[r], row.winner)}</td>)}
+                        <td>{diffCell(row.total, row.winner)}</td>
+                        <td style={{ fontWeight: 700, color: RI_SIDE_COLOR(row.winner), whiteSpace: "nowrap" }}>{sideLabel(row.winner)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {listRows.length > shownRows.length && (
               <button className="cs-btn-ghost" style={{ marginTop: 10, padding: "4px 12px", fontSize: 13 }} onClick={() => setShowAll(true)}>
-                {t("roleImpact.018", { n: rows.length })}
+                {t("roleImpact.018", { n: listRows.length })}
               </button>
             )}
           </div>
