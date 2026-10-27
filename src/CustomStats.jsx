@@ -37,7 +37,10 @@ import { PAGE_SOURCE } from "./pageSource.js";
 import { BIG_GAP_PT, matchLaneDiffs, roleImpact, pairMatrix, hasBigGap, rateWithMargin } from "./roleImpact.js";
 
 /* 更新履歴。リリースのたびに先頭へ追記(手動管理)。Discordコピー文面と同様、UI言語に関わらず日本語固定 */
+// 更新履歴パネルで最初に見せる件数(残りは「過去の更新も表示」で展開)
+const CHANGELOG_SHOWN = 5;
 const CHANGELOG = [
+  { date: "2026-10-27", text: "更新履歴は最近の5件だけ表示し、それより前は「過去の更新も表示」で開くように" },
   { date: "2026-10-27", text: "データベースに「ロール分析」を追加。対面のレートが高い側の勝率をロールごとに集計し、「組み合わせ表」では「JGで高く、ADCで大きく離された試合」のような組み合わせ別の勝率も見られる(差の基準はボタンか数値で指定)。試合ごとのレーン差の一覧と、大差のレーンがある試合の絞り込みも追加" },
   { date: "2026-10-27", text: "表示設定にカラー6種(色覚配慮・高コントラスト・漆黒・金紺・紅葉・葡萄)と書体4種(BIZ UDPゴシック・角ゴシック・丸ゴシック・ドット)を追加。旧「丸文字」は「手書き風」に改名。書体は選んだものだけ読み込むようにして起動を軽く" },
   { date: "2026-10-27", text: "修正: 一部のカラー(紅・山吹・橙・桜など)でブルーサイドが赤系、レッドサイドが青系で表示されていたのを修正。スマホでデータベースなどのサブタブが重なって表示されるのを修正" },
@@ -4112,6 +4115,7 @@ export default function CustomStats() {
   const [fontKey, setFontKey] = useState(() => (typeof localStorage !== "undefined" && localStorage.getItem("crl-font")) || "gothic");
   const [themePickerOpen, setThemePickerOpen] = useState(false);
   const [changelogOpen, setChangelogOpen] = useState(false);
+  const [changelogAll, setChangelogAll] = useState(false); // 更新履歴: 既定は最近の CHANGELOG_SHOWN 件だけ表示
   useEffect(() => {
     applyTheme(colorKey, fontKey);
     try { localStorage.setItem("crl-color", colorKey); localStorage.setItem("crl-font", fontKey); } catch {}
@@ -5931,21 +5935,27 @@ export default function CustomStats() {
         <span style={{ fontSize: 15, color: theme.textSub }}>{t("header.001")}</span>
         <span style={{ marginLeft: "auto", position: "relative" }}>
           <button className="cs-btn-ghost" title={t("changelog.001")} style={{ padding: "6px 10px", display: "flex", alignItems: "center", gap: 6 }}
-            onClick={() => setChangelogOpen(!changelogOpen)}>
+            onClick={() => { setChangelogOpen(!changelogOpen); setChangelogAll(false); }}>
             <Sparkles size={16} />
             <span style={{ fontSize: 13 }}>{t("changelog.001")}</span>
           </button>
           {changelogOpen && (
             <div style={{ ...cardStyle, position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 20, width: 340, padding: 14 }}>
               <div style={{ fontSize: 13, color: theme.textSub, marginBottom: 10, fontWeight: 700 }}>{t("changelog.002")}</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {CHANGELOG.map((c, i) => (
+              <div className="cs-scroll" style={{ display: "flex", flexDirection: "column", gap: 10, maxHeight: "60vh", overflowY: "auto" }}>
+                {(changelogAll ? CHANGELOG : CHANGELOG.slice(0, CHANGELOG_SHOWN)).map((c, i) => (
                   <div key={i} style={{ display: "flex", gap: 10 }}>
                     <span className="cs-nowrap" style={{ fontSize: 12, color: theme.textFaint, flexShrink: 0 }}>{c.date}</span>
                     <span className="cs-prose" style={{ fontSize: 13, color: theme.text }}>{c.text}</span>
                   </div>
                 ))}
               </div>
+              {CHANGELOG.length > CHANGELOG_SHOWN && (
+                <button className="cs-btn-ghost" style={{ marginTop: 10, padding: "4px 12px", fontSize: 13, width: "100%" }}
+                  onClick={() => setChangelogAll(!changelogAll)}>
+                  {changelogAll ? t("changelog.004", { n: CHANGELOG_SHOWN }) : t("changelog.003", { n: CHANGELOG.length - CHANGELOG_SHOWN })}
+                </button>
+              )}
             </div>
           )}
         </span>
