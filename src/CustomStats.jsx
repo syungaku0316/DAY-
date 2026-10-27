@@ -38,7 +38,7 @@ import { matchLaneDiffs, roleImpact, rateWithMargin } from "./roleImpact.js";
 
 /* 更新履歴。リリースのたびに先頭へ追記(手動管理)。Discordコピー文面と同様、UI言語に関わらず日本語固定 */
 const CHANGELOG = [
-  { date: "2026-10-27", text: "データベースに「ロール分析」を追加(ロールごとに、対面で試合前レートが上回った側の勝率と、試合ごとのレーン差)" },
+  { date: "2026-10-27", text: "データベースに「ロール分析」を追加(対面のレートが高い側の勝率をロールごとに集計。試合ごとのレーン差も表示)" },
   { date: "2026-10-24", text: "大会タブを追加(フィアレス大会のチーム登録・対戦表・大会用ドラフト・ピック記録・大会成績)。大会用ドラフトで確定した試合はピック記録へ自動反映。マッチングにチームビルダーを追加" },
   { date: "2026-10-22", text: "フィアレス: 手番が切り替わると音が鳴るように(自チームの番は高い2音、残り5秒からカウントダウン音、端末ごとにON/OFF)" },
   { date: "2026-10-19", text: "選手登録の入力欄を「ディスコード名」「Riot ID(ゲーム名)」「#タグ」の3つに分割(「名前#タグ」の貼り付けは自動で分割)" },
@@ -1183,7 +1183,7 @@ function GrowthBar({ value, min, max }) {
   );
 }
 
-// ---- ロール分析(対面レート差の効き具合) ----------------------------------
+// ---- ロール分析(対面レート差と勝敗の関係) ----------------------------------
 // 集計本体は roleImpact.js(純粋関数)。ここは表示とDiscordコピーのみ
 const RI_SIDE_COLOR = (side) => (side === "A" ? theme.accentBright : theme.teamB);
 function RoleImpactTab({ players, matches }) {
@@ -1213,13 +1213,13 @@ function RoleImpactTab({ players, matches }) {
       const main = rateWithMargin(s.all);
       if (!main) return `${k === "TOTAL" ? "チーム合計" : k}: データなし`;
       const ag = k !== "TOTAL" ? rateWithMargin(s.against) : null;
-      return `${k === "TOTAL" ? "チーム合計" : k}: ${pct(main.p)}（${main.n}試合）` + (ag ? ` ／ 他4レーン劣勢時 ${pct(ag.p)}（${ag.n}試合）` : "");
+      return `${k === "TOTAL" ? "チーム合計" : k}: ${pct(main.p)}（${main.n}試合）` + (ag ? ` ／ 他4レーンの合計は低かった試合 ${pct(ag.p)}（${ag.n}試合）` : "");
     };
     const txt = [
-      `【ロール別 対面差の効き（集計 ${rows.length}試合）】`,
-      "対面で試合前レートが上回った側の勝率",
+      `【ロール分析（集計 ${rows.length}試合）】`,
+      "対面より試合前のレートが高かった側の勝率",
       ...keys.map(line),
-      "※50%より高いほど、そのロールのレート差が勝敗に効いている",
+      "※50%より高いロールほど、そのレーンのレート差で勝敗が決まりやすい",
     ].join("\n");
     try { await navigator.clipboard.writeText(txt); themedAlert(t("balance.047")); }
     catch { await themedPrompt(t("balance.048"), { defaultValue: txt }); }
