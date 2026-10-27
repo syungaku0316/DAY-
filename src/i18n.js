@@ -913,7 +913,8 @@ export const DICT = {
     "roleImpact.034": "該当する試合がありません",
     "roleImpact.035": "高かったレーンの差",
     "roleImpact.036": "制限なし",
-    "roleImpact.037": "{n}pt以上高かったロール"
+    "roleImpact.037": "{n}pt以上高かったロール",
+    "roleImpact.038": "差の基準を数値で指定(pt)"
   },
   "en": {
     "shell.086": "A new version is available. Please reload (some features may not work correctly on the old page).",
@@ -1828,7 +1829,8 @@ export const DICT = {
     "roleImpact.034": "No matching games",
     "roleImpact.035": "Gap in the higher lane",
     "roleImpact.036": "Any",
-    "roleImpact.037": "Role {n}pt+ higher"
+    "roleImpact.037": "Role {n}pt+ higher",
+    "roleImpact.038": "Set the gap threshold as a number (pt)"
   },
   "ko": {
     "shell.086": "새 버전이 공개되었습니다. 새로고침하세요 (이전 화면에서는 일부 기능이 제대로 작동하지 않습니다).",
@@ -2743,7 +2745,8 @@ export const DICT = {
     "roleImpact.034": "해당하는 경기가 없습니다",
     "roleImpact.035": "높았던 라인의 차이",
     "roleImpact.036": "제한 없음",
-    "roleImpact.037": "{n}pt 이상 높았던 라인"
+    "roleImpact.037": "{n}pt 이상 높았던 라인",
+    "roleImpact.038": "차이 기준을 숫자로 지정(pt)"
   }
 };
 

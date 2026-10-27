@@ -38,7 +38,7 @@ import { BIG_GAP_PT, matchLaneDiffs, roleImpact, pairMatrix, hasBigGap, rateWith
 
 /* 更新履歴。リリースのたびに先頭へ追記(手動管理)。Discordコピー文面と同様、UI言語に関わらず日本語固定 */
 const CHANGELOG = [
-  { date: "2026-10-27", text: "ロール分析に「組み合わせ表」(例: JGで高くADCで大きく離された試合の勝率。高い側・低い側それぞれに差の基準を指定可)と、他レーンの不利が1レーンに集中か分散かの内訳、15pt以上の差がある試合の絞り込みを追加" },
+  { date: "2026-10-27", text: "ロール分析に「組み合わせ表」(例: JGで高くADCで大きく離された試合の勝率。高い側・低い側それぞれに差の基準を指定可、数値入力にも対応)と、他レーンの不利が1レーンに集中か分散かの内訳、15pt以上の差がある試合の絞り込みを追加" },
   { date: "2026-10-27", text: "データベースに「ロール分析」を追加(対面のレートが高い側の勝率をロールごとに集計。試合ごとのレーン差も表示)" },
   { date: "2026-10-24", text: "大会タブを追加(フィアレス大会のチーム登録・対戦表・大会用ドラフト・ピック記録・大会成績)。大会用ドラフトで確定した試合はピック記録へ自動反映。マッチングにチームビルダーを追加" },
   { date: "2026-10-22", text: "フィアレス: 手番が切り替わると音が鳴るように(自チームの番は高い2音、残り5秒からカウントダウン音、端末ごとにON/OFF)" },
@@ -1187,6 +1187,27 @@ function GrowthBar({ value, min, max }) {
 // ---- ロール分析(対面レート差と勝敗の関係) ----------------------------------
 // 集計本体は roleImpact.js(純粋関数)。ここは表示とDiscordコピーのみ
 const RI_SIDE_COLOR = (side) => (side === "A" ? theme.accentBright : theme.teamB);
+// 差の基準(pt)の数値入力。入力途中の空欄や不正値は確定させず、0.1pt単位に丸めて min〜60 に収める
+function PtInput({ value, min, onChange }) {
+  const [text, setText] = useState(String(value));
+  useEffect(() => { setText((cur) => (Number(cur) === value ? cur : String(value))); }, [value]);
+  const commit = (raw) => {
+    const n = Number(raw);
+    if (raw.trim() === "" || !Number.isFinite(n)) return;
+    onChange(Math.min(60, Math.max(min, Math.round(n * 10) / 10)));
+  };
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 13, color: theme.textSub }}>
+      <input className="cs-input" type="number" inputMode="decimal" min={min} max={60} step={1} value={text}
+        title={t("roleImpact.038")} aria-label={t("roleImpact.038")}
+        onChange={(ev) => { setText(ev.target.value); commit(ev.target.value); }}
+        onBlur={() => setText(String(value))}
+        style={{ width: 64, padding: "3px 6px", fontSize: 13, boxSizing: "border-box" }} />
+      pt
+    </span>
+  );
+}
+
 function RoleImpactTab({ players, matches }) {
   const [view, setView] = useState("roles"); // roles: ロール別 / pairs: 組み合わせ表
   const [showAll, setShowAll] = useState(false);
@@ -1289,16 +1310,22 @@ function RoleImpactTab({ players, matches }) {
         <div style={cardStyle}>
           {hdr(t("roleImpact.026"), copyPairs)}
           <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 10 }}>
-            <SegGroup label={t("roleImpact.035")}>
-              {[0, 5, 10, 15].map((g) => (
-                <SegBtn key={g} active={pairLead === g} onClick={() => setPairLead(g)}>{g ? t("roleImpact.029", { n: g }) : t("roleImpact.036")}</SegBtn>
-              ))}
-            </SegGroup>
-            <SegGroup label={t("roleImpact.030")}>
-              {[10, 15, 20].map((g) => (
-                <SegBtn key={g} active={pairGap === g} onClick={() => setPairGap(g)}>{t("roleImpact.029", { n: g })}</SegBtn>
-              ))}
-            </SegGroup>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <SegGroup label={t("roleImpact.035")}>
+                {[0, 5, 10, 15].map((g) => (
+                  <SegBtn key={g} active={pairLead === g} onClick={() => setPairLead(g)}>{g ? t("roleImpact.029", { n: g }) : t("roleImpact.036")}</SegBtn>
+                ))}
+              </SegGroup>
+              <PtInput value={pairLead} min={0} onChange={setPairLead} />
+            </div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <SegGroup label={t("roleImpact.030")}>
+                {[5, 10, 15, 20].map((g) => (
+                  <SegBtn key={g} active={pairGap === g} onClick={() => setPairGap(g)}>{t("roleImpact.029", { n: g })}</SegBtn>
+                ))}
+              </SegGroup>
+              <PtInput value={pairGap} min={1} onChange={setPairGap} />
+            </div>
           </div>
           <div className="cs-scroll" style={{ overflowX: "auto" }}>
             <table className="cs-table" style={{ minWidth: 560 }}>
