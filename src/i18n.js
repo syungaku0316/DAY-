@@ -916,7 +916,19 @@ export const DICT = {
     "roleImpact.035": "高かったレーンの差",
     "roleImpact.036": "制限なし",
     "roleImpact.037": "{n}pt以上高かったロール",
-    "roleImpact.038": "差の基準を数値で指定(pt)"
+    "roleImpact.038": "差の基準を数値で指定(pt)",
+    "roleImpact.039": "分析コメント",
+    "roleImpact.040": "{x}と{y}では、{x}側の実力差のほうが勝敗に響きやすい（{x}優位{a}%／{y}優位{b}%）。",
+    "roleImpact.041": "{hi}が上回り{lo}が下回る試合は、{hi}側のチームが勝ちやすい（{p}%・{n}試合）。",
+    "roleImpact.042": "{hi}が上回っても、{lo}が下回ると負けやすい（{p}%・{n}試合）。{lo}の差のほうが響いている可能性。",
+    "roleImpact.043": "{hi}優位×{lo}不利は{p}%とやや偏りあり（{n}試合）。まだ誤差の範囲内。",
+    "roleImpact.044": "この条件では、レート差の組み合わせによる目立った偏りは見られない。",
+    "roleImpact.045": "試合数が少なく、まだ傾向は判断できない（10試合以上のセル：{k}個）",
+    "roleImpact.046": "判定の基準: {n}試合以上のマスだけを見ます。「有意」は勝率の95%の範囲が50%をまたがないもの、「傾向」は有意ではないものの勝率が60%以上か40%以下のものです。20マスを同時に見ているので、偶然でも1つくらいは有意になることがあります。また「X高×Y低」と「Y高×X低」は同じ試合を逆側から数えていることが多く、「対で逆転」の2つの数字は別々の証拠ではありません。",
+    "roleImpact.047": "対で逆転",
+    "roleImpact.048": "有意・勝ち寄り",
+    "roleImpact.049": "有意・負け寄り",
+    "roleImpact.050": "傾向"
   },
   "en": {
     "shell.086": "A new version is available. Please reload (some features may not work correctly on the old page).",
@@ -1834,7 +1846,19 @@ export const DICT = {
     "roleImpact.035": "Gap in the higher lane",
     "roleImpact.036": "Any",
     "roleImpact.037": "Role {n}pt+ higher",
-    "roleImpact.038": "Set the gap threshold as a number (pt)"
+    "roleImpact.038": "Set the gap threshold as a number (pt)",
+    "roleImpact.039": "Analysis",
+    "roleImpact.040": "Between {x} and {y}, the rating gap in {x} matters more for the result ({x} ahead {a}% / {y} ahead {b}%).",
+    "roleImpact.041": "In games where {hi} is ahead and {lo} is behind, the {hi} side tends to win ({p}%, {n} games).",
+    "roleImpact.042": "Even when {hi} is ahead, the team tends to lose when {lo} is behind ({p}%, {n} games). The {lo} gap may matter more.",
+    "roleImpact.043": "{hi} ahead × {lo} behind is at {p}%, a slight lean ({n} games). Still within the margin of error.",
+    "roleImpact.044": "Under these settings, no notable lean is seen for any combination of rating gaps.",
+    "roleImpact.045": "Not enough games to judge yet (cells with 10+ games: {k})",
+    "roleImpact.046": "How this is judged: only cells with {n}+ games are used. “Significant” means the 95% range of the win rate does not cross 50%; “lean” means not significant but at 60%+ or 40% or below. Since 20 cells are checked at once, one may look significant by chance. “X ahead × Y behind” and “Y ahead × X behind” often count the same games from opposite sides, so the two numbers in a reversed pair are not independent evidence.",
+    "roleImpact.047": "Reversed pair",
+    "roleImpact.048": "Significant, favorable",
+    "roleImpact.049": "Significant, unfavorable",
+    "roleImpact.050": "Lean"
   },
   "ko": {
     "shell.086": "새 버전이 공개되었습니다. 새로고침하세요 (이전 화면에서는 일부 기능이 제대로 작동하지 않습니다).",
@@ -2752,7 +2776,19 @@ export const DICT = {
     "roleImpact.035": "높았던 라인의 차이",
     "roleImpact.036": "제한 없음",
     "roleImpact.037": "{n}pt 이상 높았던 라인",
-    "roleImpact.038": "차이 기준을 숫자로 지정(pt)"
+    "roleImpact.038": "차이 기준을 숫자로 지정(pt)",
+    "roleImpact.039": "분석 코멘트",
+    "roleImpact.040": "{x}와 {y} 중에서는 {x} 쪽의 실력 차이가 승패에 더 크게 작용하기 쉽다 ({x} 우위 {a}% / {y} 우위 {b}%).",
+    "roleImpact.041": "{hi}가 앞서고 {lo}가 뒤처진 경기에서는 {hi} 쪽 팀이 이기기 쉽다 ({p}% · {n}경기).",
+    "roleImpact.042": "{hi}가 앞서도 {lo}가 뒤처지면 지기 쉽다 ({p}% · {n}경기). {lo}의 차이가 더 크게 작용하고 있을 가능성.",
+    "roleImpact.043": "{hi} 우위 × {lo} 불리는 {p}%로 약간 치우침 ({n}경기). 아직 오차 범위 내.",
+    "roleImpact.044": "이 조건에서는 레이팅 차이의 조합에 따른 눈에 띄는 치우침이 보이지 않는다.",
+    "roleImpact.045": "경기 수가 적어 아직 경향을 판단할 수 없다 (10경기 이상인 칸: {k}개)",
+    "roleImpact.046": "판정 기준: {n}경기 이상인 칸만 봅니다. '유의'는 승률의 95% 범위가 50%를 걸치지 않는 것, '경향'은 유의하지는 않지만 승률이 60% 이상 또는 40% 이하인 것입니다. 20칸을 동시에 보므로 우연히 1개 정도는 유의하게 나올 수 있습니다. 또 'X 높음 × Y 낮음'과 'Y 높음 × X 낮음'은 같은 경기를 반대쪽에서 세는 경우가 많아, '쌍으로 역전'의 두 숫자는 별개의 증거가 아닙니다.",
+    "roleImpact.047": "쌍으로 역전",
+    "roleImpact.048": "유의·유리",
+    "roleImpact.049": "유의·불리",
+    "roleImpact.050": "경향"
   }
 };
 
