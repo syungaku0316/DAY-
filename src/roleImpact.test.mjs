@@ -1,5 +1,5 @@
 // Node単体テスト（実行: node src/roleImpact.test.mjs）
-import { matchLaneDiffs, roleImpact, rateWithMargin, pairMatrix, hasBigGap } from "./roleImpact.js";
+import { matchLaneDiffs, roleImpact, rateWithMargin, pairMatrix, hasBigGap, pairInsights } from "./roleImpact.js";
 import { ROLES } from "./rating.js";
 
 let failed = 0;
@@ -114,6 +114,44 @@ const even = (over = {}) => Object.fromEntries(ROLES.map((r) => [r, over[r] || [
   assert(one.p === 1 && one.margin > 0.3, "1試合1勝でも幅は大きく出る(100%±0 にしない)");
   const many = rateWithMargin({ n: 400, wins: 240 });
   assert(Math.abs(many.p - 0.6) < 1e-9 && many.margin < 0.05, `400試合なら幅は±5%未満。実際 ${(many.margin * 100).toFixed(1)}%`);
+}
+
+// ---- 組み合わせ表の自動コメント ----
+{
+  const blank = () => Object.fromEntries(ROLES.map((r) => [r, Object.fromEntries(ROLES.filter((o) => o !== r).map((o) => [o, { n: 0, wins: 0 }]))]));
+  const set = (pm, hi, lo, n, wins) => { pm[hi][lo] = { n, wins }; return pm; };
+
+  const few = set(set(blank(), "JG", "ADC", 40, 32), "TOP", "MID", 12, 6);
+  const f = pairInsights(few);
+  assert(f.status === "insufficient" && f.judged === 2 && f.items.length === 0, `10試合以上のマスが2つ → データ不足(F)。実際 ${f.status}/${f.judged}`);
+
+  const flat = set(set(set(blank(), "JG", "ADC", 20, 10), "TOP", "MID", 20, 11), "SUP", "TOP", 20, 9);
+  const e = pairInsights(flat);
+  assert(e.status === "none" && e.judged === 3, `有意も傾向もない → 偏りなし(E)。実際 ${e.status}`);
+
+  const pm = blank();
+  set(pm, "JG", "ADC", 40, 32);  // JG高×ADC低 80% 有意・勝ち寄り
+  set(pm, "ADC", "JG", 40, 8);   // ADC高×JG低 20% 有意・負け寄り → 逆向きなので A
+  set(pm, "TOP", "MID", 40, 30); // 75% 有意(逆側 MID→TOP は試合数不足) → B
+  set(pm, "SUP", "TOP", 40, 8);  // 20% 有意 → C
+  set(pm, "MID", "SUP", 12, 8);  // 67% 有意ではないが10pt以上ずれ → D
+  set(pm, "MID", "ADC", 30, 15); // 50% → 何も出さない
+  const r = pairInsights(pm);
+  assert(r.status === "found" && r.judged === 6, `判定できるマスは6。実際 ${r.judged}`);
+  assert(r.items.map((x) => x.type).join("") === "ABCD", `並びは A→B→C→D。実際 ${r.items.map((x) => x.type).join("")}`);
+  const a = r.items[0];
+  assert(a.x === "JG" && a.y === "ADC" && Math.abs(a.a - 0.8) < 1e-9 && Math.abs(a.b - 0.2) < 1e-9, "A: JG側の差のほうが響く(JG優位80%/ADC優位20%)");
+  assert(r.items.filter((x) => x.hi === "JG" || x.hi === "ADC").length === 0, "A に使ったマスは B/C に重ねて出さない");
+  assert(r.items[1].hi === "TOP" && r.items[1].lo === "MID" && r.items[2].hi === "SUP" && r.items[3].hi === "MID" && r.items[3].lo === "SUP", "B=TOP×MID / C=SUP×TOP / D=MID×SUP");
+
+  // 逆向きの組でも、勝ち寄りのマスの高かった側が X になる
+  const rev = set(set(set(blank(), "JG", "ADC", 40, 8), "ADC", "JG", 40, 32), "TOP", "MID", 20, 10);
+  const ra = pairInsights(rev).items[0];
+  assert(ra.type === "A" && ra.x === "ADC" && ra.y === "JG", `ADC高×JG低 が勝ち寄りなら X=ADC。実際 ${ra.x}`);
+
+  // 両方とも勝ち寄り(同じ向き)なら A にせず、それぞれ B
+  const same = set(set(set(blank(), "JG", "ADC", 40, 32), "ADC", "JG", 40, 30), "TOP", "MID", 20, 10);
+  assert(pairInsights(same).items.map((x) => x.type).join("") === "BB", "同じ向きは A にしない");
 }
 
 console.log(failed ? `\n${failed} 件失敗` : "\nすべて成功");

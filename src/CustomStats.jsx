@@ -31,15 +31,16 @@ import {
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from "recharts";
-import { t, setLang, getLang, rankLabel, rankShortLang, initialLang, dateLocale } from "./i18n.js";
+import { t, setLang, getLang, rankLabel, rankShortLang, initialLang, dateLocale, DICT } from "./i18n.js";
 import { champLabel, champCanonical, CHAMP_I18N } from "./champNames.js";
 import { PAGE_SOURCE } from "./pageSource.js";
-import { BIG_GAP_PT, matchLaneDiffs, roleImpact, pairMatrix, hasBigGap, rateWithMargin } from "./roleImpact.js";
+import { BIG_GAP_PT, INSIGHT_MIN_N, matchLaneDiffs, roleImpact, pairMatrix, hasBigGap, rateWithMargin, pairInsights } from "./roleImpact.js";
 
 /* 更新履歴。リリースのたびに先頭へ追記(手動管理)。Discordコピー文面と同様、UI言語に関わらず日本語固定 */
 // 更新履歴パネルで最初に見せる件数(残りは「過去の更新も表示」で展開)
 const CHANGELOG_SHOWN = 5;
 const CHANGELOG = [
+  { date: "2026-10-27", text: "ロール分析の組み合わせ表に「分析コメント」を追加(対で逆転・勝ち寄り・負け寄り・傾向・偏りなし・データ不足を定型文で表示。Discord用コピーにも入る)" },
   { date: "2026-10-27", text: "更新履歴は最近の5件だけ表示し、それより前は「過去の更新も表示」で開くように" },
   { date: "2026-10-27", text: "データベースに「ロール分析」を追加。対面のレートが高い側の勝率をロールごとに集計し、「組み合わせ表」では「JGで高く、ADCで大きく離された試合」のような組み合わせ別の勝率も見られる(差の基準はボタンか数値で指定)。試合ごとのレーン差の一覧と、大差のレーンがある試合の絞り込みも追加" },
   { date: "2026-10-27", text: "表示設定にカラー6種(色覚配慮・高コントラスト・漆黒・金紺・紅葉・葡萄)と書体4種(BIZ UDPゴシック・角ゴシック・丸ゴシック・ドット)を追加。旧「丸文字」は「手書き風」に改名。書体は選んだものだけ読み込むようにして起動を軽く" },
@@ -1190,6 +1191,16 @@ function GrowthBar({ value, min, max }) {
 
 // ---- ロール分析(対面レート差と勝敗の関係) ----------------------------------
 // 集計本体は roleImpact.js(純粋関数)。ここは表示とDiscordコピーのみ
+// Discordコピー用: UI言語に関係なく日本語の辞書で文面を組み立てる(Discordコピー文面は日本語固定)
+const tJa = (key, vars = {}) => String(DICT.ja[key] ?? key).replace(/\{(\w+)\}/g, (_, k) => (vars[k] ?? `{${k}}`));
+// 組み合わせ表の自動コメント1行分(tr = t か tJa)
+const insightLine = (it, tr) => {
+  const pc = (x) => Math.round(x * 100);
+  if (it.type === "A") return tr("roleImpact.040", { x: it.x, y: it.y, a: pc(it.a), b: pc(it.b) });
+  const key = { B: "roleImpact.041", C: "roleImpact.042", D: "roleImpact.043" }[it.type];
+  return tr(key, { hi: it.hi, lo: it.lo, p: pc(it.p), n: it.n });
+};
+const INSIGHT_TAG = { A: "roleImpact.047", B: "roleImpact.048", C: "roleImpact.049", D: "roleImpact.050" };
 const RI_SIDE_COLOR = (side) => (side === "A" ? theme.sideA : theme.sideB);
 // 差の基準(pt)の数値入力。入力途中の空欄や不正値は確定させず、0.1pt単位に丸めて min〜60 に収める
 function PtInput({ value, min, onChange }) {
@@ -1221,6 +1232,10 @@ function RoleImpactTab({ players, matches }) {
   const { rows, skipped } = useMemo(() => matchLaneDiffs(players, matches), [players, matches]);
   const imp = useMemo(() => roleImpact(rows), [rows]);
   const pairs = useMemo(() => pairMatrix(rows, pairGap, pairLead), [rows, pairGap, pairLead]);
+  const insights = useMemo(() => pairInsights(pairs), [pairs]);
+  // 自動コメント(データ不足 / 偏りなし の時は1行の総評)
+  const insightSummary = (tr) => (insights.status === "insufficient" ? tr("roleImpact.045", { k: insights.judged })
+    : insights.status === "none" ? tr("roleImpact.044") : null);
   const keys = [...ROLES, "TOTAL"];
   const keyLabel = (k) => (k === "TOTAL" ? t("roleImpact.011") : k);
   const pct = (x) => `${Math.round(x * 100)}%`;
@@ -1270,6 +1285,9 @@ function RoleImpactTab({ players, matches }) {
     copy([
       `【ロール組み合わせ（集計 ${rows.length}試合）】`,
       ...(lines.length ? lines : ["該当する試合なし"]),
+      "",
+      "── 分析コメント ──",
+      ...(insightSummary(tJa) ? [insightSummary(tJa)] : insights.items.map((it) => `・${insightLine(it, tJa)}`)),
     ].join("\n"));
   };
   const diffCell = (d, winner) => {
@@ -1354,6 +1372,26 @@ function RoleImpactTab({ players, matches }) {
             </table>
           </div>
           {note}
+          <div style={{ marginTop: 14, padding: "12px 14px", borderRadius: 8, background: theme.surfaceAlt, border: `1px solid ${theme.borderTable}` }}>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 8 }}>{t("roleImpact.039")}</div>
+            {insightSummary(t) ? (
+              <div style={{ fontSize: 14, color: theme.textSub, lineHeight: 1.7 }}>{insightSummary(t)}</div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {insights.items.map((it, i) => {
+                  const tagColor = it.type === "C" ? theme.teamB : it.type === "D" ? theme.textFaint : theme.accent;
+                  return (
+                    <div key={i} style={{ display: "flex", gap: 8, alignItems: "baseline", fontSize: 14, lineHeight: 1.7 }}>
+                      <span style={{ flexShrink: 0, fontSize: 12, fontWeight: 700, padding: "1px 8px", borderRadius: 999,
+                        border: `1px solid ${tagColor}`, color: tagColor, whiteSpace: "nowrap" }}>{t(INSIGHT_TAG[it.type])}</span>
+                      <span style={{ minWidth: 0, color: it.type === "D" ? theme.textSub : theme.text }}>{insightLine(it, t)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <div style={{ fontSize: 12, color: theme.textFaint, marginTop: 10, lineHeight: 1.6 }}>{t("roleImpact.046", { n: INSIGHT_MIN_N })}</div>
+          </div>
         </div>
       ) : (
         <>

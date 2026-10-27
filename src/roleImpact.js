@@ -115,7 +115,59 @@ function rateWithMargin({ n, wins }) {
   const p = wins / n;
   const denom = 1 + (z * z) / n;
   const half = (z * Math.sqrt((p * (1 - p)) / n + (z * z) / (4 * n * n))) / denom;
-  return { p, margin: half, n };
+  const center = (p + (z * z) / (2 * n)) / denom;
+  return { p, margin: half, n, lo: center - half, hi: center + half };
 }
 
-export { DIFF_BINS, BIG_GAP_PT, matchLaneDiffs, roleImpact, pairMatrix, hasBigGap, rateWithMargin };
+// ---- 組み合わせ表の自動コメント ------------------------------------------------
+// 判定の基準(画面の注記と揃える)
+const INSIGHT_MIN_N = 10;       // これ未満の試合数のマスは判定しない
+const INSIGHT_MIN_CELLS = 3;    // 判定できるマスがこれ未満なら「データ不足」
+const INSIGHT_TREND = 0.10;     // 有意でなくても 50%から10pt以上(60%以上 / 40%以下)ずれていれば「傾向」
+
+// マスの判定: sig(95%の範囲が50%をまたがない) / trend / none / null(試合数不足)
+function classifyCell(tl) {
+  if (!tl || tl.n < INSIGHT_MIN_N) return null;
+  const r = rateWithMargin(tl);
+  if (r.lo > 0.5) return { kind: "sig", up: true, p: r.p, n: r.n };
+  if (r.hi < 0.5) return { kind: "sig", up: false, p: r.p, n: r.n };
+  if (Math.abs(r.p - 0.5) >= INSIGHT_TREND) return { kind: "trend", up: r.p > 0.5, p: r.p, n: r.n };
+  return { kind: "none", p: r.p, n: r.n };
+}
+
+// pairMatrix の結果から定型コメントの材料を作る。
+//   status: "insufficient"(判定できるマスが3未満 → F) / "none"(有意も傾向もなし → E) / "found"
+//   items: A(対で逆転) → B(有意・勝ち寄り) → C(有意・負け寄り) → D(傾向) の順。同じ型の中は 50%からのずれが大きい順
+//   A は「X高×Y低」と「Y高×X低」がどちらも有意で逆向きの組。A に使ったマスは B/C に重ねて出さない
+function pairInsights(pm) {
+  const cell = (hi, lo) => classifyCell(pm[hi] && pm[hi][lo]);
+  let judged = 0;
+  ROLES.forEach((hi) => ROLES.forEach((lo) => { if (hi !== lo && cell(hi, lo)) judged++; }));
+  if (judged < INSIGHT_MIN_CELLS) return { status: "insufficient", judged, items: [] };
+  const used = new Set();
+  const items = [];
+  ROLES.forEach((x, i) => ROLES.slice(i + 1).forEach((y) => {
+    const xy = cell(x, y);
+    const yx = cell(y, x);
+    if (!xy || !yx || xy.kind !== "sig" || yx.kind !== "sig" || xy.up === yx.up) return;
+    // 勝ち寄りのマスの「高かった側」を X(実力差が響く側)とする
+    const [hiRole, loRole, win, lose] = xy.up ? [x, y, xy, yx] : [y, x, yx, xy];
+    items.push({ type: "A", x: hiRole, y: loRole, a: win.p, b: lose.p, na: win.n, nb: lose.n });
+    used.add(`${x}|${y}`);
+    used.add(`${y}|${x}`);
+  }));
+  const singles = [];
+  ROLES.forEach((hi) => ROLES.forEach((lo) => {
+    if (hi === lo || used.has(`${hi}|${lo}`)) return;
+    const c = cell(hi, lo);
+    if (!c || c.kind === "none") return;
+    const type = c.kind === "sig" ? (c.up ? "B" : "C") : "D";
+    singles.push({ type, hi, lo, p: c.p, n: c.n });
+  }));
+  const order = { B: 0, C: 1, D: 2 };
+  singles.sort((a, b) => order[a.type] - order[b.type] || Math.abs(b.p - 0.5) - Math.abs(a.p - 0.5));
+  items.push(...singles);
+  return { status: items.length ? "found" : "none", judged, items };
+}
+
+export { DIFF_BINS, BIG_GAP_PT, INSIGHT_MIN_N, INSIGHT_MIN_CELLS, INSIGHT_TREND, matchLaneDiffs, roleImpact, pairMatrix, hasBigGap, rateWithMargin, pairInsights };
