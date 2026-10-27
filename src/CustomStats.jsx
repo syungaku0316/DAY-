@@ -6,7 +6,7 @@ import { getDatabase, ref, onValue, set as fbSet, update as fbUpdate, remove as 
 import {
   Trophy, Swords, CheckCircle2, History, Users, UserPlus,
   Scale, Trash2, Loader2, X, UserRound, Pencil, Medal, ExternalLink, ListOrdered, Palette, Coins, RefreshCw, TrendingUp, Sparkles,
-  MessageSquare, ThumbsUp, Send, Ban, Play, Pause, Volume2, VolumeX, Flag, Shuffle, Crown, Lock, Crosshair
+  MessageSquare, ThumbsUp, Send, Ban, Play, Pause, Volume2, VolumeX, Flag, Shuffle, Crown, Lock, Crosshair, Handshake
 } from "lucide-react";
 import { computeEfficiency, PERCENT_DISPLAY_KEYS } from "./itemEfficiency.js";
 import { CHAMPSTATS, CHAMPSTATS_PATCH } from "./champStats.js";
@@ -34,12 +34,14 @@ import {
 import { t, setLang, getLang, rankLabel, rankShortLang, initialLang, dateLocale, DICT } from "./i18n.js";
 import { champLabel, champCanonical, CHAMP_I18N } from "./champNames.js";
 import { PAGE_SOURCE } from "./pageSource.js";
+import { matchExpectations, allyPairs, roleComboKey } from "./synergy.js";
 import { BIG_GAP_PT, INSIGHT_MIN_N, matchLaneDiffs, roleImpact, pairMatrix, hasBigGap, rateWithMargin, pairInsights } from "./roleImpact.js";
 
 /* 更新履歴。リリースのたびに先頭へ追記(手動管理)。Discordコピー文面と同様、UI言語に関わらず日本語固定 */
 // 更新履歴パネルで最初に見せる件数(残りは「過去の更新も表示」で展開)
 const CHANGELOG_SHOWN = 5;
 const CHANGELOG = [
+  { date: "2026-10-27", text: "データベースに「相性ランキング」を追加(味方ペアごとに、試合前のレートから予想した勝率と実際の勝率の差。ロール別・選手別にも絞り込める)。個人成績の「相性のいい味方/苦手な相手」をロール別に分けて見られるように" },
   { date: "2026-10-27", text: "ロール分析の組み合わせ表に「分析コメント」を追加(対で逆転・勝ち寄り・負け寄り・傾向・偏りなし・データ不足を定型文で表示。Discord用コピーにも入る)" },
   { date: "2026-10-27", text: "更新履歴は最近の5件だけ表示し、それより前は「過去の更新も表示」で開くように" },
   { date: "2026-10-27", text: "データベースに「ロール分析」を追加。対面のレートが高い側の勝率をロールごとに集計し、「組み合わせ表」では「JGで高く、ADCで大きく離された試合」のような組み合わせ別の勝率も見られる(差の基準はボタンか数値で指定)。試合ごとのレーン差の一覧と、大差のレーンがある試合の絞り込みも追加" },
@@ -379,7 +381,8 @@ function computePlayerProfile(p, roleFilter, players, matches, approvedMatches) 
   }
 
   // 相性のいい味方・苦手な相手: 同じ試合で味方/敵になった際のこの選手視点の勝率(3戦以上)
-  const synergy = {}, counter = {};
+  // synergyRole / counterRole は「自分のロール×相手(味方/敵)のロール」でも分けた版(個人成績の「ロール別に分ける」用)
+  const synergy = {}, counter = {}, synergyRole = {}, counterRole = {};
   approvedMatches.forEach((m) => {
     const mine = m.entries.find((e) => e.playerId === p.id && roleFiltered({ role: e.role }));
     if (!mine) return;
@@ -392,11 +395,18 @@ function computePlayerProfile(p, roleFilter, players, matches, approvedMatches) 
       if (!bucket[e.playerId]) bucket[e.playerId] = { name: p2.name, games: 0, wins: 0 };
       bucket[e.playerId].games++;
       if (won) bucket[e.playerId].wins++;
+      const roleBucket = e.team === mine.team ? synergyRole : counterRole;
+      const rk = `${mine.role}|${e.playerId}|${e.role}`;
+      if (!roleBucket[rk]) roleBucket[rk] = { name: p2.name, role: e.role, myRole: mine.role, games: 0, wins: 0 };
+      roleBucket[rk].games++;
+      if (won) roleBucket[rk].wins++;
     });
   });
+  // 「相性のいい味方」は勝率50%超、「苦手な相手」は50%未満だけ(該当が少ない時に逆の人が並ばないように)
   const rankPairs = (obj, dir) => Object.values(obj)
     .filter((x) => x.games >= 3)
     .map((x) => ({ ...x, wr: x.wins / x.games }))
+    .filter((x) => (dir === "desc" ? x.wr > 0.5 : x.wr < 0.5))
     .sort((x, y) => (dir === "desc" ? y.wr - x.wr : x.wr - y.wr) || y.games - x.games)
     .slice(0, 3);
 
@@ -406,6 +416,8 @@ function computePlayerProfile(p, roleFilter, players, matches, approvedMatches) 
     roleBadges, sideStat, history: hist, recent, recentWins, streak, streakWon,
     synergyList: rankPairs(synergy, "desc"),
     counterList: rankPairs(counter, "asc"),
+    synergyRoleList: rankPairs(synergyRole, "desc"),
+    counterRoleList: rankPairs(counterRole, "asc"),
   };
 }
 
@@ -415,10 +427,15 @@ const RESPONSE_STALE_MS = 3 * 24 * 60 * 60 * 1000;
 const isStaleResponse = (p) => !p.respondedAt || (Date.now() - p.respondedAt > RESPONSE_STALE_MS);
 
 // 相性のいい味方・苦手な相手の1行分の表示({name, games, wr}を受け取る)。「記録」「個人成績」両タブで共用。
+// ロール別の行は {role(相手のロール), myRole(自分のロール)} も持つ
 function pairRow(x, color) {
   return (
-    <div key={x.name} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 13, marginBottom: 6 }}>
-      <span style={{ fontWeight: 700 }}>{x.name}</span>
+    <div key={`${x.name}|${x.role || ""}|${x.myRole || ""}`} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, fontSize: 13, marginBottom: 6 }}>
+      <span style={{ minWidth: 0 }}>
+        <span style={{ fontWeight: 700 }}>{x.name}</span>
+        {x.role && <span style={{ marginLeft: 6, fontSize: 12, fontWeight: 700, color: theme.textSub }}>{x.role}</span>}
+        {x.myRole && <span style={{ marginLeft: 6, fontSize: 11.5, color: theme.textFaint, whiteSpace: "nowrap" }}>{t("synergy.024", { role: x.myRole })}</span>}
+      </span>
       <span>
         <span style={{ color: theme.textFaint, marginRight: 6 }}>{x.games}{t("scoutMulti.006")}</span>
         <b style={{ color, fontSize: 15 }}>{Math.round(x.wr * 100)}%</b>
@@ -1473,6 +1490,125 @@ function RoleImpactTab({ players, matches }) {
               </button>
             )}
           </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ---- 相性ランキング(味方ペア) ------------------------------------------------
+// 集計本体は synergy.js(純粋関数)。予想勝率はチーム分けの勝率予想と同じ式で、試合前のレートから求める
+const SYNERGY_MIN_CHOICES = [3, 5, 10];
+const SYNERGY_TOP = 10; // 各一覧の初期表示件数
+const ROLE_COMBOS = ROLES.flatMap((r, i) => ROLES.slice(i + 1).map((o) => `${r}×${o}`));
+function PairSynergyTab({ players, matches }) {
+  const [minGames, setMinGames] = useState(3);
+  const [byRole, setByRole] = useState(false);
+  const [combo, setCombo] = useState("ALL");
+  const [focus, setFocus] = useState("ALL");
+  const [showAll, setShowAll] = useState(false);
+  const { exps, skipped } = useMemo(() => matchExpectations(players, matches), [players, matches]);
+  const rows = useMemo(() => allyPairs(exps, { byRole, minGames }), [exps, byRole, minGames]);
+  const nameOf = (id) => players.find((p) => p.id === id)?.name || "?";
+  const filtered = rows.filter((r) => (focus === "ALL" || r.a === focus || r.b === focus)
+    && (!byRole || combo === "ALL" || roleComboKey(r.ra, r.rb) === combo));
+  // 表示上 ±0pt になる組(予想どおり)はどちらの一覧にも入れない
+  const shownDiff = (r) => Math.round(r.diff * 100);
+  const good = filtered.filter((r) => shownDiff(r) > 0).sort((x, y) => y.diff - x.diff || y.n - x.n);
+  const bad = filtered.filter((r) => shownDiff(r) < 0).sort((x, y) => x.diff - y.diff || y.n - x.n);
+  const pct = (x) => `${Math.round(x * 100)}%`;
+  const signedPt = (x) => `${x > 0 ? "+" : ""}${Math.round(x * 100)}`;
+  // ロール表示: 区別する時はその組のロール、区別しない時は多かったロールの組み合わせ上位2つ
+  const roleText = (r) => (byRole ? `${r.ra}×${r.rb}`
+    : Object.entries(r.roleMix).sort((x, y) => y[1] - x[1]).slice(0, 2).map(([k, v]) => `${k} ${v}`).join(" / "));
+  const pairName = (r) => `${nameOf(r.a)} × ${nameOf(r.b)}`;
+
+  // Discord用文面は日本語固定
+  const copyText = async () => {
+    const line = (r, i) => `${i + 1}. ${pairName(r)}（${roleText(r)}）予想との差 ${signedPt(r.diff)}pt／勝率${pct(r.wr)}（${r.n}試合）`;
+    const txt = [
+      `【相性ランキング（味方ペア・${minGames}試合以上・集計${exps.length}試合）】`,
+      "▼ 予想より勝っている組み合わせ",
+      ...(good.length ? good.slice(0, 5).map(line) : ["該当なし"]),
+      "▼ 予想より負けている組み合わせ",
+      ...(bad.length ? bad.slice(0, 5).map(line) : ["該当なし"]),
+      "※予想勝率は試合前のレートから計算。試合数が少ない組は偶然の影響が大きい",
+    ].join("\n");
+    try { await navigator.clipboard.writeText(txt); themedAlert(t("balance.047")); }
+    catch { await themedPrompt(t("balance.048"), { defaultValue: txt }); }
+  };
+
+  const table = (list, label, color) => (
+    <div style={cardStyle}>
+      <div style={{ fontSize: 16, fontWeight: 700, color, marginBottom: 10 }}>{label}</div>
+      {!list.length ? <EmptyState text={t("synergy.017", { n: minGames })} /> : (
+        <div className="cs-scroll" style={{ overflowX: "auto" }}>
+          <table className="cs-table" style={{ minWidth: 560 }}>
+            <thead>
+              <tr>
+                <th>{t("synergy.010")}</th><th>{t("synergy.011")}</th><th>{t("synergy.012")}</th>
+                <th>{t("synergy.013")}</th><th>{t("synergy.014")}</th><th>{t("synergy.015")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(showAll ? list : list.slice(0, SYNERGY_TOP)).map((r) => (
+                <tr key={`${r.a}|${r.b}|${r.ra}|${r.rb}`}>
+                  <td style={{ fontWeight: 700, whiteSpace: "nowrap" }}>{pairName(r)}</td>
+                  <td style={{ fontSize: 13, color: theme.textSub, whiteSpace: "nowrap" }}>{roleText(r)}</td>
+                  <td style={{ fontVariantNumeric: "tabular-nums" }}>{r.n}</td>
+                  <td style={{ fontVariantNumeric: "tabular-nums" }}>{pct(r.wr)}</td>
+                  <td style={{ fontVariantNumeric: "tabular-nums", color: theme.textSub }}>{pct(r.exp)}</td>
+                  <td style={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, fontSize: 16, color }}>{signedPt(r.diff)}pt</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ ...cardStyle, fontSize: 13, color: theme.textSub, lineHeight: 1.7 }}>{t("synergy.002")}</div>
+      <div style={{ ...cardStyle, display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <SegGroup label={t("synergy.021")}>
+            {SYNERGY_MIN_CHOICES.map((g) => (
+              <SegBtn key={g} active={minGames === g} onClick={() => setMinGames(g)}>{t("synergy.022", { n: g })}</SegBtn>
+            ))}
+          </SegGroup>
+          <label style={{ fontSize: 14, color: theme.textSub, display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+            <input type="checkbox" checked={byRole} onChange={(ev) => { setByRole(ev.target.checked); setCombo("ALL"); }} /> {t("synergy.003")}
+          </label>
+          {byRole && (
+            <select className="cs-input" value={combo} onChange={(ev) => setCombo(ev.target.value)} style={{ fontSize: 14, padding: "4px 8px" }}
+              aria-label={t("synergy.004")}>
+              <option value="ALL">{t("synergy.004")}: {t("synergy.005")}</option>
+              {ROLE_COMBOS.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          )}
+          <select className="cs-input" value={focus} onChange={(ev) => setFocus(ev.target.value)} style={{ fontSize: 14, padding: "4px 8px" }}
+            aria-label={t("synergy.006")}>
+            <option value="ALL">{t("synergy.006")}: {t("synergy.007")}</option>
+            {[...players].sort((x, y) => x.name.localeCompare(y.name, "ja")).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          <button className="cs-btn-ghost" style={{ marginLeft: "auto", padding: "4px 12px", fontSize: 13 }} onClick={copyText}>{t("balance.049")}</button>
+        </div>
+        <div style={{ fontSize: 13, color: theme.textFaint }}>
+          {t("synergy.018", { pairs: filtered.length, games: exps.length })}{skipped > 0 && <> · {t("synergy.020", { n: skipped })}</>}
+        </div>
+      </div>
+      {!exps.length ? <EmptyState text={t("roleImpact.019")} /> : (
+        <>
+          {table(good, t("synergy.008"), theme.accent)}
+          {table(bad, t("synergy.009"), theme.teamB)}
+          {(good.length > SYNERGY_TOP || bad.length > SYNERGY_TOP) && (
+            <button className="cs-btn-ghost" style={{ alignSelf: "flex-start", padding: "4px 12px", fontSize: 13 }} onClick={() => setShowAll(!showAll)}>
+              {showAll ? t("synergy.023", { n: SYNERGY_TOP }) : t("synergy.019", { n: good.length + bad.length })}
+            </button>
+          )}
+          <div style={{ fontSize: 12, color: theme.textFaint, lineHeight: 1.6 }}>{t("synergy.016", { n: minGames })}</div>
         </>
       )}
     </div>
@@ -4136,6 +4272,13 @@ export default function CustomStats() {
   const [playerFilter, setPlayerFilter] = useState("all"); // all | active | rest | adjust
   const [recordSubTab, setRecordSubTab] = useState("kill1");
   const [recordRole, setRecordRole] = useState("ALL");
+  // 個人成績・記録の「相性のいい味方/苦手な相手」を自分と相手のロール別に分けるか(両タブ共通)
+  const [pairRoleSplit, setPairRoleSplit] = useState(false);
+  const pairSplitToggle = (
+    <label style={{ fontSize: 13, color: theme.textSub, display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer", marginBottom: 8 }}>
+      <input type="checkbox" checked={pairRoleSplit} onChange={(ev) => setPairRoleSplit(ev.target.checked)} /> {t("synergy.025")}
+    </label>
+  );
   const [recordSelectedPlayerId, setRecordSelectedPlayerId] = useState(null);
 
   const [dbError, setDbError] = useState("");
@@ -6073,6 +6216,7 @@ export default function CustomStats() {
             { id: "records", icon: Medal, label: t("shell.014") },
             { id: "rateTable", icon: ListOrdered, label: t("board.014") },
             { id: "roleImpact", icon: Crosshair, label: t("roleImpact.001") },
+            { id: "pairSynergy", icon: Handshake, label: t("synergy.001") },
             { id: "itemEfficiency", icon: Coins, label: t("items.001") },
             { id: "champGrowth", icon: TrendingUp, label: t("growth.001") },
           ] },
@@ -6798,18 +6942,19 @@ export default function CustomStats() {
                       {scoreBarRows(detail, cmpAvg)}
                     </div>
 
+                    {pairSplitToggle}
                     <div className="cs-cols2">
                       <div style={cardStyle}>
                         <div style={{ fontSize: 13, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("records.029")}</div>
-                        {detail.synergyList.length === 0 ? (
+                        {(pairRoleSplit ? detail.synergyRoleList : detail.synergyList).length === 0 ? (
                           <div style={{ fontSize: 13, color: theme.faintAccent }}>{t("records.024")}</div>
-                        ) : detail.synergyList.map((x) => pairRow(x, theme.accentBright))}
+                        ) : (pairRoleSplit ? detail.synergyRoleList : detail.synergyList).map((x) => pairRow(x, theme.accentBright))}
                       </div>
                       <div style={cardStyle}>
                         <div style={{ fontSize: 13, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("records.030")}</div>
-                        {detail.counterList.length === 0 ? (
+                        {(pairRoleSplit ? detail.counterRoleList : detail.counterList).length === 0 ? (
                           <div style={{ fontSize: 13, color: theme.faintAccent }}>{t("records.024")}</div>
-                        ) : detail.counterList.map((x) => pairRow(x, theme.teamB))}
+                        ) : (pairRoleSplit ? detail.counterRoleList : detail.counterList).map((x) => pairRow(x, theme.teamB))}
                       </div>
                     </div>
                   </>
@@ -6864,6 +7009,8 @@ export default function CustomStats() {
       {tab === "champGrowth" && <ChampGrowthTab />}
 
       {tab === "roleImpact" && <RoleImpactTab players={players} matches={matches} />}
+
+      {tab === "pairSynergy" && <PairSynergyTab players={players} matches={matches} />}
 
       {/* ---------- REQUEST BOARD(要望掲示板) ---------- */}
       {tab === "requestBoard" && <RequestBoardTab requests={requests} />}
@@ -7210,18 +7357,19 @@ export default function CustomStats() {
                           <div style={{ fontSize: 14, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("records.017")}{t("stats.032")}</div>
                           {scoreBarRows(profile, cmpAvg)}
                         </div>
+                        {pairSplitToggle}
                         <div className="cs-cols2">
                           <div style={cardStyle}>
                             <div style={{ fontSize: 14, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("records.029")}</div>
-                            {profile.synergyList.length === 0 ? (
+                            {(pairRoleSplit ? profile.synergyRoleList : profile.synergyList).length === 0 ? (
                               <div style={{ fontSize: 13, color: theme.faintAccent }}>{t("records.024")}</div>
-                            ) : profile.synergyList.map((x) => pairRow(x, theme.accentBright))}
+                            ) : (pairRoleSplit ? profile.synergyRoleList : profile.synergyList).map((x) => pairRow(x, theme.accentBright))}
                           </div>
                           <div style={cardStyle}>
                             <div style={{ fontSize: 14, color: theme.textSub, marginBottom: 8, fontWeight: 700 }}>{t("records.030")}</div>
-                            {profile.counterList.length === 0 ? (
+                            {(pairRoleSplit ? profile.counterRoleList : profile.counterList).length === 0 ? (
                               <div style={{ fontSize: 13, color: theme.faintAccent }}>{t("records.024")}</div>
-                            ) : profile.counterList.map((x) => pairRow(x, theme.teamB))}
+                            ) : (pairRoleSplit ? profile.counterRoleList : profile.counterList).map((x) => pairRow(x, theme.teamB))}
                           </div>
                         </div>
                       </div>
