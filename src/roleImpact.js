@@ -85,14 +85,16 @@ function roleImpact(rows) {
   return out;
 }
 
-// ロールの組み合わせ表: out[高かったロール][低かったロール] = 行のロールで対面より高く、列のロールで minGapPt 以上低かった試合での
-// 行側チームの勝敗(例: out.JG.ADC = JGで高く、ADCで大きく離された試合のJG側の勝敗)。1試合が複数のマスに入ることがある
-function pairMatrix(rows, minGapPt = BIG_GAP_PT) {
+// ロールの組み合わせ表: out[高かったロール][低かったロール] = 行のロールで対面より minLeadPt 以上高く(0なら少しでも高ければ可)、
+// 列のロールで minGapPt 以上低かった試合での行側チームの勝敗(例: out.JG.ADC = JGで高く、ADCで大きく離された試合のJG側の勝敗)。
+// 1試合が複数のマスに入ることがある
+function pairMatrix(rows, minGapPt = BIG_GAP_PT, minLeadPt = 0) {
   const lim = minGapPt * 10;
+  const lead = minLeadPt * 10;
   const out = Object.fromEntries(ROLES.map((r) => [r, Object.fromEntries(ROLES.filter((o) => o !== r).map((o) => [o, tally()]))]));
   rows.forEach((row) => ROLES.forEach((r) => {
     const side = favoredSide(row.diffs[r]);
-    if (!side) return;
+    if (!side || Math.abs(row.diffs[r]) < lead) return;
     const won = row.winner === side;
     ROLES.forEach((o) => {
       if (o === r) return;
