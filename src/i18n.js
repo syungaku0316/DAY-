@@ -953,7 +953,8 @@ export const DICT = {
     "synergy.022": "{n}試合以上",
     "synergy.023": "上位{n}組だけ表示",
     "synergy.024": "自分{role}",
-    "synergy.025": "ロール別に分ける"
+    "synergy.025": "ロール別に分ける",
+    "stats.048": "表示するロール"
   },
   "en": {
     "shell.086": "A new version is available. Please reload (some features may not work correctly on the old page).",
@@ -1908,7 +1909,8 @@ export const DICT = {
     "synergy.022": "{n}+ games",
     "synergy.023": "Show top {n} only",
     "synergy.024": "you: {role}",
-    "synergy.025": "Split by role"
+    "synergy.025": "Split by role",
+    "stats.048": "Role"
   },
   "ko": {
     "shell.086": "새 버전이 공개되었습니다. 새로고침하세요 (이전 화면에서는 일부 기능이 제대로 작동하지 않습니다).",
@@ -2863,7 +2865,8 @@ export const DICT = {
     "synergy.022": "{n}경기 이상",
     "synergy.023": "상위 {n}조만 보기",
     "synergy.024": "나: {role}",
-    "synergy.025": "라인별로 나누기"
+    "synergy.025": "라인별로 나누기",
+    "stats.048": "표시할 라인"
   }
 };
 

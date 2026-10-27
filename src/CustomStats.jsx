@@ -41,6 +41,7 @@ import { BIG_GAP_PT, INSIGHT_MIN_N, matchLaneDiffs, roleImpact, pairMatrix, hasB
 // 更新履歴パネルで最初に見せる件数(残りは「過去の更新も表示」で展開)
 const CHANGELOG_SHOWN = 5;
 const CHANGELOG = [
+  { date: "2026-10-27", text: "個人成績で、参加率・KDA・勝率・サイド別勝率・スコア一覧・相性・直近の調子をロールごとに見られるように(「表示するロール」)。ロール別の勝率の平均にKDA未記録の試合が入っていなかったのを修正" },
   { date: "2026-10-27", text: "データベースに「相性ランキング」を追加(味方ペアごとに、試合前のレートから予想した勝率と実際の勝率の差。ロール別・選手別にも絞り込める)。個人成績の「相性のいい味方/苦手な相手」をロール別に分けて見られるように" },
   { date: "2026-10-27", text: "ロール分析の組み合わせ表に「分析コメント」を追加(対で逆転・勝ち寄り・負け寄り・傾向・偏りなし・データ不足を定型文で表示。Discord用コピーにも入る)" },
   { date: "2026-10-27", text: "更新履歴は最近の5件だけ表示し、それより前は「過去の更新も表示」で開くように" },
@@ -450,8 +451,10 @@ function computePlayerAggList(players, roleFilter) {
   const roleFiltered = (h) => roleFilter === "ALL" || h.role === roleFilter;
   return players.map((p) => {
     const h = p.kdaHistory.filter((x) => (x.k != null || x.d != null || x.a != null) && roleFiltered(x));
-    const roleWins = roleFilter === "ALL" ? p.wins : h.filter((x) => x.won).length;
-    const roleLosses = roleFilter === "ALL" ? p.losses : h.filter((x) => x.won === false).length;
+    // 勝敗はKDA未記録の試合も含めて数える(KDAの平均だけ記録済みの試合で出す)
+    const hr = p.kdaHistory.filter(roleFiltered);
+    const roleWins = roleFilter === "ALL" ? p.wins : hr.filter((x) => x.won).length;
+    const roleLosses = roleFilter === "ALL" ? p.losses : hr.filter((x) => x.won === false).length;
     const total = roleWins + roleLosses;
     const sum = (f) => h.reduce((s, x) => s + (x[f] || 0), 0);
     return {
@@ -4239,6 +4242,7 @@ export default function CustomStats() {
   const [statsPickerOpen, setStatsPickerOpen] = useState(false);
   const [statsSearch, setStatsSearch] = useState("");
   const [statsSubTab, setStatsSubTab] = useState("overview");
+  const [statsRole, setStatsRole] = useState("ALL"); // 個人成績の勝率・KDA・スコア等をロール別に見る(得意ロール・チャンピオン・試合ログは全ロールのまま)
   const [balanceSubTab, setBalanceSubTab] = useState("build");
   const [statsLogFilter, setStatsLogFilter] = useState("ALL");
   // 出欠ボード: 「自分」の識別は自己申告(端末localStorage)。本人確認ではない。
@@ -7213,9 +7217,11 @@ export default function CustomStats() {
             <EmptyState text={t("stats.002")} />
           ) : (() => {
             const sp = pool.find((p) => p.id === (curId || pool[0].id)) || pool[0];
-            const profile = computePlayerProfile(sp, "ALL", players, matches, approvedMatches);
-            const cmpAvg = computeCmpAvg(computePlayerAggList(players, "ALL"), sp.id);
-            const hist = profile.history;
+            const fullProfile = computePlayerProfile(sp, "ALL", players, matches, approvedMatches);
+            // ロール指定時: 参加率・KDA・勝率・サイド別・スコア一覧・相性・直近の調子をそのロールの試合だけで集計(比較の平均も同じロール)
+            const profile = statsRole === "ALL" ? fullProfile : computePlayerProfile(sp, statsRole, players, matches, approvedMatches);
+            const cmpAvg = computeCmpAvg(computePlayerAggList(players, statsRole), sp.id);
+            const hist = fullProfile.history;
             const byRole = ROLES.map((r) => {
               const h = hist.filter((x) => x.role === r);
               const w = h.filter((x) => x.won).length;
@@ -7230,7 +7236,7 @@ export default function CustomStats() {
             // 最新の傾向: 直近5戦の成績に加え、平均より抜きん出ているロール(3戦以上・KDAが全体平均超え)があれば1つ添える
             const trendText = (() => {
               if (!hist.length) return null;
-              const recent5 = profile.recent.slice(0, 5);
+              const recent5 = fullProfile.recent.slice(0, 5);
               const w5 = recent5.filter((h) => h.won).length;
               const l5 = recent5.length - w5;
               const roleKda = ROLES.map((r) => {
@@ -7239,9 +7245,9 @@ export default function CustomStats() {
                 const sum = (f) => h.reduce((s, x) => s + (x[f] || 0), 0);
                 return { role: r, kda: (sum("k") + sum("a")) / Math.max(sum("d"), 1) };
               }).filter(Boolean);
-              const best = roleKda.filter((x) => x.kda > profile.kdaRatio).sort((a, b) => b.kda - a.kda)[0];
+              const best = roleKda.filter((x) => x.kda > fullProfile.kdaRatio).sort((a, b) => b.kda - a.kda)[0];
               return best
-                ? t("stats.040", { n: recent5.length, w: w5, l: l5, role: best.role, kda: best.kda.toFixed(1), overall: profile.kdaRatio.toFixed(2) })
+                ? t("stats.040", { n: recent5.length, w: w5, l: l5, role: best.role, kda: best.kda.toFixed(1), overall: fullProfile.kdaRatio.toFixed(2) })
                 : t("stats.039", { n: recent5.length, w: w5, l: l5 });
             })();
             // 試合ログ: フィルタチップ(ロールは試合数の多い順)と絞り込み済み行(新しい順)
@@ -7300,12 +7306,24 @@ export default function CustomStats() {
                   </div>
                 )}
 
+                <div style={{ marginBottom: 10 }}>
+                  <SegGroup label={t("stats.048")}>
+                    {["ALL", ...ROLES].map((r) => {
+                      const n = r === "ALL" ? hist.length : hist.filter((h) => h.role === r).length;
+                      return (
+                        <SegBtn key={r} active={statsRole === r} onClick={() => setStatsRole(r)}>
+                          {r === "ALL" ? t("board.001") : r}<span style={{ marginLeft: 4, fontSize: 11, opacity: 0.75 }}>{n}</span>
+                        </SegBtn>
+                      );
+                    })}
+                  </SegGroup>
+                </div>
                 <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
                   <div style={{ ...cardStyle, flex: "1 1 160px" }}>
                     <div style={{ fontSize: 14, color: theme.textSub, marginBottom: 6 }}>{t("stats.010")}</div>
                     <div style={{ fontSize: 24, fontWeight: 700 }}>
-                      {approvedMatches.length ? Math.round((sp.wins + sp.losses) / approvedMatches.length * 100) : 0}%
-                      <span style={{ fontSize: 14, color: theme.textFaint, fontWeight: 400 }}>{t("stats.027", { a: sp.wins + sp.losses, b: approvedMatches.length })}</span>
+                      {approvedMatches.length ? Math.round(profile.games / approvedMatches.length * 100) : 0}%
+                      <span style={{ fontSize: 14, color: theme.textFaint, fontWeight: 400 }}>{t("stats.027", { a: profile.games, b: approvedMatches.length })}</span>
                     </div>
                   </div>
                   <div style={{ ...cardStyle, flex: "1 1 160px" }}>
@@ -7381,7 +7399,7 @@ export default function CustomStats() {
                               <img key={j} src={h.won ? WIN_BADGE_IMG : LOSE_BADGE_IMG} alt={h.won ? t("shell.034") : t("shell.035")} title={h.won ? t("shell.034") : t("shell.035")}
                                 style={{ width: 34, height: 34, objectFit: "contain", flexShrink: 0, background: "var(--cs-badgeBg)", borderRadius: 5, padding: 1 }} />
                             ))}
-                            {hist.length === 0 && <span style={{ fontSize: 14, color: theme.faintAccent }}>{t("stats.015")}</span>}
+                            {profile.history.length === 0 && <span style={{ fontSize: 14, color: theme.faintAccent }}>{t("stats.015")}</span>}
                           </div>
                         </div>
                         <div style={{ ...cardStyle, marginBottom: 16 }}>
