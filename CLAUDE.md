@@ -37,6 +37,7 @@ node src/lobby.test.mjs
 node src/draftTimer.test.mjs
 node src/draftList.test.mjs
 node src/appVersion.test.mjs
+node src/roleImpact.test.mjs
 
 # 5. ビルド
 npx vite build   # → dist/index.html(単一ファイル 約1.0MB)
@@ -72,6 +73,7 @@ Python等で一括置換した後は、必ず 1 → 5 の順で確認するこ�
 | `src/rating.js` | - | レート計算(純関数): initRoles / computeLaneUpdate / applyMatchToPlayers / recomputeAll(承認済みのみ適用)/ validateMatchEntries / patchPlayerById |
 | `src/rating.test.mjs` | - | 上記の単体テスト(現行の計算式の固定を含む) |
 | `src/lobby.js` / `src/lobby.test.mjs` | - | 2試合同時マッチングの卓分け(実力順 tier / 混ぜる mix)と、組めない時の卓間入替候補 |
+| `src/roleImpact.js` / `src/roleImpact.test.mjs` | - | ロール分析: 試合前レート(kdaHistory の μ−delta)から各試合のレーン差を復元し、対面で上回った側の勝率を集計 |
 | `src/backup.js` / `src/backup.test.mjs` | - | バックアップJSON(大会記録 cup を含む)と復元用ノード変換 |
 | `src/fearless.js` | 328 | フィアレス大会の純粋計算(ポイント検証・対戦表・ロック判定・成績)。i18n非依存、エラーはcodeで返す |
 | `src/fearless.test.mjs` | 154 | 上記のNode単体テスト |
@@ -124,6 +126,8 @@ Python等で一括置換した後は、必ず 1 → 5 の順で確認するこ�
 - Firebaseルールの正本は `database.rules.json`。変更時は `SETUP_RULES_JSON`(初期設定画面に表示)も揃える。`.validate` は削除時に評価されないため削除防止にはならない
 
 ## レーティング
+
+**ロール分析(データベース→ロール分析)**: ロール別勝率は1試合で各ロール1勝1敗が必ず入るため常に50%(無意味)。代わりに「対面で試合前レートが上回った側の勝率」を差の大きさ別・「そのロールだけ上回り他4レーン合計では劣勢」の試合別に出す。幅はWilson区間。選手削除やロール欠けの試合は除外して件数表示
 
 TrueSkill簡易(勝敗のみ、KDA不使用)。MU0=60 / SIGMA_RATED=20 / SIGMA_UNRANKED=24 / SIGMA_FLOOR=8 / BETA=50/3 / TAU=0.6。
 習熟度補正 ◎1.00 / 〇0.92 / △0.85 / ×0.75。順位表ソートは μ−σ。
