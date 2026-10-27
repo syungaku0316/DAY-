@@ -96,6 +96,13 @@ const even = (over = {}) => Object.fromEntries(ROLES.map((r) => [r, over[r] || [
   const pm10 = pairMatrix(rows, 10);
   assert(pm10.JG.ADC.n === 3 && pm10.JG.ADC.wins === 2, `基準10ptなら ADC-10 の試合も入り3試合2勝。実際 ${pm10.JG.ADC.wins}/${pm10.JG.ADC.n}`);
 
+  // 行側にも基準: JGで15pt以上高い試合は1・2試合目だけ(3試合目のレッドJG+12、4試合目のJG+5は外れる)
+  const pmLead15 = pairMatrix(rows, 10, 15);
+  assert(pmLead15.JG.ADC.n === 1 && pmLead15.JG.ADC.wins === 0, `JG15pt以上高×ADC10pt以上低: 1試合0勝。実際 ${pmLead15.JG.ADC.wins}/${pmLead15.JG.ADC.n}`);
+  const pmLead5 = pairMatrix(rows, 10, 5);
+  assert(pmLead5.JG.ADC.n === 3, `JG5pt以上高なら境界5ptの4試合目も入り3試合。実際 ${pmLead5.JG.ADC.n}`);
+  assert(pairMatrix(rows, 10, 0).JG.ADC.n === pm10.JG.ADC.n, "行の基準0は従来どおり(少しでも高ければ対象)");
+
   assert(rows.filter((r) => hasBigGap(r)).length === 3, "15pt以上の差があるレーンを含む試合は3つ(JG+15の試合も含む)");
   assert(rows.filter((r) => hasBigGap(r, 20)).length === 2, "基準20ptなら2つ");
 }

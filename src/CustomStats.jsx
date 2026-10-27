@@ -38,7 +38,7 @@ import { BIG_GAP_PT, matchLaneDiffs, roleImpact, pairMatrix, hasBigGap, rateWith
 
 /* 更新履歴。リリースのたびに先頭へ追記(手動管理)。Discordコピー文面と同様、UI言語に関わらず日本語固定 */
 const CHANGELOG = [
-  { date: "2026-10-27", text: "ロール分析に「組み合わせ表」(例: JGで高くADCで大きく離された試合の勝率)と、他レーンの不利が1レーンに集中か分散かの内訳、15pt以上の差がある試合の絞り込みを追加" },
+  { date: "2026-10-27", text: "ロール分析に「組み合わせ表」(例: JGで高くADCで大きく離された試合の勝率。高い側・低い側それぞれに差の基準を指定可)と、他レーンの不利が1レーンに集中か分散かの内訳、15pt以上の差がある試合の絞り込みを追加" },
   { date: "2026-10-27", text: "データベースに「ロール分析」を追加(対面のレートが高い側の勝率をロールごとに集計。試合ごとのレーン差も表示)" },
   { date: "2026-10-24", text: "大会タブを追加(フィアレス大会のチーム登録・対戦表・大会用ドラフト・ピック記録・大会成績)。大会用ドラフトで確定した試合はピック記録へ自動反映。マッチングにチームビルダーを追加" },
   { date: "2026-10-22", text: "フィアレス: 手番が切り替わると音が鳴るように(自チームの番は高い2音、残り5秒からカウントダウン音、端末ごとにON/OFF)" },
@@ -1192,9 +1192,10 @@ function RoleImpactTab({ players, matches }) {
   const [showAll, setShowAll] = useState(false);
   const [bigOnly, setBigOnly] = useState(false);
   const [pairGap, setPairGap] = useState(BIG_GAP_PT);
+  const [pairLead, setPairLead] = useState(0); // 行(高かったロール)側の差の基準。0 = 少しでも高ければ対象
   const { rows, skipped } = useMemo(() => matchLaneDiffs(players, matches), [players, matches]);
   const imp = useMemo(() => roleImpact(rows), [rows]);
-  const pairs = useMemo(() => pairMatrix(rows, pairGap), [rows, pairGap]);
+  const pairs = useMemo(() => pairMatrix(rows, pairGap, pairLead), [rows, pairGap, pairLead]);
   const keys = [...ROLES, "TOTAL"];
   const keyLabel = (k) => (k === "TOTAL" ? t("roleImpact.011") : k);
   const pct = (x) => `${Math.round(x * 100)}%`;
@@ -1239,7 +1240,7 @@ function RoleImpactTab({ players, matches }) {
     ROLES.forEach((r) => ROLES.forEach((o) => {
       if (o === r) return;
       const x = rateWithMargin(pairs[r][o]);
-      if (x) lines.push(`${r}で高く ${o}で${pairGap}pt以上低い: ${r}側の勝率 ${pct(x.p)}（${x.n}試合）`);
+      if (x) lines.push(`${r}で${pairLead ? `${pairLead}pt以上` : ""}高く ${o}で${pairGap}pt以上低い: ${r}側の勝率 ${pct(x.p)}（${x.n}試合）`);
     }));
     copy([
       `【ロール組み合わせ（集計 ${rows.length}試合）】`,
@@ -1287,7 +1288,12 @@ function RoleImpactTab({ players, matches }) {
       {!rows.length ? <EmptyState text={t("roleImpact.019")} /> : view === "pairs" ? (
         <div style={cardStyle}>
           {hdr(t("roleImpact.026"), copyPairs)}
-          <div style={{ marginBottom: 10 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 10 }}>
+            <SegGroup label={t("roleImpact.035")}>
+              {[0, 5, 10, 15].map((g) => (
+                <SegBtn key={g} active={pairLead === g} onClick={() => setPairLead(g)}>{g ? t("roleImpact.029", { n: g }) : t("roleImpact.036")}</SegBtn>
+              ))}
+            </SegGroup>
             <SegGroup label={t("roleImpact.030")}>
               {[10, 15, 20].map((g) => (
                 <SegBtn key={g} active={pairGap === g} onClick={() => setPairGap(g)}>{t("roleImpact.029", { n: g })}</SegBtn>
@@ -1298,7 +1304,7 @@ function RoleImpactTab({ players, matches }) {
             <table className="cs-table" style={{ minWidth: 560 }}>
               <thead>
                 <tr>
-                  <th style={{ whiteSpace: "nowrap" }}>{t("roleImpact.028")} ＼ {t("roleImpact.031", { n: pairGap })}</th>
+                  <th style={{ whiteSpace: "nowrap" }}>{pairLead ? t("roleImpact.037", { n: pairLead }) : t("roleImpact.028")} ＼ {t("roleImpact.031", { n: pairGap })}</th>
                   {ROLES.map((o) => <th key={o}>{o}</th>)}
                 </tr>
               </thead>
